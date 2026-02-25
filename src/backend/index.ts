@@ -1,6 +1,6 @@
 import { serve } from "bun";
-import index from "./index.html";
-import { server } from "./backend/server";
+import index from "@/frontend/index.html";
+import { server } from "./server";
 
 
 export function startServer({
