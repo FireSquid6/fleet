@@ -9,10 +9,14 @@
     "build": "bun run build.ts"
   },
   "dependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
     "@covenant-rpc/client": "^2.0.0",
     "@covenant-rpc/core": "^2.0.0",
     "@covenant-rpc/server": "^2.0.0",
+    "@docker/node-sdk": "^0.0.17",
     "bun-plugin-tailwind": "^0.1.2",
+    "commander-js": "^0.0.1-security",
+    "daisyui": "^5.5.19",
     "react": "^19",
     "react-dom": "^19",
     "tailwindcss": "^4.1.11",

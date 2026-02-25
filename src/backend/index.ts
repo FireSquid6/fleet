@@ -1,5 +1,5 @@
 import { serve } from "bun";
-import index from "@/frontend/index.html";
+import index from "../index.html";
 import { server } from "./server";
 
 
