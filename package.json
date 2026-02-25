@@ -9,10 +9,14 @@
     "build": "bun run build.ts"
   },
   "dependencies": {
+    "@covenant-rpc/client": "^2.0.0",
+    "@covenant-rpc/core": "^2.0.0",
+    "@covenant-rpc/server": "^2.0.0",
     "bun-plugin-tailwind": "^0.1.2",
     "react": "^19",
     "react-dom": "^19",
-    "tailwindcss": "^4.1.11"
+    "tailwindcss": "^4.1.11",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/react": "^19",
