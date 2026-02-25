@@ -1,41 +1,43 @@
 import { serve } from "bun";
 import index from "./index.html";
+import { server } from "./backend/server";
 
-const server = serve({
-  routes: {
-    // Serve index.html for all unmatched routes.
-    "/*": index,
 
-    "/api/hello": {
-      async GET(req) {
-        return Response.json({
-          message: "Hello, world!",
-          method: "GET",
-        });
+export function startServer({
+  port
+}: {
+  port: number
+}) {
+  server.assertAllDefined();
+
+  const httpServer = serve({
+    port: port,
+    routes: {
+      // Serve index.html for all unmatched routes.
+      "/*": index,
+
+      "/api/covenant": async (req) => {
+        return server.handle(req);
       },
-      async PUT(req) {
+
+      "/api/hello/:name": async req => {
+        const name = req.params.name;
         return Response.json({
-          message: "Hello, world!",
-          method: "PUT",
+          message: `Hello, ${name}!`,
         });
       },
     },
 
-    "/api/hello/:name": async req => {
-      const name = req.params.name;
-      return Response.json({
-        message: `Hello, ${name}!`,
-      });
+    development: process.env.NODE_ENV !== "production" && {
+      // Enable browser hot reloading in development
+      hmr: true,
+
+      // Echo console logs from the browser to the server
+      console: true,
     },
-  },
+  });
+  console.log(`🚀 Server running at ${httpServer.url}`);
 
-  development: process.env.NODE_ENV !== "production" && {
-    // Enable browser hot reloading in development
-    hmr: true,
+  return httpServer;
+}
 
-    // Echo console logs from the browser to the server
-    console: true,
-  },
-});
-
-console.log(`🚀 Server running at ${server.url}`);
