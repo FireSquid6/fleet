@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link, useLocation } from "react-router-dom";
+import { useParams, Link, NavLink, useLocation } from "react-router-dom";
 import { covenantClient } from "../client";
 import TaskDetail, { type ExtendedTask } from "../components/TaskDetail";
 
@@ -144,7 +144,13 @@ export default function Project() {
                     <div className="card-body p-3 gap-1">
                       <p className="text-sm font-medium">{task.title}</p>
                       {agent ? (
-                        <span className="badge badge-accent badge-sm self-start">{agent.name}</span>
+                        <NavLink
+                          to={`/project/${projectId}/agents/${agent.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="badge badge-accent badge-sm self-start hover:badge-warning transition-colors"
+                        >
+                          {agent.name}
+                        </NavLink>
                       ) : task.status === "todo" ? (
                         <span className="text-xs text-base-content/30 italic">Unassigned</span>
                       ) : null}

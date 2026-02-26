@@ -68,19 +68,21 @@ export default function ProjectAgents() {
       {loading && <span className="text-base-content/40">Loading...</span>}
       <div className="flex flex-col gap-3 max-w-xl">
         {agents?.map((agent) => (
-          <div key={agent.id} className="card bg-base-200">
-            <div className="card-body p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">{agent.name}</h3>
-                <span className="badge badge-neutral">{agent.model}</span>
-              </div>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {agent.tools.map((tool) => (
-                  <span key={tool} className="badge badge-outline badge-sm">{tool}</span>
-                ))}
+          <Link key={agent.id} to={`/project/${projectId}/agents/${agent.id}`}>
+            <div className="card bg-base-200 hover:bg-base-300 transition-colors cursor-pointer">
+              <div className="card-body p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">{agent.name}</h3>
+                  <span className="badge badge-neutral">{agent.model}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {agent.tools.map((tool) => (
+                    <span key={tool} className="badge badge-outline badge-sm">{tool}</span>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

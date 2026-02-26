@@ -6,6 +6,7 @@ import Project from "./pages/Project";
 import ProjectAgents from "./pages/ProjectAgents";
 import NewProject from "./pages/NewProject";
 import Armory from "./pages/Armory";
+import AgentSession from "./pages/AgentSession";
 
 export function App() {
   return (
@@ -15,6 +16,7 @@ export function App() {
           <Route index element={<Home />} />
           <Route path="project/:projectId" element={<Project />} />
           <Route path="project/:projectId/agents" element={<ProjectAgents />} />
+          <Route path="project/:projectId/agents/:agentId" element={<AgentSession />} />
           <Route path="new-project" element={<NewProject />} />
           <Route path="armory" element={<Armory />} />
         </Route>
