@@ -9,6 +9,7 @@
     "build": "bun run build.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.47",
     "@commander-js/extra-typings": "^14.0.0",
     "@covenant-rpc/client": "^2.0.0",
     "@covenant-rpc/core": "^2.0.0",
@@ -16,6 +17,7 @@
     "@covenant-rpc/server": "^2.0.0",
     "@docker/node-sdk": "^0.0.17",
     "@heroicons/react": "^2.2.0",
+    "ai": "^6.0.103",
     "bun-plugin-tailwind": "^0.1.2",
     "commander-js": "^0.0.1-security",
     "daisyui": "^5.5.19",

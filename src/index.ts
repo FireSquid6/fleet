@@ -1,13 +1,24 @@
 import { Command } from "@commander-js/extra-typings";
 import { startServer } from "./backend";
+import { runAgent } from "./backend/agent";
 
+const serveCommand = new Command()
+  .name("serve")
+  .option("-p, --port [port]")
+  .action(({ port: portString }) => {
+    const port = typeof portString === "string" ? parseInt(portString) : 4456
+    startServer({ port });
+  })
 
-const mainCommand = new Command()
-  .name("fleet")
+const agentCommand = new Command()
+  .name("agent")
   .action(() => {
-    startServer({ port: 4456 });
+    runAgent();
   })
 
 
+const mainCommand = new Command()
+mainCommand.addCommand(serveCommand)
+mainCommand.addCommand(agentCommand)
 
 mainCommand.parse();
