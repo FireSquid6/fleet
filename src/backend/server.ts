@@ -1,6 +1,8 @@
 import { CovenantServer, emptyServerToSidekick } from "@covenant-rpc/server";
 import { covenant } from "@/covenant";
-import defineHello from "./implementations/hello";
+import defineProjects from "./implementations/projects";
+import defineTasks from "./implementations/tasks";
+import defineAgents from "./implementations/agents";
 
 const server = new CovenantServer(covenant, {
   contextGenerator: () => null,
@@ -9,9 +11,8 @@ const server = new CovenantServer(covenant, {
   logLevel: "debug",
 });
 
-
-defineHello();
-
-
+defineProjects();
+defineTasks();
+defineAgents();
 
 export { server };

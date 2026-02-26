@@ -12,19 +12,24 @@
     "@commander-js/extra-typings": "^14.0.0",
     "@covenant-rpc/client": "^2.0.0",
     "@covenant-rpc/core": "^2.0.0",
+    "@covenant-rpc/react": "^2.1.0",
     "@covenant-rpc/server": "^2.0.0",
     "@docker/node-sdk": "^0.0.17",
+    "@heroicons/react": "^2.2.0",
     "bun-plugin-tailwind": "^0.1.2",
     "commander-js": "^0.0.1-security",
     "daisyui": "^5.5.19",
     "react": "^19",
     "react-dom": "^19",
+    "react-router": "^7.13.1",
+    "react-router-dom": "^7.13.1",
     "tailwindcss": "^4.1.11",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/bun": "latest"
+    "@types/react-router-dom": "^5.3.3"
   }
 }
