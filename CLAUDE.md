@@ -1,3 +1,75 @@
+# Project Architecture
+
+Fleet is an AI agent management UI. Users create **Projects** (a repo + Docker image), assign **Agents** to them, and track work on a **Kanban board** (tasks with statuses: `todo`, `in-progress`, `done`). Each agent has a **session page** showing a live Claude Code-style log of tool use.
+
+## File Structure
+
+```
+src/
+  covenant.ts                        # Shared API contract (schemas + procedure declarations)
+  index.ts                           # CLI entry point (commander, starts server on port 4456)
+  index.html                         # HTML shell, imports src/frontend/index.tsx
+  backend/
+    index.ts                         # startServer() — Bun.serve with /api/covenant route
+    server.ts                        # CovenantServer instance, imports all defineX() calls
+    implementations/
+      projects.ts                    # getProjects, getProject, createProject (dummy data)
+      tasks.ts                       # getProjectTasks (dummy data)
+      agents.ts                      # getProjectAgents, createAgent (dummy data)
+  frontend/
+    index.tsx                        # React root mount
+    App.tsx                          # BrowserRouter + all routes
+    client.ts                        # CovenantReactClient singleton (covenantClient)
+    components/
+      Layout.tsx                     # Sidebar + <Outlet /> wrapper
+      Sidebar.tsx                    # Project list nav + Armory link
+      TaskDetail.tsx                 # Modal for task detail/agent assignment/plan view
+    pages/
+      Home.tsx                       # Project grid + running agents placeholder
+      Project.tsx                    # Kanban board (Board tab)
+      ProjectAgents.tsx              # Agent list + create form (Agents tab)
+      AgentSession.tsx               # Claude Code-style session log for one agent
+      NewProject.tsx                 # Create project form
+      Armory.tsx                     # Placeholder
+```
+
+## Routes
+
+| Path | Component |
+|------|-----------|
+| `/` | Home |
+| `/project/:projectId` | Project (Board tab) |
+| `/project/:projectId/agents` | ProjectAgents (Agents tab) |
+| `/project/:projectId/agents/:agentId` | AgentSession |
+| `/new-project` | NewProject |
+| `/armory` | Armory |
+
+## Data Model (src/covenant.ts)
+
+```typescript
+ProjectSchema = { id, name, repoUrl, dockerImage, subdirectory? }
+TaskSchema    = { id, title, status: "todo"|"in-progress"|"done", assignedAgentId? }
+AgentSchema   = { id, name, model, tools: string[], projectId }
+```
+
+Procedures: `getProjects`, `getProject`, `createProject`, `getProjectTasks`, `getProjectAgents`, `createAgent`.
+
+All backend data is currently **dummy in-memory arrays** in `src/backend/implementations/`. Replace these with real persistence when implementing actual agent execution.
+
+## Key Frontend Patterns
+
+- **`covenantClient`** is a `CovenantReactClient` exported from `src/frontend/client.ts`. Import it into every page/component that needs data.
+- The client URL is built from `window.location` to avoid CORS issues: `${window.location.protocol}//${window.location.host}/api/covenant`.
+- Use `useCachedQuery` for data shared across components (e.g. project list in Sidebar and Home). Use `useQuery` for page-specific data.
+- The `useQuery` return value can be `null` (not just `undefined`) — always use `?? []` not `= []` destructuring default when the result feeds an array prop.
+
+## Task/Agent UI Details
+
+- **Project.tsx** merges API tasks with a `MOCK_EXTRA` map (descriptions, plans, agent assignment overrides). When replacing dummy data with real backend, remove `MOCK_EXTRA` and add `description`/`plan` fields to `TaskSchema`.
+- **AgentSession.tsx** contains `MOCK_SESSIONS` keyed by `agentId`. This is the entire session log mock — replace with a real covenant channel or streaming endpoint when implementing Docker execution.
+- In-progress tasks are expected to always have an `assignedAgentId`. The UI enforces this visually but not as a hard constraint.
+- Agent name badges on kanban cards are `NavLink`s to the agent session page. `e.stopPropagation()` prevents the task detail modal from opening when clicking the badge.
+
 # General Guidelines
 - This project uses daisyUI for the frontend
 - Put frontend logic in src/frontend and backend logic in src/backend
