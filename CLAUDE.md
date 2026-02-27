@@ -2,37 +2,6 @@
 
 Fleet is an AI agent management UI. Users create **Projects** (a repo + Docker image), assign **Agents** to them, and track work on a **Kanban board** (tasks with statuses: `todo`, `in-progress`, `done`). Each agent has a **session page** showing a live Claude Code-style log of tool use.
 
-## File Structure
-
-```
-src/
-  covenant.ts                        # Shared API contract (schemas + procedure declarations)
-  index.ts                           # CLI entry point (commander, starts server on port 4456)
-  index.html                         # HTML shell, imports src/frontend/index.tsx
-  backend/
-    index.ts                         # startServer() — Bun.serve with /api/covenant route
-    server.ts                        # CovenantServer instance, imports all defineX() calls
-    implementations/
-      projects.ts                    # getProjects, getProject, createProject (dummy data)
-      tasks.ts                       # getProjectTasks (dummy data)
-      agents.ts                      # getProjectAgents, createAgent (dummy data)
-  frontend/
-    index.tsx                        # React root mount
-    App.tsx                          # BrowserRouter + all routes
-    client.ts                        # CovenantReactClient singleton (covenantClient)
-    components/
-      Layout.tsx                     # Sidebar + <Outlet /> wrapper
-      Sidebar.tsx                    # Project list nav + Armory link
-      TaskDetail.tsx                 # Modal for task detail/agent assignment/plan view
-    pages/
-      Home.tsx                       # Project grid + running agents placeholder
-      Project.tsx                    # Kanban board (Board tab)
-      ProjectAgents.tsx              # Agent list + create form (Agents tab)
-      AgentSession.tsx               # Claude Code-style session log for one agent
-      NewProject.tsx                 # Create project form
-      Armory.tsx                     # Placeholder
-```
-
 ## Routes
 
 | Path | Component |
