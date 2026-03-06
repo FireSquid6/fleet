@@ -17,6 +17,7 @@
     "@covenant-rpc/server": "^2.0.0",
     "@docker/node-sdk": "^0.0.17",
     "@heroicons/react": "^2.2.0",
+    "@octokit/rest": "^22.0.1",
     "ai": "^6.0.103",
     "bun-plugin-tailwind": "^0.1.2",
     "commander-js": "^0.0.1-security",
