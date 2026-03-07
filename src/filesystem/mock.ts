@@ -1,6 +1,6 @@
 import { Glob } from "bun";
 import { normalize } from "node:path";
-import type { CommandResult, ContentMatch, DirectoryEntry, Filesystem } from "./index";
+import type { CommandResult, ContentMatch, DirectoryEntry, Filesystem, ProcessHandle } from "./index";
 
 type CommandHandler = (
   command: string,
@@ -10,6 +10,7 @@ type CommandHandler = (
 export class MockFilesystem implements Filesystem {
   private files: Map<string, string>;
   private commandHandler: CommandHandler;
+  private runningProcesses = new Map<string, { command: string; cwd?: string }>();
 
   constructor(
     initialFiles: Record<string, string> = {},
@@ -123,6 +124,22 @@ export class MockFilesystem implements Filesystem {
     return this.commandHandler(command, options);
   }
 
+  async startProcess(command: string, options?: { cwd?: string }): Promise<ProcessHandle> {
+    const id = crypto.randomUUID();
+    this.runningProcesses.set(id, { command, cwd: options?.cwd });
+    return { id };
+  }
+
+  async stopProcess(handle: ProcessHandle): Promise<void> {
+    if (!this.runningProcesses.has(handle.id)) {
+      throw new Error(`No process found with id: ${handle.id}`);
+    }
+    this.runningProcesses.delete(handle.id);
+  }
+
+  // Resolves immediately — in tests, ports are assumed to always be available
+  async waitForPort(_port: number, _options?: { hostname?: string; timeoutMs?: number }): Promise<void> {}
+
   // Test helpers
 
   getFiles(): Record<string, string> {
@@ -131,5 +148,13 @@ export class MockFilesystem implements Filesystem {
 
   hasFile(path: string): boolean {
     return this.files.has(this.normalize(path));
+  }
+
+  isProcessRunning(handle: ProcessHandle): boolean {
+    return this.runningProcesses.has(handle.id);
+  }
+
+  getRunningProcesses(): Array<{ id: string; command: string; cwd?: string }> {
+    return Array.from(this.runningProcesses.entries()).map(([id, p]) => ({ id, ...p }));
   }
 }

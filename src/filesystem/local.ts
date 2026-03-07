@@ -1,10 +1,12 @@
 import { join, resolve, relative } from "node:path";
 import { readdir, unlink } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { Glob } from "bun";
-import type { Filesystem, DirectoryEntry, ContentMatch, CommandResult } from "./index";
+import type { Filesystem, DirectoryEntry, ContentMatch, CommandResult, ProcessHandle } from "./index";
 
 export class LocalFilesystem implements Filesystem {
   private root: string;
+  private processes = new Map<string, ReturnType<typeof Bun.spawn>>();
 
   constructor(root: string) {
     this.root = resolve(root);
@@ -90,6 +92,42 @@ export class LocalFilesystem implements Filesystem {
           text: rest.join(":").trim(),
         };
       });
+  }
+
+  async startProcess(command: string, options?: { cwd?: string }): Promise<ProcessHandle> {
+    const id = crypto.randomUUID();
+    const cwd = options?.cwd ? this.resolveSafe(options.cwd) : this.root;
+    const proc = Bun.spawn(["bash", "-c", command], { cwd, stdout: "pipe", stderr: "pipe" });
+    this.processes.set(id, proc);
+    return { id };
+  }
+
+  async stopProcess(handle: ProcessHandle): Promise<void> {
+    const proc = this.processes.get(handle.id);
+    if (!proc) throw new Error(`No process found with id: ${handle.id}`);
+    proc.kill();
+    this.processes.delete(handle.id);
+  }
+
+  async waitForPort(
+    port: number,
+    options?: { hostname?: string; timeoutMs?: number },
+  ): Promise<void> {
+    const hostname = options?.hostname ?? "localhost";
+    const timeoutMs = options?.timeoutMs ?? 30_000;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const open = await new Promise<boolean>(resolve => {
+        const socket = createConnection({ host: hostname, port });
+        socket.on("connect", () => { socket.destroy(); resolve(true); });
+        socket.on("error", () => resolve(false));
+      });
+      if (open) return;
+      await Bun.sleep(100);
+    }
+
+    throw new Error(`Port ${port} did not become available within ${timeoutMs}ms`);
   }
 
   async runCommand(

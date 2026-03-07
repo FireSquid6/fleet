@@ -15,6 +15,10 @@ export interface CommandResult {
   exitCode: number;
 }
 
+export interface ProcessHandle {
+  id: string;
+}
+
 export interface Filesystem {
   // local, remote, docker, etc.
   getType(): string;
@@ -33,4 +37,7 @@ export interface Filesystem {
 
   // Execution
   runCommand(command: string, options?: { cwd?: string; timeoutMs?: number }): Promise<CommandResult>;
+  startProcess(command: string, options?: { cwd?: string }): Promise<ProcessHandle>;
+  stopProcess(handle: ProcessHandle): Promise<void>;
+  waitForPort(port: number, options?: { hostname?: string; timeoutMs?: number }): Promise<void>;
 }

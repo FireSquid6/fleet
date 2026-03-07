@@ -74,5 +74,32 @@ export function getToolkitFromFilesystem(fs: Filesystem) {
       }),
       execute: async ({ command, cwd, timeoutMs }) => fs.runCommand(command, { cwd, timeoutMs }),
     }),
+
+    fsStartProcess: tool({
+      description: "Start a long-running background process (e.g. a dev server). Returns a handle to stop it later.",
+      inputSchema: z.object({
+        command: z.string().describe("Bash command to run in the background"),
+        cwd: z.string().optional().describe("Working directory relative to root (defaults to root)"),
+      }),
+      execute: async ({ command, cwd }) => fs.startProcess(command, { cwd }),
+    }),
+
+    fsStopProcess: tool({
+      description: "Stop a background process previously started with fsStartProcess",
+      inputSchema: z.object({
+        id: z.string().describe("Process handle ID returned by fsStartProcess"),
+      }),
+      execute: async ({ id }) => fs.stopProcess({ id }),
+    }),
+
+    fsWaitForPort: tool({
+      description: "Wait until a port is accepting connections. Useful after starting a server.",
+      inputSchema: z.object({
+        port: z.number().describe("Port number to wait for"),
+        hostname: z.string().optional().describe("Hostname to check (default: localhost)"),
+        timeoutMs: z.number().optional().describe("How long to wait in milliseconds (default: 30000)"),
+      }),
+      execute: async ({ port, hostname, timeoutMs }) => fs.waitForPort(port, { hostname, timeoutMs }),
+    }),
   };
 }
