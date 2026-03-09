@@ -1,13 +1,12 @@
 import { Command } from "@commander-js/extra-typings";
 import { CovenantClient } from "@covenant-rpc/client";
-import { httpClientToServer } from "@covenant-rpc/client/interfaces/http";
-import { emptyClientToSidekick } from "@covenant-rpc/client/interfaces/empty";
+import { httpClientToServer, httpClientToSidekick } from "@covenant-rpc/client/interfaces/http";
 import { covenant } from "../covenant";
 
 function makeClient(url: string) {
   return new CovenantClient(covenant, {
     serverConnection: httpClientToServer(`${url}/api/covenant`, {}),
-    sidekickConnection: emptyClientToSidekick(),
+    sidekickConnection: httpClientToSidekick(`${url}/socket`),
   });
 }
 

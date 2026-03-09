@@ -1,7 +1,6 @@
 import { serve } from "bun";
 import index from "../index.html";
 import { createServer } from "./server";
-import { directSidekickToServer, Sidekick } from "@covenant-rpc/server";
 
 export interface ServerOptions {
   port: number;
@@ -10,7 +9,6 @@ export interface ServerOptions {
 
 
 export async function startServer({ port, storeDirectory }: ServerOptions) {
-
   const { server, agents } = await createServer(storeDirectory);
 
   const httpServer = serve({
