@@ -1,26 +1,18 @@
-import { CovenantServer } from "@covenant-rpc/server";
-import { httpServerToSidekick } from "@covenant-rpc/server/interfaces/http";
-import { directServerToSidekick } from "@covenant-rpc/server";
 import { DockerClient } from "@docker/node-sdk";
+import { SidekickIntegratedCovenantServer } from "@covenant-rpc/sidekick-bun-adapter";
 import { covenant } from "../covenant";
 import { FleetStore } from "../store";
 import { AgentManager } from "./agent-manager";
 
-export async function createServer(storeDirectory: string, port: number) {
+export async function createServer(storeDirectory: string) {
   const docker = await DockerClient.fromDockerConfig();
   const store = new FleetStore(storeDirectory);
   const agents = new AgentManager(store, docker);
   await store.initialize();
 
-  const sidekickSecret = process.env.FLEET_SIDEKICK_SECRET ?? "fleet-dev-secret";
-
-  const server = new CovenantServer(covenant, {
+  const server = new SidekickIntegratedCovenantServer(covenant, {
     contextGenerator: () => null,
     derivation: () => null,
-    sidekickConnection: httpServerToSidekick(
-      `http://localhost:${port}/sidekick`,
-      sidekickSecret,
-    ),
     logLevel: "info",
   });
 
