@@ -3,26 +3,9 @@ import { z } from "zod";
 import { join, resolve } from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { TokenStore } from "./token";
+import { projectSchema, agentSchema } from "../covenant";
 
-export { TokenStore };
-
-export const projectSchema = z.object({
-  provider: z.string(),
-  filesystemType: z.string(),
-  owner: z.string(),
-  repository: z.string(),
-  // name of the entry in tokens.yaml to use as the git provider token
-  tokenName: z.string(),
-});
-
-export const agentSchema = z.object({
-  name: z.string(),
-  provider: z.string(),
-  containerId: z.string(),
-  dockerImage: z.string(),
-  // path where the workspace is mounted inside the container
-  filesystemMountPoint: z.string(),
-});
+export { TokenStore, projectSchema, agentSchema };
 
 export type Project = z.infer<typeof projectSchema>;
 export type AgentConfig = z.infer<typeof agentSchema>;

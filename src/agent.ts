@@ -15,6 +15,7 @@ export interface AgentInputs {
   id: string;
   fs: Filesystem;
   repo: CodeRepository;
+  instructions?: string;
 }
 
 export class Agent {
@@ -22,9 +23,14 @@ export class Agent {
   private messages: ModelMessage[] = [];
   private tools: ReturnType<typeof buildTools>;
 
-  constructor({ id, fs, repo }: AgentInputs) {
+  private systemPrompt: string;
+
+  constructor({ id, fs, repo, instructions }: AgentInputs) {
     this.id = id;
     this.tools = buildTools(fs, repo);
+    this.systemPrompt = instructions
+      ? `${SYSTEM_PROMPT}\n\n${instructions}`
+      : SYSTEM_PROMPT;
   }
 
   async *send(input: string): AsyncGenerator<AgentEvent> {
@@ -32,7 +38,7 @@ export class Agent {
 
     const result = streamText({
       model: anthropic("claude-sonnet-4-5"),
-      system: SYSTEM_PROMPT,
+      system: this.systemPrompt,
       tools: this.tools,
       stopWhen: stepCountIs(10),
       messages: this.messages,
