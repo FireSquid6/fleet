@@ -1,14 +1,23 @@
 import { serve } from "bun";
 import index from "../index.html";
 import { createServer } from "./server";
+import { bunSidekickAdapter } from "@covenant-rpc/sidekick-bun-adapter";
+import { directSidekickToServer, Sidekick } from "@covenant-rpc/server";
 
 export interface ServerOptions {
   port: number;
   storeDirectory: string;
+  secret: string;
 }
 
-export async function startServer({ port, storeDirectory }: ServerOptions) {
+
+export async function startServer({ port, storeDirectory, secret }: ServerOptions) {
+
   const { server, agents } = await createServer(storeDirectory, port);
+  const sidekick = bunSidekickAdapter({
+    secret,
+    serverConnection: directSidekickToServer(server),
+  })
 
   const httpServer = serve({
     port,
@@ -18,10 +27,7 @@ export async function startServer({ port, storeDirectory }: ServerOptions) {
       "/api/covenant": async (req) => {
         return server.handle(req);
       },
-
-      "/sidekick": async (req) => {
-        return server.handle(req);
-      },
+      ...sidekick.routes("/sidekick"),
     },
 
     development: process.env.NODE_ENV !== "production" && {

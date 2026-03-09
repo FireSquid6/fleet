@@ -1,5 +1,6 @@
 import { CovenantServer } from "@covenant-rpc/server";
 import { httpServerToSidekick } from "@covenant-rpc/server/interfaces/http";
+import { directServerToSidekick } from "@covenant-rpc/server";
 import { DockerClient } from "@docker/node-sdk";
 import { covenant } from "../covenant";
 import { FleetStore } from "../store";

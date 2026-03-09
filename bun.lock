@@ -10,7 +10,8 @@
         "@covenant-rpc/client": "^2.0.0",
         "@covenant-rpc/core": "^2.0.0",
         "@covenant-rpc/react": "^2.1.0",
-        "@covenant-rpc/server": "^2.0.0",
+        "@covenant-rpc/server": "^2.3.0",
+        "@covenant-rpc/sidekick-bun-adapter": "^2.0.0",
         "@docker/node-sdk": "^0.0.17",
         "@heroicons/react": "^2.2.0",
         "@octokit/rest": "^22.0.1",
@@ -55,7 +56,9 @@
 
     "@covenant-rpc/request-serializer": ["@covenant-rpc/request-serializer@2.1.0", "", { "peerDependencies": { "typescript": "^5" } }, "sha512-deciLPlvBG59K3f86wMllPNMmh/zbDbz20UVvyYQz6+m0kBRfL3afh+b7hIYH8D8GohHgTb5B0fshGO/gpZw1w=="],
 
-    "@covenant-rpc/server": ["@covenant-rpc/server@2.0.0", "", { "dependencies": { "@covenant-rpc/core": "^2.0.0", "@covenant-rpc/ion": "^2.1.0", "@covenant-rpc/request-serializer": "^2.1.0", "commander": "^12.1.0", "ws": "^8.19.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "covenant-sidekick": "bin/sidekick.ts" } }, "sha512-mzhgAnx74LlB1FZ81knAMviIRBb9AcCKP+R92lRPHhvLv6tUokB3zI2uXbT8a5xPi+o/KlQZTR9Ns1+4I9iBNA=="],
+    "@covenant-rpc/server": ["@covenant-rpc/server@2.3.0", "", { "dependencies": { "@covenant-rpc/core": "^2.0.0", "@covenant-rpc/ion": "^2.1.0", "@covenant-rpc/request-serializer": "^2.1.0", "commander": "^12.1.0", "ws": "^8.19.0" }, "peerDependencies": { "typescript": "^5" }, "bin": { "covenant-sidekick": "bin/sidekick.ts" } }, "sha512-OMtOVwWVwJDpYewbcBMgWXpCF9C1OQir6o3Cy9aORrY6Yysv5ZGtJ0WWJfUXiFZzEnI3IAHZD7fsiGo3s2NVaA=="],
+
+    "@covenant-rpc/sidekick-bun-adapter": ["@covenant-rpc/sidekick-bun-adapter@2.0.0", "", { "dependencies": { "@covenant-rpc/core": "^2.0.0", "@covenant-rpc/ion": "^2.1.0", "@covenant-rpc/server": "^2.3.0" }, "peerDependencies": { "typescript": "^5" } }, "sha512-//tMXUYEFz+v4OpJYCgLHY3ETz6rvgC4IU9KuB1LAWW4jPWueTkNeaA3FdVEua2nYvHQItlS9wUCqltgjIx0Tw=="],
 
     "@docker/node-sdk": ["@docker/node-sdk@0.0.17", "", { "dependencies": { "ssh2": "^1.16.0", "tar-stream": "^3.1.4", "undici": "^6.22.0" } }, "sha512-j+pxXOhNSagm9pwSHSBy5YGgV22TYTmL9GJRFGYT8AaDb8rZg7MekM4+QfRzdP1AzL6/HD8nEDyEkYjkz7/yMg=="],
 
