@@ -28,9 +28,7 @@ export class Agent {
   constructor({ id, fs, repo, instructions }: AgentInputs) {
     this.id = id;
     this.tools = buildTools(fs, repo);
-    this.systemPrompt = instructions
-      ? `${SYSTEM_PROMPT}\n\n${instructions}`
-      : SYSTEM_PROMPT;
+    this.systemPrompt = instructions ?? "";
   }
 
   async *send(input: string): AsyncGenerator<AgentEvent> {
@@ -100,16 +98,3 @@ function buildTools(fs: Filesystem, repo: CodeRepository) {
   };
 }
 
-const SYSTEM_PROMPT = `\
-You are a coding agent. You have access to a filesystem and a code repository.
-
-Use your tools to read, write, and edit files, run commands, search code, manage git repository \
-tasks (pull requests, issues, CI checks), and start or stop processes as needed.
-
-When writing or editing code:
-- Read existing files before modifying them
-- Make targeted, minimal changes
-- Run tests or build commands after making changes to verify correctness
-- Prefer editing existing files over creating new ones
-
-When using the filesystem, all paths are relative to the workspace root.`;

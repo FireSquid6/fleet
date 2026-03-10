@@ -41,6 +41,10 @@ export class FleetStore {
   // Ensures the base directory structure exists. Call once on startup.
   async initialize(): Promise<void> {
     await mkdir(join(this.root, "projects"), { recursive: true });
+    const rootAgentMd = join(this.root, "AGENT.md");
+    if (!(await Bun.file(rootAgentMd).exists())) {
+      await Bun.write(rootAgentMd, ROOT_AGENT_MD_DEFAULT);
+    }
   }
 
   // Per-scope token stores (for direct read/write to a specific level)
@@ -78,6 +82,7 @@ export class FleetStore {
     const dir = this.projectDir(name);
     await mkdir(dir, { recursive: true });
     await Bun.write(this.projectYaml(name), YAML.stringify(projectSchema.parse(data)));
+    await Bun.write(join(dir, "AGENT.md"), "");
   }
 
   async updateProject(name: string, data: Partial<Project>): Promise<void> {
@@ -120,7 +125,23 @@ export class FleetStore {
     await rm(this.agentDir(projectName, agentName), { recursive: true, force: true });
   }
 
-  // ── Agent instructions (AGENT.md) ─────────────────────────────────────────
+  // ── Instructions (AGENT.md) ───────────────────────────────────────────────
+
+  async getRootInstructions(): Promise<string> {
+    return Bun.file(join(this.root, "AGENT.md")).text();
+  }
+
+  async setRootInstructions(instructions: string): Promise<void> {
+    await Bun.write(join(this.root, "AGENT.md"), instructions);
+  }
+
+  async getProjectInstructions(projectName: string): Promise<string> {
+    return Bun.file(join(this.projectDir(projectName), "AGENT.md")).text();
+  }
+
+  async setProjectInstructions(projectName: string, instructions: string): Promise<void> {
+    await Bun.write(join(this.projectDir(projectName), "AGENT.md"), instructions);
+  }
 
   async getAgentInstructions(projectName: string, agentName: string): Promise<string> {
     return Bun.file(join(this.agentDir(projectName, agentName), "AGENT.md")).text();
@@ -128,6 +149,16 @@ export class FleetStore {
 
   async setAgentInstructions(projectName: string, agentName: string, instructions: string): Promise<void> {
     await Bun.write(join(this.agentDir(projectName, agentName), "AGENT.md"), instructions);
+  }
+
+  // Concatenates root → project → agent AGENT.md files, skipping empty sections.
+  async resolveAgentInstructions(projectName: string, agentName: string): Promise<string> {
+    const [root, project, agent] = await Promise.all([
+      this.getRootInstructions().catch(() => ""),
+      this.getProjectInstructions(projectName).catch(() => ""),
+      this.getAgentInstructions(projectName, agentName).catch(() => ""),
+    ]);
+    return [root, project, agent].filter(s => s.trim()).join("\n\n");
   }
 
   // ── Paths ─────────────────────────────────────────────────────────────────
@@ -153,3 +184,18 @@ export class FleetStore {
     return join(this.agentDir(projectName, agentName), "agent.yaml");
   }
 }
+
+const ROOT_AGENT_MD_DEFAULT = `\
+You are a coding agent. You have access to a filesystem and a code repository.
+
+Use your tools to read, write, and edit files, run commands, search code, manage git repository \
+tasks (pull requests, issues, CI checks), and start or stop processes as needed.
+
+When writing or editing code:
+- Read existing files before modifying them
+- Make targeted, minimal changes
+- Run tests or build commands after making changes to verify correctness
+- Prefer editing existing files over creating new ones
+
+When using the filesystem, all paths are relative to the workspace root.
+`;

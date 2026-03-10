@@ -49,7 +49,7 @@ export class AgentManager {
     const [project, agentConfig, instructions] = await Promise.all([
       this.store.getProject(projectName),
       this.store.getAgent(projectName, agentName),
-      this.store.getAgentInstructions(projectName, agentName),
+      this.store.resolveAgentInstructions(projectName, agentName),
     ]);
 
     const agentTokens = await this.store.resolveAgentTokens(projectName, agentName);
