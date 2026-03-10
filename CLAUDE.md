@@ -1,43 +1,112 @@
 # Project Architecture
 
-Fleet is an AI agent management UI. Users create **Projects** (a repo + Docker image), assign **Agents** to them, and track work on a **Kanban board** (tasks with statuses: `todo`, `in-progress`, `done`). Each agent has a **session page** showing a live Claude Code-style log of tool use.
+Fleet is an AI agent management system. Users create **Projects** (a git repo + Docker image), assign **Agents** to them, and interact with agents over live sessions. Each agent runs inside a Docker container with a cloned git workspace.
 
-## Routes
-
-| Path | Component |
-|------|-----------|
-| `/` | Home |
-| `/project/:projectId` | Project (Board tab) |
-| `/project/:projectId/agents` | ProjectAgents (Agents tab) |
-| `/project/:projectId/agents/:agentId` | AgentSession |
-| `/new-project` | NewProject |
-| `/armory` | Armory |
-
-## Data Model (src/covenant.ts)
+## Data Model (`src/covenant.ts`)
 
 ```typescript
-ProjectSchema = { id, name, repoUrl, dockerImage, subdirectory? }
-TaskSchema    = { id, title, status: "todo"|"in-progress"|"done", assignedAgentId? }
-AgentSchema   = { id, name, model, tools: string[], projectId }
+projectSchema = {
+  provider: string,          // "github" | "gitlab" | "bitbucket" | raw hostname
+  filesystemType: string,    // "local-docker"
+  owner: string,
+  repository: string,
+  tokenName: string,         // key into the resolved token store
+}
+
+agentSchema = {
+  name: string,
+  provider: string,          // AI model provider
+  dockerImage: string,       // default: "fleet/agent:latest"
+  filesystemMountPoint: string, // default: "/workspace"
+  skills: string[],          // skill directory names from {root}/skills/
+}
 ```
 
-Procedures: `getProjects`, `getProject`, `createProject`, `getProjectTasks`, `getProjectAgents`, `createAgent`.
+API procedures: `listProjects`, `getProject`, `createProject`, `updateProject`, `deleteProject`, `listAgents`, `getAgent`, `createAgent`, `updateAgent`, `deleteAgent`, `startAgent`, `stopAgent`, `isAgentRunning`.
 
-All backend data is currently **dummy in-memory arrays** in `src/backend/implementations/`. Replace these with real persistence when implementing actual agent execution.
+Channel: `agentSession` — bidirectional streaming session with a running agent.
 
-## Key Frontend Patterns
+## Store Directory Layout
 
-- **`covenantClient`** is a `CovenantReactClient` exported from `src/frontend/client.ts`. Import it into every page/component that needs data.
-- The client URL is built from `window.location` to avoid CORS issues: `${window.location.protocol}//${window.location.host}/api/covenant`.
-- Use `useCachedQuery` for data shared across components (e.g. project list in Sidebar and Home). Use `useQuery` for page-specific data.
-- The `useQuery` return value can be `null` (not just `undefined`) — always use `?? []` not `= []` destructuring default when the result feeds an array prop.
+All persistent state lives under the fleet data directory (default `./fleet-data`):
 
-## Task/Agent UI Details
+```
+{root}/
+  AGENT.md              ← default system prompt (written on first start)
+  providers.yaml        ← AI provider keys: ANTHROPIC_API_KEY, etc. (Fleet server only)
+  tokens.yaml           ← global git/service tokens available to all agents
+  skills/
+    {skill-name}/
+      SKILL.md          ← frontmatter (title, description) + skill body
+      scripts/          ← optional executable scripts
+      reference/        ← optional documentation
+      assets/           ← optional assets
+  projects/
+    {project}/
+      project.yaml
+      AGENT.md          ← project-level instructions (appended after root)
+      tokens.yaml       ← project-scoped tokens
+      {agent}/
+        agent.yaml
+        AGENT.md        ← agent-specific instructions (appended after project)
+        tokens.yaml     ← agent-scoped tokens
+        workspace/      ← git clone of the project repo (bind-mounted into container)
+```
 
-- **Project.tsx** merges API tasks with a `MOCK_EXTRA` map (descriptions, plans, agent assignment overrides). When replacing dummy data with real backend, remove `MOCK_EXTRA` and add `description`/`plan` fields to `TaskSchema`.
-- **AgentSession.tsx** contains `MOCK_SESSIONS` keyed by `agentId`. This is the entire session log mock — replace with a real covenant channel or streaming endpoint when implementing Docker execution.
-- In-progress tasks are expected to always have an `assignedAgentId`. The UI enforces this visually but not as a hard constraint.
-- Agent name badges on kanban cards are `NavLink`s to the agent session page. `e.stopPropagation()` prevents the task detail modal from opening when clicking the badge.
+**Key store classes** (`src/store/`):
+- `FleetStore` — top-level store; exposes `tokens`, `providers`, `skills: SkillStore`
+- `TokenStore` — read/write a single `tokens.yaml` file
+- `SkillStore` — list/get skills, read files within a skill directory
+
+**Token resolution**: `store.resolveAgentTokens(project, agent)` merges root → project → agent (later overrides earlier). Use this whenever looking up a token on behalf of an agent.
+
+**Instruction resolution**: `store.resolveAgentInstructions(project, agent)` concatenates root → project → agent `AGENT.md` files, skipping empty ones.
+
+## Agent Lifecycle (`src/backend/agent-manager.ts`)
+
+`AgentManager.start(projectName, agentName)` does:
+
+1. Resolve tokens and load project/agent config
+2. Construct the `CodeRepository` (currently `GitHubRepository`) — used for git URLs and auth
+3. Clone the repo into `workspace/` on the host (or `git pull` + refresh remote URL if it already exists)
+4. Create the Docker container if it doesn't exist: `docker create --name fleet-{project}-{agent} -v {workspace}:{mountPoint} {image}`
+5. Start the container: `docker start`
+6. Write `~/.git-credentials` into the container via `docker cp` and set `credential.helper store` — authenticates all git commands the agent runs
+7. Resolve and load assigned skills
+8. Construct `Agent` with merged instructions, resolved skills, filesystem, and repo
+
+Container ID is always `fleet-{projectName}-{agentName}` — never stored in config.
+
+## `CodeRepository` Interface (`src/code-repository/index.ts`)
+
+All providers must implement:
+- `getProvider(): string`
+- `getUrl(): string` — unauthenticated HTTPS URL
+- `getAuthenticatedUrl(token): string` — URL with credentials embedded, for host-side git clone/pull
+- `getCredentialStoreEntry(token): string` — single line for `~/.git-credentials` covering all git ops inside the container against this host
+
+Currently only `GitHubRepository` is implemented (`src/code-repository/github.ts`).
+
+## Skills
+
+Skills are reusable instruction sets stored in `{root}/skills/{name}/`. Each has a `SKILL.md` with YAML frontmatter:
+
+```markdown
+---
+title: My Skill
+description: Short description shown in the agent's system prompt
+---
+
+Full instructions here...
+```
+
+Assign skills to an agent via `skills: [name1, name2]` in `agent.yaml`. At startup, skill titles and descriptions are injected into the system prompt. The agent uses `skillRead` / `skillReadFile` tools to load full skill content on demand.
+
+## Docker Notes
+
+`@docker/node-sdk` is broken in Bun — it uses undici's `dispatcher` option which Bun silently ignores, causing all API calls to fail with `ConnectionRefused` on `localhost:2375`. All Docker operations use `Bun.$\`docker ...\`` CLI calls instead. The exec API (`LocalDockerFilesystem.runCommand`) still uses a stub client type and will throw until a Bun-compatible replacement is built (see `~/docker-sdk.md`).
+
+The default Docker image is `fleet/agent:latest`. Build it with: `docker build -t fleet/agent:latest .` (Dockerfile at project root).
 
 # General Guidelines
 - This project uses daisyUI for the frontend
