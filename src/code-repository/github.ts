@@ -20,6 +20,14 @@ export class GitHubRepository implements CodeRepository {
     return `https://github.com/${this.owner}/${this.repo}.git`;
   }
 
+  getAuthenticatedUrl(token: string): string {
+    return `https://oauth2:${token}@github.com/${this.owner}/${this.repo}.git`;
+  }
+
+  getCredentialStoreEntry(token: string): string {
+    return `https://oauth2:${token}@github.com`;
+  }
+
   // Pull Requests
 
   async listPullRequests(state: "open" | "closed" | "all" = "open"): Promise<PullRequest[]> {

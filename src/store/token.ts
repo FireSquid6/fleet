@@ -1,6 +1,6 @@
 import YAML from "yaml";
 
-async function readTokenFile(path: string): Promise<Record<string, string>> {
+export async function readTokenFile(path: string): Promise<Record<string, string>> {
   const file = Bun.file(path);
   if (!(await file.exists())) return {};
 
@@ -14,6 +14,12 @@ async function readTokenFile(path: string): Promise<Record<string, string>> {
   }
 
   return obj as Record<string, string>;
+}
+
+// Merges multiple token files left-to-right; later files override earlier ones.
+export async function mergeTokenFiles(...paths: string[]): Promise<Record<string, string>> {
+  const layers = await Promise.all(paths.map(readTokenFile));
+  return Object.assign({}, ...layers);
 }
 
 export class TokenStore {

@@ -16,6 +16,19 @@ export class AgentManager {
     return result !== null && result.exitCode === 0;
   }
 
+  // Writes a git credential store file into the container and configures git to use it,
+  // so any git command the agent runs against that provider's host is authenticated.
+  private async configureGitCredentials(containerId: string, credentialEntry: string): Promise<void> {
+    const tmpPath = `/tmp/fleet-git-creds-${containerId}`;
+    await Bun.write(tmpPath, credentialEntry + "\n");
+    try {
+      await Bun.$`docker cp ${tmpPath} ${containerId}:/root/.git-credentials`.quiet();
+      await Bun.$`docker exec ${containerId} git config --global credential.helper store`.quiet();
+    } finally {
+      await Bun.$`rm -f ${tmpPath}`;
+    }
+  }
+
   private async containerExists(id: string): Promise<boolean> {
     const result = await Bun.$`docker container inspect ${id}`.quiet().catch(() => null);
     return result !== null && result.exitCode === 0;
@@ -39,7 +52,8 @@ export class AgentManager {
       this.store.getAgentInstructions(projectName, agentName),
     ]);
 
-    const token = await this.store.tokens.get(project.tokenName);
+    const agentTokens = await this.store.resolveAgentTokens(projectName, agentName);
+    const token = agentTokens[project.tokenName];
     const containerId = this.containerId(projectName, agentName);
     const hostWorkspacePath = this.store.agentWorkspacePath(projectName, agentName);
 
@@ -47,13 +61,21 @@ export class AgentManager {
       throw new Error(`Docker image "${agentConfig.dockerImage}" not found locally. Build it first.`);
     }
 
-    const gitUrl = `https://${token}@github.com/${project.owner}/${project.repository}.git`;
+    const repo = new GitHubRepository({
+      token: token ?? "",
+      owner: project.owner,
+      repo: project.repository,
+    });
+
+    const authenticatedUrl = repo.getAuthenticatedUrl(token ?? "");
 
     const workspaceExists = await Bun.file(`${hostWorkspacePath}/.git/HEAD`).exists();
     if (workspaceExists) {
+      // Always refresh the remote URL so a rotated token doesn't break pulls
+      await Bun.$`git -C ${hostWorkspacePath} remote set-url origin ${authenticatedUrl}`.quiet();
       await Bun.$`git -C ${hostWorkspacePath} pull`.quiet();
     } else {
-      await Bun.$`git clone ${gitUrl} ${hostWorkspacePath}`.quiet();
+      await Bun.$`git clone ${authenticatedUrl} ${hostWorkspacePath}`.quiet();
     }
 
     if (!await this.containerExists(containerId)) {
@@ -61,17 +83,12 @@ export class AgentManager {
     }
 
     await Bun.$`docker start ${containerId}`.quiet();
+    await this.configureGitCredentials(containerId, repo.getCredentialStoreEntry(token ?? ""));
 
     const fs = new LocalDockerFilesystem({
       containerId,
       hostWorkspacePath,
       containerWorkspacePath: agentConfig.filesystemMountPoint,
-    });
-
-    const repo = new GitHubRepository({
-      token: token ?? "",
-      owner: project.owner,
-      repo: project.repository,
     });
 
     const agent = new Agent({ id: key, fs, repo, instructions });

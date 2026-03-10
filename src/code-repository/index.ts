@@ -44,6 +44,11 @@ export interface Release {
 export interface CodeRepository {
   getProvider(): string;
   getUrl(): string;
+  // Returns the HTTPS clone URL with credentials embedded, for host-side git operations.
+  getAuthenticatedUrl(token: string): string;
+  // Returns a single line suitable for ~/.git-credentials, covering all git operations
+  // inside a container against this provider's host.
+  getCredentialStoreEntry(token: string): string;
 
   // Pull Requests
   listPullRequests(state?: "open" | "closed" | "all"): Promise<PullRequest[]>;

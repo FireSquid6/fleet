@@ -2,7 +2,7 @@ import YAML from "yaml";
 import { z } from "zod";
 import { join, resolve } from "node:path";
 import { mkdir, readdir, rm } from "node:fs/promises";
-import { TokenStore } from "./token";
+import { TokenStore, mergeTokenFiles } from "./token";
 import { projectSchema, agentSchema } from "../covenant";
 
 export { TokenStore, projectSchema, agentSchema };
@@ -13,27 +13,53 @@ export type AgentConfig = z.infer<typeof agentSchema>;
 // Directory layout:
 //
 //   {root}/
-//     tokens.yaml
+//     providers.yaml        ← AI provider keys (ANTHROPIC_API_KEY, etc.) — Fleet server only
+//     tokens.yaml           ← global tokens available to all agents
 //     projects/
 //       {project}/
 //         project.yaml
+//         tokens.yaml       ← project-scoped tokens (merged on top of root)
 //         {agent}/
 //           agent.yaml
+//           tokens.yaml     ← agent-scoped tokens (merged on top of project)
 //           AGENT.md
 //           workspace/
 
 export class FleetStore {
   private root: string;
+  // Root-level tokens available to all agents
   readonly tokens: TokenStore;
+  // AI provider keys (ANTHROPIC_API_KEY, etc.) — not exposed to agents
+  readonly providers: TokenStore;
 
   constructor(directory: string) {
     this.root = resolve(directory);
     this.tokens = new TokenStore(join(this.root, "tokens.yaml"));
+    this.providers = new TokenStore(join(this.root, "providers.yaml"));
   }
 
   // Ensures the base directory structure exists. Call once on startup.
   async initialize(): Promise<void> {
     await mkdir(join(this.root, "projects"), { recursive: true });
+  }
+
+  // Per-scope token stores (for direct read/write to a specific level)
+  projectTokens(projectName: string): TokenStore {
+    return new TokenStore(join(this.projectDir(projectName), "tokens.yaml"));
+  }
+
+  agentTokens(projectName: string, agentName: string): TokenStore {
+    return new TokenStore(join(this.agentDir(projectName, agentName), "tokens.yaml"));
+  }
+
+  // Resolves the full token set visible to an agent: root → project → agent.
+  // Later scopes override earlier ones with the same key.
+  async resolveAgentTokens(projectName: string, agentName: string): Promise<Record<string, string>> {
+    return mergeTokenFiles(
+      join(this.root, "tokens.yaml"),
+      join(this.projectDir(projectName), "tokens.yaml"),
+      join(this.agentDir(projectName, agentName), "tokens.yaml"),
+    );
   }
 
   // ── Projects ──────────────────────────────────────────────────────────────
