@@ -132,7 +132,7 @@ const agentCreateCommand = new Command()
   .requiredOption("--project <projectName>", "project name")
   .requiredOption("--name <name>", "agent name")
   .requiredOption("--provider <provider>", "model provider")
-  .option("--docker-image <dockerImage>", "docker image", "fleet-agent:latest")
+  .option("--docker-image <dockerImage>", "docker image", "fleet/agent:latest")
   .option(
     "--filesystem-mount-point <filesystemMountPoint>",
     "path where workspace is mounted",

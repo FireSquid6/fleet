@@ -1,4 +1,4 @@
-import { DockerClient } from "@docker/node-sdk";
+import { DockerClient, Filter } from "@docker/node-sdk";
 import { Agent } from "../agent";
 import { LocalDockerFilesystem } from "../filesystem/local-docker";
 import { GitHubRepository } from "../code-repository/github";
@@ -36,28 +36,19 @@ export class AgentManager {
     const containerId = this.containerId(projectName, agentName);
     const hostWorkspacePath = this.store.agentWorkspacePath(projectName, agentName);
 
-
-    console.log("Got stuff...");
+    const filter = new Filter().set("reference", [agentConfig.dockerImage]);
+    const matchingImages = await this.docker.imageList({ filters: filter });
+    if (!matchingImages.length) {
+      throw new Error(`Docker image "${agentConfig.dockerImage}" not found locally. Build it first.`);
+    }
 
     const containerExists = await this.docker.containerInspect(containerId).then(() => true, () => false);
 
-    console.log("Container was inspected");
-
     if (!containerExists) {
-      await this.docker.containerCreate(
-        {
-          Image: agentConfig.dockerImage,
-          HostConfig: {
-            Binds: [`${hostWorkspacePath}:${agentConfig.filesystemMountPoint}`],
-          },
-        },
-        { name: containerId },
-      );
+      await Bun.$`docker create --name ${containerId} -v ${hostWorkspacePath}:${agentConfig.filesystemMountPoint} ${agentConfig.dockerImage}`.quiet();
     }
-    console.log("Created container");
 
-    await this.docker.containerStart(containerId);
-    console.log("Started container");
+    await Bun.$`docker start ${containerId}`.quiet();
 
     const fs = new LocalDockerFilesystem({
       client: this.docker,
@@ -79,7 +70,7 @@ export class AgentManager {
   async stop(projectName: string, agentName: string): Promise<void> {
     const key = this.key(projectName, agentName);
     this.running.delete(key);
-    await this.docker.containerStop(this.containerId(projectName, agentName));
+    await Bun.$`docker stop ${this.containerId(projectName, agentName)}`.quiet();
   }
 
   get(projectName: string, agentName: string): Agent | undefined {

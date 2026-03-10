@@ -15,7 +15,7 @@ export const projectSchema = z.object({
 export const agentSchema = z.object({
   name: z.string(),
   provider: z.string(),
-  dockerImage: z.string().default("fleet-agent:latest"),
+  dockerImage: z.string().default("fleet/agent:latest"),
   // path where the workspace is mounted inside the container
   filesystemMountPoint: z.string().default("/workspace"),
 });
