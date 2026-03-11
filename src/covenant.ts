@@ -119,6 +119,15 @@ export const covenant = declareCovenant({
         agent: z.record(z.string(), z.string()),
       }),
     }),
+    listSkills: query({
+      input: z.null(),
+      output: z.array(z.object({
+        name: z.string(),
+        title: z.string(),
+        description: z.string(),
+        content: z.string(),
+      })),
+    }),
     getAgentSkills: query({
       input: AgentIdSchema,
       output: z.array(z.object({

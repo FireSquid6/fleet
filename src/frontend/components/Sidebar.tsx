@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { NavLink, Link } from "react-router-dom";
-import { Cog6ToothIcon, PlusIcon, SunIcon, MoonIcon } from "@heroicons/react/24/outline";
+import { Cog6ToothIcon, PlusIcon, SunIcon, MoonIcon, WrenchScrewdriverIcon } from "@heroicons/react/24/outline";
 import { client } from "../client";
 
 const STORAGE_KEY = "autosmith-theme";
@@ -80,7 +80,20 @@ export default function Sidebar() {
         )}
       </nav>
 
-      <div className="p-2 border-t border-base-300">
+      <div className="p-2 border-t border-base-300 space-y-0.5">
+        <NavLink
+          to="/skills"
+          className={({ isActive }) =>
+            `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+              isActive
+                ? "bg-primary text-primary-content font-medium"
+                : "hover:bg-base-300 text-base-content"
+            }`
+          }
+        >
+          <WrenchScrewdriverIcon className="w-4 h-4" />
+          Skills
+        </NavLink>
         <NavLink
           to="/settings"
           className={({ isActive }) =>

@@ -119,6 +119,14 @@ export function registerContentProcedures(server: AppServer, store: AutosmithSto
 
   // ── Skills ─────────────────────────────────────────────────────────────────
 
+  server.defineProcedure("listSkills", {
+    resources: () => ["skills"],
+    procedure: async () => {
+      const names = await store.skills.list();
+      return Promise.all(names.map(name => store.skills.get(name)));
+    },
+  });
+
   server.defineProcedure("getAgentSkills", {
     resources: ({ inputs }) => [`agent/${inputs.projectName}/${inputs.agentName}/skills`],
     procedure: async ({ inputs }) => {
