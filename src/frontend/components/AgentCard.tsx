@@ -20,8 +20,8 @@ export default function AgentCard({ projectName, agentName, provider, dockerImag
         <div className="flex items-start justify-between gap-2">
           <h3 className="card-title text-base leading-tight">{agentName}</h3>
           <span
-            className={`badge badge-sm shrink-0 ${
-              isRunning ? "badge-success" : "badge-ghost"
+            className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              isRunning ? "bg-success/20 text-success" : "bg-base-300 text-base-content/50"
             }`}
           >
             {isRunning === undefined ? "…" : isRunning ? "running" : "stopped"}
