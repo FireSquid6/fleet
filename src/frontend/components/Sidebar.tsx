@@ -3,7 +3,7 @@ import { Cog6ToothIcon, PlusIcon } from "@heroicons/react/24/outline";
 import { client } from "../client";
 
 export default function Sidebar() {
-  const { data: projects, loading } = client.useQuery("listProjects", null);
+  const { data: projects, loading } = client.useListenedQuery("listProjects", null);
 
   return (
     <aside className="w-56 shrink-0 bg-base-200 flex flex-col h-full border-r border-base-300">
