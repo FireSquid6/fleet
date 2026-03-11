@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { ChevronRightIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 export type TextPart = { type: "text"; text: string };
 export type ToolPart = { type: "tool"; toolName: string; input: unknown; result?: unknown };
@@ -69,13 +73,40 @@ export default function ChatMessage({ message }: { message: Message }) {
       >
         {message.parts.map((part, i) => {
           if (part.type === "text") {
+            const isLastPart = i === message.parts.length - 1;
             return (
-              <p key={i} className="whitespace-pre-wrap leading-relaxed">
-                {part.text}
-                {message.isStreaming && i === message.parts.length - 1 && (
+              <div key={i} className="prose prose-sm max-w-none leading-relaxed [&_pre]:!p-0 [&_pre]:!m-0 [&_pre]:!bg-transparent">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code({ className, children }) {
+                      const match = /language-(\w+)/.exec(className ?? "");
+                      if (match) {
+                        return (
+                          <SyntaxHighlighter
+                            style={oneDark}
+                            language={match[1]}
+                            PreTag="div"
+                            customStyle={{ borderRadius: "0.5rem", fontSize: "0.8rem", margin: "0.5rem 0" }}
+                          >
+                            {String(children).replace(/\n$/, "")}
+                          </SyntaxHighlighter>
+                        );
+                      }
+                      return (
+                        <code className="bg-base-300 text-base-content px-1 py-0.5 rounded text-xs font-mono">
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {message.isStreaming && isLastPart ? part.text + "\u200B" : part.text}
+                </ReactMarkdown>
+                {message.isStreaming && isLastPart && (
                   <span className="inline-block w-1.5 h-4 ml-0.5 bg-current opacity-70 animate-pulse align-middle" />
                 )}
-              </p>
+              </div>
             );
           }
           if (part.type === "tool") {

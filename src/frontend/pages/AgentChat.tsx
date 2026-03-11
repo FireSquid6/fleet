@@ -5,6 +5,17 @@ import { ArrowLeftIcon, PlayIcon } from "@heroicons/react/24/outline";
 import { client } from "../client";
 import ChatMessage, { type Message, type MessagePart, type ToolPart } from "../components/ChatMessage";
 
+function historyToMessages(history: { role: "user" | "assistant"; parts: { type: string; text?: string; toolName?: string; input?: unknown; result?: unknown; error?: string }[] }[]): Message[] {
+  return history.map((entry) => ({
+    role: entry.role === "assistant" ? "agent" : "user",
+    parts: entry.parts.map((p): MessagePart => {
+      if (p.type === "text") return { type: "text", text: p.text! };
+      if (p.type === "tool") return { type: "tool", toolName: p.toolName!, input: p.input, result: p.result };
+      return { type: "error", error: p.error! };
+    }),
+  }));
+}
+
 type ConnectionState = "connecting" | "connected" | "error";
 
 export default function AgentChat() {
@@ -48,6 +59,12 @@ export default function AgentChat() {
       }
 
       tokenRef.current = result.token;
+
+      // Load conversation history before subscribing to new events
+      const historyResult = await client.query("getAgentHistory", params);
+      if (active && historyResult.success && historyResult.data.length > 0) {
+        setMessages(historyToMessages(historyResult.data));
+      }
 
       unsub = await client.subscribe("agentSession", params, result.token, (msg) => {
         if (!active) return;

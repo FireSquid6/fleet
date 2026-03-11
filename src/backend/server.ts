@@ -135,6 +135,15 @@ export async function createServer(storeDirectory: string) {
     procedure: ({ inputs }) => agents.isRunning(inputs.projectName, inputs.agentName),
   });
 
+  server.defineProcedure("getAgentHistory", {
+    resources: ({ inputs }) => [`agent/${inputs.projectName}/${inputs.agentName}/history`],
+    procedure: ({ inputs, error }) => {
+      const agent = agents.get(inputs.projectName, inputs.agentName);
+      if (!agent) error("Agent is not running", 404);
+      return agent!.getHistory();
+    },
+  });
+
   // ── Agent session channel ──────────────────────────────────────────────────
 
   server.defineChannel("agentSession", {

@@ -13,6 +13,16 @@ export type AgentEvent =
   | { type: "tool-result"; toolName: string; result: unknown }
   | { type: "error"; error: unknown };
 
+export type HistoryPart =
+  | { type: "text"; text: string }
+  | { type: "tool"; toolName: string; input: unknown; result?: unknown }
+  | { type: "error"; error: string };
+
+export interface HistoryMessage {
+  role: "user" | "assistant";
+  parts: HistoryPart[];
+}
+
 export interface AgentInputs {
   id: string;
   fs: Filesystem;
@@ -25,6 +35,7 @@ export interface AgentInputs {
 export class Agent {
   readonly id: string;
   private messages: ModelMessage[] = [];
+  private history: HistoryMessage[] = [];
   private tools: ReturnType<typeof buildTools>;
 
   private systemPrompt: string;
@@ -37,6 +48,9 @@ export class Agent {
 
   async *send(input: string): AsyncGenerator<AgentEvent> {
     this.messages.push({ role: "user", content: input });
+    this.history.push({ role: "user", parts: [{ type: "text", text: input }] });
+
+    const assistantEntry: HistoryMessage = { role: "assistant", parts: [] };
 
     const result = streamText({
       model: anthropic("claude-sonnet-4-5"),
@@ -49,12 +63,26 @@ export class Agent {
     try {
       for await (const event of result.fullStream) {
         if (event.type === "text-delta") {
+          const last = assistantEntry.parts[assistantEntry.parts.length - 1];
+          if (last?.type === "text") {
+            last.text += event.text;
+          } else {
+            assistantEntry.parts.push({ type: "text", text: event.text });
+          }
           yield { type: "text", text: event.text };
         } else if (event.type === "tool-call") {
+          assistantEntry.parts.push({ type: "tool", toolName: event.toolName, input: event.input });
           yield { type: "tool-call", toolName: event.toolName, input: event.input };
         } else if (event.type === "tool-result") {
+          // Match to the first unresolved tool call with the same name
+          const pending = assistantEntry.parts.find(
+            (p): p is Extract<HistoryPart, { type: "tool" }> =>
+              p.type === "tool" && p.toolName === event.toolName && p.result === undefined,
+          );
+          if (pending) pending.result = event.output;
           yield { type: "tool-result", toolName: event.toolName, result: event.output };
         } else if (event.type === "error") {
+          assistantEntry.parts.push({ type: "error", error: String(event.error) });
           yield { type: "error", error: event.error };
         }
       }
@@ -62,6 +90,9 @@ export class Agent {
       const response = await Promise.resolve(result.response).catch(() => null);
       if (response) {
         this.messages.push(...(response.messages as ModelMessage[]));
+      }
+      if (assistantEntry.parts.length > 0) {
+        this.history.push(assistantEntry);
       }
     }
   }
@@ -88,6 +119,11 @@ export class Agent {
 
   clear(): void {
     this.messages = [];
+    this.history = [];
+  }
+
+  getHistory(): HistoryMessage[] {
+    return this.history;
   }
 
   get messageCount(): number {
