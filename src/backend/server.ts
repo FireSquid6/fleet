@@ -3,6 +3,7 @@ import { covenant } from "../covenant";
 import { AutosmithStore } from "../store";
 import { AgentManager } from "./agent-manager";
 import { registerProjectProcedures } from "./procedures/projects";
+import { registerUserProcedures } from "./procedures/user";
 import { registerAgentProcedures } from "./procedures/agents";
 import { registerLifecycleProcedures } from "./procedures/lifecycle";
 import { registerContentProcedures } from "./procedures/content";
@@ -19,6 +20,7 @@ export async function createServer(storeDirectory: string) {
     logLevel: "info",
   });
 
+  registerUserProcedures(server, store);
   registerProjectProcedures(server, store);
   registerAgentProcedures(server, store);
   registerLifecycleProcedures(server, agents, store);

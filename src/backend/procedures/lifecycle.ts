@@ -29,6 +29,11 @@ export function registerLifecycleProcedures(server: AppServer, agents: AgentMana
     procedure: ({ inputs }) => agents.getStatus(inputs.projectName, inputs.agentName),
   });
 
+  server.defineProcedure("listRunningAgents", {
+    resources: () => ["agents/running"],
+    procedure: () => agents.listRunning(),
+  });
+
   server.defineProcedure("getAgentHistory", {
     resources: ({ inputs }) => [`agent/${inputs.projectName}/${inputs.agentName}/history`],
     procedure: async ({ inputs }) => {

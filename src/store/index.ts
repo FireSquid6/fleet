@@ -12,6 +12,14 @@ export type { Skill } from "./skill";
 export type Project = z.infer<typeof projectSchema>;
 export type AgentConfig = z.infer<typeof agentSchema>;
 
+export const userSchema = z.object({
+  name: z.string().default(""),
+  email: z.string().default(""),
+  phone: z.string().default(""),
+  openCommand: z.string().optional(),
+});
+export type User = z.infer<typeof userSchema>;
+
 // Directory layout:
 //
 //   {root}/
@@ -84,6 +92,19 @@ export class AutosmithStore {
       readTokenFile(join(this.agentDir(projectName, agentName), "tokens.yaml")),
     ]);
     return { root, project, agent };
+  }
+
+  // ── User ──────────────────────────────────────────────────────────────────
+
+  async getUser(): Promise<User> {
+    const file = Bun.file(join(this.root, "user.yaml"));
+    if (!(await file.exists())) return userSchema.parse({});
+    return userSchema.parse(YAML.parse(await file.text()) ?? {});
+  }
+
+  async updateUser(data: Partial<User>): Promise<void> {
+    const existing = await this.getUser();
+    await Bun.write(join(this.root, "user.yaml"), YAML.stringify(userSchema.parse({ ...existing, ...data })));
   }
 
   // ── Projects ──────────────────────────────────────────────────────────────

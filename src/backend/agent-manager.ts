@@ -123,6 +123,15 @@ export class AgentManager {
     return this.running.has(this.key(projectName, agentName));
   }
 
+  listRunning(): { projectName: string; agentName: string }[] {
+    return [...this.running.entries()]
+      .filter(([, agent]) => agent.isGenerating)
+      .map(([key]) => {
+        const slash = key.indexOf("/");
+        return { projectName: key.slice(0, slash), agentName: key.slice(slash + 1) };
+      });
+  }
+
   getStatus(projectName: string, agentName: string): "stopped" | "idle" | "running" {
     const agent = this.get(projectName, agentName);
     if (!agent) return "stopped";

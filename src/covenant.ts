@@ -50,6 +50,16 @@ export const covenant = declareCovenant({
     }),
     deleteAgent: mutation({ input: AgentIdSchema, output: z.null() }),
 
+    // User
+    getUser: query({
+      input: z.null(),
+      output: z.object({ name: z.string(), email: z.string(), phone: z.string() }),
+    }),
+    updateUser: mutation({
+      input: z.object({ name: z.string().optional(), email: z.string().optional(), phone: z.string().optional() }),
+      output: z.null(),
+    }),
+
     // Lifecycle
     startAgent: mutation({ input: AgentIdSchema, output: z.null() }),
     stopAgent: mutation({ input: AgentIdSchema, output: z.null() }),
@@ -57,6 +67,10 @@ export const covenant = declareCovenant({
     getAgentStatus: query({
       input: AgentIdSchema,
       output: z.enum(["stopped", "idle", "running"]),
+    }),
+    listRunningAgents: query({
+      input: z.null(),
+      output: z.array(AgentIdSchema),
     }),
 
     // Tokens — read
