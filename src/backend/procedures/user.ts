@@ -20,9 +20,11 @@ export function registerUserProcedures(server: AppServer, store: AutosmithStore)
     resources: () => [],
     procedure: async ({ inputs }): Promise<"opened" | "failed"> => {
       const directory = store.agentWorkspacePath(inputs.project, inputs.agent);
-      const commandTemplate = (await store.getUser()).openCommand;
+      console.log(directory);
+      const user = await store.getUser();
+      const commandTemplate = user.openCommand;
 
-      if (!commandTemplate) {
+      if (commandTemplate === undefined) {
         return "failed";
       }
 

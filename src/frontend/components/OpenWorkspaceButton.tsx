@@ -21,7 +21,11 @@ export function OpenWorkspaceButton({ agent, project }: OpenWorkspaceButtonProps
     });
     setEnabled(true);
 
-    console.log(`Opening agent workspace: ${result}`)
+    if (result.success) {
+      console.log(`Tried to open agent workspace: ${result.data}`);
+    } else {
+      console.log(`Failed to open agent workspace: ${result.error}`);
+    }
   }
 
   return (
