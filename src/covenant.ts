@@ -59,6 +59,13 @@ export const covenant = declareCovenant({
       input: z.object({ name: z.string().optional(), email: z.string().optional(), phone: z.string().optional() }),
       output: z.null(),
     }),
+    openAgentWorkspace: mutation({
+      input: z.object({
+        project: z.string(),
+        agent: z.string(),
+      }),
+      output: z.enum(["opened", "failed"]),
+    }),
 
     // Lifecycle
     startAgent: mutation({ input: AgentIdSchema, output: z.null() }),

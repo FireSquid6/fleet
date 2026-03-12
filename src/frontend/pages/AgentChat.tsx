@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { PaperAirplaneIcon } from "@heroicons/react/24/solid";
-import { ArrowLeftIcon, PlayIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ArrowTopRightOnSquareIcon, PlayIcon } from "@heroicons/react/24/outline";
+import { OpenWorkspaceButton } from "../components/OpenWorkspaceButton";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { client } from "../client";
@@ -381,6 +382,7 @@ export default function AgentChat() {
           <h2 className="text-lg font-bold leading-tight">{agentName}</h2>
           <p className="text-xs text-base-content/50">{projectName}</p>
         </div>
+        <OpenWorkspaceButton agent={agentName ?? ""} project={projectName ?? ""} />
         <div className="ml-auto flex items-center gap-2">
           {connectionState === "connecting" && (
             <span className="flex items-center gap-1.5 text-xs text-base-content/50">
