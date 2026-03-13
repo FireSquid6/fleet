@@ -3,17 +3,17 @@ import { Link } from "react-router-dom";
 import { client } from "../client";
 
 const ART = `
-      |      |      |      |
-     /|\\    /|\\    /|\\    /|\\
-    / | \\  / | \\  / | \\  / | \\
-   /  |  \\/  |  \\/  |  \\/  |  \\
-  /   |   /   |   /   |   /   |  \\
- /    |  /    |  /    |  /    |   \\
-/_____|_/_____|_/_____|_/_____|____\\
-|  F  | |  L  | |  E  | |  E  | T |
-|_____|_|_____|_|_____|_|_____|____|
- ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~
-~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~
+
+-----Autosmith-----
+
+    /───────────┐
+   /             │
+┌──┘             │
+│   ╔═════════╗  │
+└───╚═╗     ╔═╝──┘
+   ╔══╝     ╚══╗
+   ╚═══════════╝
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 `.trim();
 
 const GREETINGS = [
@@ -48,10 +48,10 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 gap-8">
       <div className="text-center">
-        <pre className="text-sm text-primary bg-base-200 rounded-xl p-6 inline-block text-left border border-base-300 shadow-sm">
+        <h1 className="mt-6 text-4xl text-base-content/70">{phrase}</h1>
+        <pre className="text-lg text-primary bg-base-200 rounded-xl p-6 inline-block text-left border border-base-300 shadow-sm">
           {ART}
         </pre>
-        <p className="mt-6 text-lg text-base-content/70">{phrase}</p>
       </div>
 
       <div className="w-full max-w-sm">

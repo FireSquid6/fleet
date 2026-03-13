@@ -1,7 +1,6 @@
 import { declareCovenant, query, mutation, channel } from "@covenant-rpc/core";
 import { z } from "zod";
 
-// These are the canonical schemas — store/index.ts imports from here.
 
 export const projectSchema = z.object({
   provider: z.string(),
