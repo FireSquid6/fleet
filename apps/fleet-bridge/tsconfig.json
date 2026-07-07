@@ -25,5 +25,8 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
-  }
+  },
+  // Runtime bridge state (the persisted ships.json + any dev data) lives under the
+  // configured dataDirectory (default ./bridge-data); never typecheck it.
+  "exclude": ["bridge-data"]
 }

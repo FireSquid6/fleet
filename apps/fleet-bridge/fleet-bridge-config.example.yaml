@@ -1,0 +1,15 @@
+# Fleet Bridge configuration.
+#
+# Copy this file to `fleet-bridge-config.yaml` (or point `fleet-bridge start -c`
+# at your own copy) and adjust the values below.
+
+# Directory the bridge persists its state to. The roster of connected ships is
+# kept here as `ships.json` so the fleet survives a restart. Resolved to an
+# absolute path at load time.
+dataDirectory: ./bridge-data
+
+# Port the bridge's HTTP + WebSocket API listens on.
+port: 4800
+
+# Human-facing name of this bridge.
+name: my-bridge

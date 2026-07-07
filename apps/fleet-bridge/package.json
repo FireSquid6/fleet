@@ -1,8 +1,29 @@
 {
-  "name": "fleet-control",
+  "name": "fleet-bridge",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api/index.ts"
+  },
+  "bin": {
+    "fleet-bridge": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ../../tests/fleet-bridge"
+  },
+  "dependencies": {
+    "commander": "latest",
+    "elysia": "latest",
+    "@elysiajs/eden": "latest",
+    "yaml": "latest",
+    "zod": "latest",
+    "fleet-protocol": "workspace:*",
+    "fleet-ship": "workspace:*"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },

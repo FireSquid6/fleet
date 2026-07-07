@@ -35,7 +35,19 @@
       },
     },
     "apps/fleet-bridge": {
-      "name": "fleet-control",
+      "name": "fleet-bridge",
+      "bin": {
+        "fleet-bridge": "src/index.ts",
+      },
+      "dependencies": {
+        "@elysiajs/eden": "latest",
+        "commander": "latest",
+        "elysia": "latest",
+        "fleet-protocol": "workspace:*",
+        "fleet-ship": "workspace:*",
+        "yaml": "latest",
+        "zod": "latest",
+      },
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -288,7 +300,7 @@
 
     "file-type": ["file-type@22.0.1", "", { "dependencies": { "@tokenizer/inflate": "^0.4.1", "strtok3": "^10.3.5", "token-types": "^6.1.2", "uint8array-extras": "^1.5.0" } }, "sha512-ww5Mhre0EE+jmBvOXTmXAbEMuZE7uX4a3+oRCQFNj8w++g3ev913N6tXQz0XTXbueQ5TWQfm6BdaViEHHn8bhA=="],
 
-    "fleet-control": ["fleet-control@workspace:apps/fleet-bridge"],
+    "fleet-bridge": ["fleet-bridge@workspace:apps/fleet-bridge"],
 
     "fleet-protocol": ["fleet-protocol@workspace:packages/fleet-protocol"],
 
