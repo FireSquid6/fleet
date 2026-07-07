@@ -1,10 +1,14 @@
 /**
  * config.ts — loads and validates the Fleet Ship configuration YAML.
+ *
+ * The shape is validated against `FleetShipConfigSchema` (a zod schema owned by
+ * `fleet-protocol`); this loader only handles IO, YAML parsing, and resolving
+ * `fleetDirectory` to an absolute path.
  */
 
 import { resolve } from "node:path";
 import { parse } from "yaml";
-import type { FleetShipConfig } from "fleet-protocol";
+import { FleetShipConfigSchema, type FleetShipConfig } from "fleet-protocol";
 
 /** Read, parse, and validate a `fleet-ship-config.yaml` at `path`. */
 export async function loadConfig(path: string): Promise<FleetShipConfig> {
@@ -21,30 +25,8 @@ export async function loadConfig(path: string): Promise<FleetShipConfig> {
     throw new Error(`failed to parse config file ${path} as YAML: ${(err as Error).message}`);
   }
 
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(`config file ${path} must contain a YAML mapping`);
-  }
-
-  const obj = parsed as Record<string, unknown>;
-
-  const fleetDirectory = obj["fleetDirectory"];
-  if (typeof fleetDirectory !== "string" || fleetDirectory.length === 0) {
-    throw new Error(`config file ${path}: "fleetDirectory" must be a non-empty string`);
-  }
-
-  const port = obj["port"];
-  if (typeof port !== "number" || !Number.isInteger(port)) {
-    throw new Error(`config file ${path}: "port" must be a number`);
-  }
-
-  const name = obj["name"];
-  if (typeof name !== "string" || name.length === 0) {
-    throw new Error(`config file ${path}: "name" must be a non-empty string`);
-  }
-
-  return {
-    fleetDirectory: resolve(fleetDirectory),
-    port,
-    name,
-  };
+  // Validate the raw shape against the shared zod schema, then resolve the
+  // workspace directory to an absolute path (relative to the current cwd).
+  const config = FleetShipConfigSchema.parse(parsed);
+  return { ...config, fleetDirectory: resolve(config.fleetDirectory) };
 }

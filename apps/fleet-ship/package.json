@@ -19,6 +19,7 @@
     "commander": "latest",
     "elysia": "latest",
     "yaml": "latest",
+    "zod": "latest",
     "tmux-bun": "workspace:*",
     "git-bun": "workspace:*",
     "fleet-protocol": "workspace:*",
