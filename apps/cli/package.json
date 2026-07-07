@@ -3,6 +3,20 @@
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "fleet-cli": "src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ../../tests/cli"
+  },
+  "dependencies": {
+    "commander": "latest",
+    "@elysiajs/eden": "latest",
+    "elysia": "latest",
+    "fleet-protocol": "workspace:*",
+    "fleet-ship": "workspace:*"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
