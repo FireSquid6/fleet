@@ -1,0 +1,33 @@
+{
+  "name": "fleet-ship",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api.ts"
+  },
+  "bin": {
+    "fleet-ship": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ../../tests/fleet-ship"
+  },
+  "dependencies": {
+    "commander": "latest",
+    "elysia": "latest",
+    "yaml": "latest",
+    "tmux-bun": "workspace:*",
+    "git-bun": "workspace:*",
+    "fleet-protocol": "workspace:*",
+    "webterm": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Terminal } from "libghostty-bun";
-import { encodeCell, serializeGrid } from "./encode";
+import { encodeCell, serializeGrid } from "webterm";
 
 /** libghostty needs a native shim built; skip the suite if it isn't available. */
 function ghosttyAvailable(): boolean {

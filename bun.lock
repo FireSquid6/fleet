@@ -6,6 +6,9 @@
       "name": "autosmith",
       "devDependencies": {
         "@types/bun": "latest",
+        "git-bun": "workspace:*",
+        "libghostty-bun": "workspace:*",
+        "webterm": "workspace:*",
       },
       "peerDependencies": {
         "typescript": "^5",
@@ -20,8 +23,8 @@
         "@elysiajs/eden": "latest",
         "commander": "latest",
         "elysia": "latest",
-        "fleet-host": "workspace:*",
         "fleet-protocol": "workspace:*",
+        "fleet-ship": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -62,8 +65,8 @@
         "typescript": "^5",
       },
     },
-    "apps/fleet-host": {
-      "name": "fleet-host",
+    "apps/fleet-ship": {
+      "name": "fleet-ship",
       "bin": {
         "fleet-ship": "src/index.ts",
       },
@@ -282,9 +285,9 @@
 
     "fleet-control": ["fleet-control@workspace:apps/fleet-control"],
 
-    "fleet-host": ["fleet-host@workspace:apps/fleet-host"],
-
     "fleet-protocol": ["fleet-protocol@workspace:packages/fleet-protocol"],
+
+    "fleet-ship": ["fleet-ship@workspace:apps/fleet-ship"],
 
     "get-nonce": ["get-nonce@1.0.1", "", {}, "sha512-FJhYRoDaiatfEkUK8HKlicmu/3SGFD51q3itKDGoSTysQJBnfOcxU5GxnhE1E6soB76MbT0MBtnKJuXyAx+96Q=="],
 

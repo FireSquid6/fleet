@@ -8,7 +8,7 @@
     "./protocol": "./protocol.ts"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test ../../tests/webterm",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
