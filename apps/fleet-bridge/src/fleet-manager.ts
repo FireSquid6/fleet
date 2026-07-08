@@ -52,7 +52,6 @@ export interface CreateWorkspaceInput {
   readonly ship: string;
 }
 
-/** An Eden Treaty call result. */
 type EdenResult<T> = { data: T | null; error: unknown };
 
 export class FleetManager {

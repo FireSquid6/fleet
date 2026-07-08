@@ -60,13 +60,10 @@ export interface Cell {
   readonly char: string;
   /** The primary Unicode scalar value, or 0 if the cell is empty. */
   readonly codepoint: number;
-  /** Whether the cell has renderable text. */
   readonly hasText: boolean;
   /** Width classification (wide chars occupy two cells). */
   readonly width: CellWidth;
-  /** Foreground color. */
   readonly fg: Color;
-  /** Background color. */
   readonly bg: Color;
   /** Text-decoration flags. */
   readonly style: CellStyle;
@@ -205,7 +202,6 @@ export class Terminal {
     return this.#decodeCell();
   }
 
-  /** Read the current cursor position and state. */
   cursor(): CursorState {
     const ptr = this.#assertAlive();
     return {

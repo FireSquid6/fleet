@@ -66,7 +66,6 @@ export class Git {
     this.env = options.env;
   }
 
-  /** The working directory this instance is bound to. */
   get cwd(): string {
     return this.command.cwd;
   }

@@ -34,7 +34,6 @@ export class Window {
     return res.exitCode === 0 && res.stdout.trim().length > 0;
   }
 
-  /** Rename the window. */
   async rename(name: string): Promise<void> {
     await this.cmd.run(["rename-window", "-t", this.target, name]);
   }
@@ -58,7 +57,6 @@ export class Window {
     return new Pane(this.cmd, this.target).split(options);
   }
 
-  /** List the panes in this window. */
   async listPanes(): Promise<PaneInfo[]> {
     const out = await this.cmd.run(["list-panes", "-t", this.target, "-F", PANE_FORMAT]);
     return parsePanes(out);

@@ -58,11 +58,8 @@ export interface WorktreeInfo {
   sha: string;
   /** Checked-out branch name (without `refs/heads/`), or `undefined` if detached/bare. */
   branch?: string;
-  /** Whether this worktree has a detached HEAD. */
   detached: boolean;
-  /** Whether this worktree is bare. */
   bare: boolean;
-  /** Whether this worktree is locked. */
   locked: boolean;
 }
 
@@ -72,7 +69,6 @@ export interface BranchInfo {
   name: string;
   /** Commit hash the branch points at. */
   sha: string;
-  /** Whether this is the currently checked-out branch. */
   current: boolean;
   /** Upstream tracking branch (e.g. `"origin/main"`), or `undefined` if none. */
   upstream?: string;

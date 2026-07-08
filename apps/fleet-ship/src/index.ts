@@ -1,8 +1,4 @@
 #!/usr/bin/env bun
-/**
- * index.ts — Fleet Ship CLI entry point.
- */
-
 import { Command } from "commander";
 import { loadConfig } from "./config";
 import { WorkspaceManager } from "./workspace-manager";

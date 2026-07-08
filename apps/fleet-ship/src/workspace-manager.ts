@@ -87,7 +87,6 @@ export class WorkspaceManager {
     return `${sanitize(repo)}__${sanitize(name)}`;
   }
 
-  /** Absolute directory a workspace lives at. */
   workspaceDir(repo: string, name: string): string {
     return join(this.config.fleetDirectory, repo, name);
   }

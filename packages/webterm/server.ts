@@ -71,7 +71,6 @@ export class TerminalBridge {
     });
   }
 
-  /** Forward keystrokes / paste bytes to the PTY. */
   input(data: string): void {
     this.proc?.terminal?.write(data);
   }
@@ -84,7 +83,6 @@ export class TerminalBridge {
     this.scheduleFrame();
   }
 
-  /** Dispatch a decoded client message to the right handler. */
   handle(msg: ClientMsg): void {
     switch (msg.type) {
       case "init":

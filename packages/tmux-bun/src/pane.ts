@@ -73,7 +73,6 @@ export class Pane {
     await this.cmd.run(args);
   }
 
-  /** Kill this pane. */
   async kill(): Promise<void> {
     await this.cmd.run(["kill-pane", "-t", this.target]);
   }

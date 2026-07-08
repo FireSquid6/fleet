@@ -12,7 +12,6 @@
 import { z } from "zod";
 import { WorkspaceSummarySchema } from "./workspace";
 
-/** Fields present on every event. */
 const EventBase = z.object({
   /** Name of the ship (from its config) that emitted the event. */
   ship: z.string(),
@@ -32,7 +31,6 @@ export const WorkspaceCreatedEventSchema = EventBase.extend({
   workspace: WorkspaceSummarySchema,
 });
 
-/** A workspace's branch was switched. */
 export const WorkspaceBranchChangedEventSchema = EventBase.extend({
   type: z.literal("workspace.branch_changed"),
   workspace: WorkspaceSummarySchema,

@@ -30,7 +30,6 @@ export class Tmux {
     this.command = new TmuxCommand(options, backend);
   }
 
-  /** The namespace this instance is bound to. */
   get namespace(): string {
     return this.command.namespace;
   }

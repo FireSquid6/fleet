@@ -6,7 +6,6 @@ export interface SessionInfo {
   /** Server-unique id, e.g. `"$0"`. Usable directly as a `-t` target. */
   id: string;
   name: string;
-  /** Number of windows in the session. */
   windows: number;
   /** Whether a client is currently attached. Headless sessions are `false`. */
   attached: boolean;
@@ -23,7 +22,6 @@ export interface WindowInfo {
   index: number;
   /** Whether this is the session's active window. */
   active: boolean;
-  /** Number of panes in the window. */
   panes: number;
   width: number;
   height: number;

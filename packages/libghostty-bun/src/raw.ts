@@ -26,7 +26,6 @@ import { fileURLToPath } from "node:url";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
-/** Absolute path to the compiled shim shared library. */
 export const SHIM_PATH = join(HERE, "..", "prebuilds", `ghostty_vt_shim.${suffix}`);
 
 if (!existsSync(SHIM_PATH)) {

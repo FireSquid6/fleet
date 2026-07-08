@@ -60,7 +60,6 @@ export function toWsUrl(httpUrl: string, path: string): string {
 export class ShipConnection {
   /** Discovered ship name (from its config, learned via the event stream). */
   name: string;
-  /** Base HTTP url of the ship. */
   readonly url: string;
   /** Whether a `/events` socket is currently open. */
   status: ShipStatus = "offline";

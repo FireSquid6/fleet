@@ -17,7 +17,6 @@ describe("acceptance criteria", () => {
       const a = term.cell(0, 0);
       const b = term.cell(0, 1);
 
-      // Characters landed in the right cells.
       expect(a.char).toBe("h");
       expect(a.codepoint).toBe(0x68); // 'h'
       expect(b.char).toBe("i");
@@ -40,7 +39,6 @@ describe("acceptance criteria", () => {
   test("cursor-move + overwrite reflects correctly in the grid", () => {
     using term = new Terminal({ cols: 80, rows: 24 });
 
-    // Print "AAAAA" on row 0.
     term.write("AAAAA");
     expect(term.rowText(0)).toBe("AAAAA");
 

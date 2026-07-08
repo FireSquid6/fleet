@@ -31,7 +31,6 @@ export class Session {
     return res.exitCode === 0;
   }
 
-  /** Rename the session. */
   async rename(name: string): Promise<void> {
     await this.cmd.run(["rename-session", "-t", this.target, name]);
   }
@@ -55,7 +54,6 @@ export class Session {
     return new Window(this.cmd, id);
   }
 
-  /** List the windows in this session. */
   async listWindows(): Promise<WindowInfo[]> {
     const out = await this.cmd.run(["list-windows", "-t", this.target, "-F", WINDOW_FORMAT]);
     return parseWindows(out);

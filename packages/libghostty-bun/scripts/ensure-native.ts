@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Path to the compiled shim for the current platform. */
 export const SHIM_PATH = join(ROOT, "prebuilds", `ghostty_vt_shim.${suffix}`);
 
 /** True if a prebuilt shim for the current platform is already present. */
