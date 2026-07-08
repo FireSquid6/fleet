@@ -5,7 +5,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./api": "./src/api.ts"
+    "./api": "./src/api/index.ts"
   },
   "bin": {
     "fleet-ship": "src/index.ts"

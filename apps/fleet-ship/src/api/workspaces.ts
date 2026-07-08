@@ -1,34 +1,20 @@
 /**
- * api.ts — the Fleet Ship HTTP + WebSocket API, built as a single Elysia
- * chain so Eden Treaty can infer route types from `typeof app` on the CLI side.
+ * api/workspaces.ts — the ship's workspace routes plus the per-workspace
+ * terminal WebSocket. One Elysia chain so route types stay inferable for Eden.
  */
 
 import { Elysia, t } from "elysia";
 import { TerminalBridge } from "webterm";
 import type { ClientMsg, ServerMsg } from "webterm/protocol";
-import { WorkspaceError, WorkspaceManager } from "./workspace-manager";
-import type { FleetShipConfig } from "fleet-protocol";
+import type { WorkspaceManager } from "../workspace-manager";
+import { mapError } from "./http";
 
 // One terminal connection per workspace session — guards against two browser
 // tabs racing to attach the same tmux session through separate PTYs.
 const activeTerminals = new Map<string, true>();
 
-function mapError(err: unknown): { status: number; body: { error: string } } {
-  if (err instanceof WorkspaceError) {
-    return { status: err.status, body: { error: err.message } };
-  }
-  return { status: 500, body: { error: err instanceof Error ? err.message : String(err) } };
-}
-
-export function createApp(manager: WorkspaceManager, config: FleetShipConfig) {
-  // Fan workspace state-change events out to every connected /events client.
-  const eventClients = new Set<{ send: (data: string) => unknown }>();
-  manager.subscribe((event) => {
-    const payload = JSON.stringify(event);
-    for (const client of eventClients) client.send(payload);
-  });
-
-  return new Elysia()
+export function workspacesPlugin(manager: WorkspaceManager) {
+  return new Elysia({ name: "ship-workspaces" })
     .get(
       "/workspaces",
       async ({ query, set }) => {
@@ -164,21 +150,5 @@ export function createApp(manager: WorkspaceManager, config: FleetShipConfig) {
         data.bridge?.stop();
         if (data.sessionName) activeTerminals.delete(data.sessionName);
       },
-    })
-    .ws("/events", {
-      async open(ws) {
-        // Register first so a change emitted during the snapshot is still delivered
-        // (change events embed the full summary, so an overlap is idempotent).
-        eventClients.add(ws);
-        ws.send(JSON.stringify(await manager.snapshotEvent()));
-      },
-      message() {
-        // Read-only stream: ignore anything the client sends.
-      },
-      close(ws) {
-        eventClients.delete(ws);
-      },
     });
 }
-
-export type App = ReturnType<typeof createApp>;
