@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "drizzle-kit";
 
 // The ephemeral schema tests migrate against: deleted and regenerated from an empty
-// database before every test run (see tests/fleet-bridge/setup.ts).
+// database before every test run (see tests/setup.ts).
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export default defineConfig({

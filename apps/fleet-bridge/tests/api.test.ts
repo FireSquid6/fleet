@@ -8,10 +8,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FleetManager } from "../../apps/fleet-bridge/src/fleet-manager";
-import { createApp } from "../../apps/fleet-bridge/src/api";
-import { getDb } from "../../apps/fleet-bridge/src/db";
-import { ShipService } from "../../apps/fleet-bridge/src/services/ship-service";
+import { FleetManager } from "../src/fleet-manager";
+import { createApp } from "../src/api";
+import { getDb } from "../src/db";
+import { ShipService } from "../src/services/ship-service";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
 describe("bridge API", () => {

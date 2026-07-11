@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../../apps/fleet-ship/src/config";
+import { loadConfig } from "../src/config";
 
 describe("loadConfig", () => {
   test("parses a valid config file into a FleetShipConfig", async () => {

@@ -4,7 +4,7 @@
  * override any of them per test to assert error mapping and status codes.
  */
 
-import type { WorkspaceManager } from "../../apps/fleet-ship/src/workspace-manager";
+import type { WorkspaceManager } from "../src/workspace-manager";
 
 export function stubManager(overrides: Record<string, unknown> = {}): WorkspaceManager {
   const base: Record<string, unknown> = {

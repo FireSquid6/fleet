@@ -13,7 +13,7 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ../../tests/fleet-ship"
+    "test": "bun test tests"
   },
   "dependencies": {
     "commander": "latest",

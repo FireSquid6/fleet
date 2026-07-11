@@ -1,3 +1,0 @@
-[test]
-# Rebuild fleet-bridge's ephemeral drizzle migrations from an empty DB before each run.
-preload = ["./tests/fleet-bridge/setup.ts"]

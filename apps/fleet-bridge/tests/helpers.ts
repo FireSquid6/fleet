@@ -10,7 +10,7 @@
 
 import { basename } from "node:path";
 import type { FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
-import type { ShipConnectionDeps, SocketLike } from "../../apps/fleet-bridge/src/ship-connection";
+import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 
 /** A ship the fakes pretend exists at a given base URL. */
 export interface FakeShip {

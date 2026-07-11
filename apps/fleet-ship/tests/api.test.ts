@@ -6,8 +6,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { createApp } from "../../apps/fleet-ship/src/api";
-import { WorkspaceError } from "../../apps/fleet-ship/src/workspace-manager";
+import { createApp } from "../src/api";
+import { WorkspaceError } from "../src/workspace-manager";
 import { stubConfig, stubManager } from "./helpers";
 
 function makeApp(overrides: Record<string, unknown> = {}) {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { collectSystemResources } from "../../apps/fleet-ship/src/api/system-resources";
+import { collectSystemResources } from "../src/api/system-resources";
 
 describe("collectSystemResources", () => {
   test("reports plausible host resource values", async () => {

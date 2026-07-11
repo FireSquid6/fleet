@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeUrl } from "../../apps/cli/src/client";
+import { normalizeUrl } from "../src/client";
 
 describe("normalizeUrl", () => {
   test("passes through a full http URL unchanged", () => {

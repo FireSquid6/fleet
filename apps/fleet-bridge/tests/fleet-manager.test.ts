@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BridgeError, FleetManager } from "../../apps/fleet-bridge/src/fleet-manager";
-import { getDb, type Db } from "../../apps/fleet-bridge/src/db";
-import { ShipService } from "../../apps/fleet-bridge/src/services/ship-service";
+import { BridgeError, FleetManager } from "../src/fleet-manager";
+import { getDb, type Db } from "../src/db";
+import { ShipService } from "../src/services/ship-service";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
 describe("FleetManager", () => {

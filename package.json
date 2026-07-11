@@ -4,8 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "bun test tests",
-    "typecheck:tests": "tsc --noEmit -p tests/tsconfig.json"
+    "test": "bun run --filter='*' test",
+    "typecheck": "bun run --filter='*' typecheck"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -6,8 +6,8 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { ShipConnection, toWsUrl, type SocketLike } from "../../apps/fleet-bridge/src/ship-connection";
-import type { ShipStatus } from "../../apps/fleet-bridge/src/types";
+import { ShipConnection, toWsUrl, type SocketLike } from "../src/ship-connection";
+import type { ShipStatus } from "../src/types";
 
 class ManualSocket implements SocketLike {
   onopen: ((ev: unknown) => void) | null = null;

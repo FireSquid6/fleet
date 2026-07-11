@@ -6,8 +6,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { FleetEvent } from "fleet-protocol";
-import { createApp } from "../../apps/fleet-ship/src/api";
-import type { WorkspaceManager } from "../../apps/fleet-ship/src/workspace-manager";
+import { createApp } from "../src/api";
+import type { WorkspaceManager } from "../src/workspace-manager";
 import { stubConfig } from "./helpers";
 
 /** Stub manager whose `subscribe` feeds an `emit()` the test can call. */

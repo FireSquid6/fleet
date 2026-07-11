@@ -13,7 +13,7 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ../../tests/fleet-bridge",
+    "test": "bun test tests",
     "db:generate": "drizzle-kit generate --config drizzle-configs/dev.config.ts"
   },
   "dependencies": {

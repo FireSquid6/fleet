@@ -14,7 +14,7 @@ export function getDb(config: BridgeConfig) {
   let migrationsFolder: string;
   if (config.ephemeralDb === true) {
     sqlite = new Database(":memory:");
-    // Regenerated from an empty DB before every test run (tests/fleet-bridge/setup.ts).
+    // Regenerated from an empty DB before every test run (tests/setup.ts).
     migrationsFolder = migrations("ephemeral");
   } else {
     fs.mkdirSync(config.dataDirectory, { recursive: true });

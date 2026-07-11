@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Git } from "git-bun";
 import type { FleetEvent } from "fleet-protocol";
-import { WorkspaceError, WorkspaceManager } from "../../apps/fleet-ship/src/workspace-manager";
+import { WorkspaceError, WorkspaceManager } from "../src/workspace-manager";
 
 const config = { fleetDirectory: "/tmp/fleet-ship-test-fleet", port: 4700, name: "test-ship" };
 

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test ../../tests/cli"
+    "test": "bun test tests"
   },
   "dependencies": {
     "commander": "latest",

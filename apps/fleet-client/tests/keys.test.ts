@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeKeyEvent, type KeyEventLike } from "../../apps/fleet-client/src/lib/webterm/keys";
+import { encodeKeyEvent, type KeyEventLike } from "../src/lib/webterm/keys";
 
 function ev(partial: Partial<KeyEventLike> & { key: string }): KeyEventLike {
   return { ctrlKey: false, metaKey: false, altKey: false, ...partial };

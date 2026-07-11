@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatWorkspaceTable } from "../../apps/cli/src/format";
+import { formatWorkspaceTable } from "../src/format";
 
 describe("formatWorkspaceTable", () => {
   test("renders headers only for an empty list", () => {
