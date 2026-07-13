@@ -10,7 +10,7 @@ function ActiveFill() {
 }
 
 export function Sidebar() {
-  const { repos, liveCount } = useFleet();
+  const { repos, workspaces, liveCount } = useFleet();
 
   return (
     <aside className="flex h-full w-[220px] flex-none flex-col border-r border-line bg-panel">
@@ -40,15 +40,17 @@ export function Sidebar() {
 
         {repos.map((r) => (
           <NavLink
-            key={r.repo}
-            to={`/repos/${r.repo}`}
+            key={r.name}
+            to={`/repos/${r.name}`}
             className="relative flex w-full items-center gap-2 rounded-[3px] px-[10px] py-[7px] text-left font-mono transition-colors hover:bg-panel2"
           >
             {({ isActive }) => (
               <>
                 {isActive && <ActiveFill />}
-                <span className="relative z-[1] flex-1 text-[11.5px] text-text">{r.repo}</span>
-                <span className="relative z-[1] text-[10px] text-dim2">{r.workspaces}</span>
+                <span className="relative z-[1] flex-1 text-[11.5px] text-text">{r.name}</span>
+                <span className="relative z-[1] text-[10px] text-dim2">
+                  {workspaces.filter((w) => w.repoName === r.name).length}
+                </span>
               </>
             )}
           </NavLink>

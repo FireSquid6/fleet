@@ -38,18 +38,7 @@ export interface ShipSystemResources {
   readonly error: string | null;
 }
 
-/**
- * A repo merged across the fleet by `GET /repos`: workspace counts summed and the
- * hosting ships collected. `remote` is the first non-null origin seen for the repo.
- */
-export interface FleetRepo {
-  repo: string;
-  remote: string | null;
-  workspaces: number;
-  ships: string[];
-}
-
-/** Fleet-wide identity of a workspace: `<repo>/<name>` (unique across all ships). */
-export function workspaceKey(repo: string, name: string): string {
-  return `${repo}/${name}`;
+/** Fleet-wide identity of a workspace: `<repoName>/<name>` (unique across all ships). */
+export function workspaceKey(repoName: string, name: string): string {
+  return `${repoName}/${name}`;
 }

@@ -68,56 +68,57 @@ suite("WorkspaceManager end-to-end", () => {
     // Clean up any tmux sessions this suite may have started.
     const active = await manager.list("active");
     for (const w of active) {
-      await manager.deactivate(w.repo, w.name).catch(() => {});
+      await manager.deactivate(w.repoName, w.name).catch(() => {});
     }
     await rm(fleetDirectory, { recursive: true, force: true });
     await rm(sourceRepo, { recursive: true, force: true });
   });
 
   test("create clones a repo and leaves the workspace inactive", async () => {
-    const summary = await manager.create({ repo: sourceRepo, name: "ws1", branch: "main" });
+    const summary = await manager.create({ url: sourceRepo, repoName: "repo", name: "ws1", branch: "main" });
+    expect(summary.repoName).toBe("repo");
     expect(summary.name).toBe("ws1");
     expect(summary.branch).toBe("main");
     expect(summary.active).toBe(false);
 
-    const status = await manager.get(summary.repo, "ws1");
+    const status = await manager.get(summary.repoName, "ws1");
     expect(status.state).toBe("inactive");
   });
 
-  test("create rejects a duplicate (repo, name)", async () => {
-    const summary = await manager.create({ repo: sourceRepo, name: "ws-dup", branch: "main" });
-    await expect(manager.create({ repo: sourceRepo, name: "ws-dup", branch: "main" })).rejects.toThrow(
-      WorkspaceError,
-    );
+  test("create rejects a duplicate (repoName, name)", async () => {
+    await manager.create({ url: sourceRepo, repoName: "repo", name: "ws-dup", branch: "main" });
+    await expect(
+      manager.create({ url: sourceRepo, repoName: "repo", name: "ws-dup", branch: "main" }),
+    ).rejects.toThrow(WorkspaceError);
   });
 
   test("activate/deactivate toggle tmux session state", async () => {
-    const summary = await manager.create({ repo: sourceRepo, name: "ws2", branch: "main" });
+    const summary = await manager.create({ url: sourceRepo, repoName: "repo", name: "ws2", branch: "main" });
 
-    await manager.activate(summary.repo, "ws2");
-    const activeStatus = await manager.get(summary.repo, "ws2");
+    await manager.activate(summary.repoName, "ws2");
+    const activeStatus = await manager.get(summary.repoName, "ws2");
     expect(activeStatus.state).toBe("active");
     if (activeStatus.state === "active") {
       expect(activeStatus.ship).toBe("test-ship");
       expect(activeStatus.diff).toEqual({ added: 0, removed: 0, commits: 0 });
     }
 
-    await expect(manager.activate(summary.repo, "ws2")).rejects.toThrow(WorkspaceError);
+    await expect(manager.activate(summary.repoName, "ws2")).rejects.toThrow(WorkspaceError);
 
-    await manager.deactivate(summary.repo, "ws2");
-    const inactiveStatus = await manager.get(summary.repo, "ws2");
+    await manager.deactivate(summary.repoName, "ws2");
+    const inactiveStatus = await manager.get(summary.repoName, "ws2");
     expect(inactiveStatus.state).toBe("inactive");
 
-    await expect(manager.deactivate(summary.repo, "ws2")).rejects.toThrow(WorkspaceError);
+    await expect(manager.deactivate(summary.repoName, "ws2")).rejects.toThrow(WorkspaceError);
   });
 
   test("remove deactivates and deletes the workspace directory", async () => {
-    const summary = await manager.create({ repo: sourceRepo, name: "ws3", branch: "main" });
-    await manager.activate(summary.repo, "ws3");
-    await manager.remove(summary.repo, "ws3");
+    const summary = await manager.create({ url: sourceRepo, repoName: "repo", name: "ws3", branch: "main" });
+    await manager.activate(summary.repoName, "ws3");
+    await manager.remove(summary.repoName, "ws3");
 
-    expect(await manager.has(summary.repo, "ws3")).toBe(false);
-    await expect(manager.get(summary.repo, "ws3")).rejects.toThrow(WorkspaceError);
+    expect(await manager.has(summary.repoName, "ws3")).toBe(false);
+    await expect(manager.get(summary.repoName, "ws3")).rejects.toThrow(WorkspaceError);
   });
 
   test("list filters by active state", async () => {
@@ -133,12 +134,12 @@ suite("WorkspaceManager end-to-end", () => {
     const events: FleetEvent[] = [];
     const unsubscribe = manager.subscribe((e) => events.push(e));
     try {
-      const created = await manager.create({ repo: sourceRepo, name: "ws-events", branch: "main" });
-      const repo = created.repo;
-      await manager.activate(repo, "ws-events");
-      await manager.switchBranch(repo, "ws-events", { branch: "feature" });
-      await manager.deactivate(repo, "ws-events");
-      await manager.remove(repo, "ws-events");
+      const created = await manager.create({ url: sourceRepo, repoName: "repo", name: "ws-events", branch: "main" });
+      const repoName = created.repoName;
+      await manager.activate(repoName, "ws-events");
+      await manager.switchBranch(repoName, "ws-events", { branch: "feature" });
+      await manager.deactivate(repoName, "ws-events");
+      await manager.remove(repoName, "ws-events");
     } finally {
       unsubscribe();
     }
@@ -164,15 +165,15 @@ suite("WorkspaceManager end-to-end", () => {
 
     // The unsubscribe should stop further delivery.
     const before = events.length;
-    await manager.create({ repo: sourceRepo, name: "ws-events-2", branch: "main" });
+    await manager.create({ url: sourceRepo, repoName: "repo", name: "ws-events-2", branch: "main" });
     expect(events.length).toBe(before);
   });
 
   test("diffSummary counts working-tree changes and commits ahead", async () => {
-    const summary = await manager.create({ repo: sourceRepo, name: "ws-diff", branch: "main" });
-    await manager.activate(summary.repo, "ws-diff");
+    const summary = await manager.create({ url: sourceRepo, repoName: "repo", name: "ws-diff", branch: "main" });
+    await manager.activate(summary.repoName, "ws-diff");
 
-    const wsDir = manager.workspaceDir(summary.repo, "ws-diff");
+    const wsDir = manager.workspaceDir(summary.repoName, "ws-diff");
     const git = new Git({ cwd: wsDir });
     await git.setConfig("user.email", "test@example.com");
     await git.setConfig("user.name", "Test");
@@ -184,17 +185,17 @@ suite("WorkspaceManager end-to-end", () => {
     // …plus an uncommitted edit on top.
     await Bun.write(join(wsDir, "README.md"), "hello\nsecond\nthird\n");
 
-    const status = await manager.get(summary.repo, "ws-diff");
+    const status = await manager.get(summary.repoName, "ws-diff");
     expect(status.state).toBe("active");
     if (status.state === "active") {
       expect(status.diff.added).toBeGreaterThan(0);
       expect(status.diff.commits).toBeGreaterThanOrEqual(1);
     }
 
-    await manager.remove(summary.repo, "ws-diff");
+    await manager.remove(summary.repoName, "ws-diff");
   });
 
-  test("create derives repo id from a .git URL basename", async () => {
+  test("create places the clone under the given repoName, not the URL basename", async () => {
     const base = await mkdtemp(join(tmpdir(), "fleet-ship-proj-"));
     const projRepo = join(base, "proj.git");
     try {
@@ -205,8 +206,9 @@ suite("WorkspaceManager end-to-end", () => {
       await git.setConfig("user.name", "Test");
       await git.commit("initial");
 
-      const summary = await manager.create({ repo: projRepo, name: "c1", branch: "main" });
-      expect(summary.repo).toBe("proj");
+      const summary = await manager.create({ url: projRepo, repoName: "my-proj", name: "c1", branch: "main" });
+      expect(summary.repoName).toBe("my-proj");
+      expect(await manager.has("my-proj", "c1")).toBe(true);
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -216,19 +218,5 @@ suite("WorkspaceManager end-to-end", () => {
     await mkdir(join(fleetDirectory, "junkrepo", "notaworkspace"), { recursive: true });
     const all = await manager.list();
     expect(all.some((w) => w.name === "notaworkspace")).toBe(false);
-  });
-
-  test("listRepos groups workspaces by repo with the origin remote", async () => {
-    const created = await manager.create({ repo: sourceRepo, name: "repos-a", branch: "main" });
-    await manager.create({ repo: sourceRepo, name: "repos-b", branch: "main" });
-
-    const repos = await manager.listRepos();
-    const entry = repos.find((r) => r.repo === created.repo);
-    expect(entry).toBeDefined();
-    expect(entry?.workspaces).toBeGreaterThanOrEqual(2);
-    expect(entry?.remote).toBe(sourceRepo);
-
-    await manager.remove(created.repo, "repos-a");
-    await manager.remove(created.repo, "repos-b");
   });
 });

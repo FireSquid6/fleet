@@ -59,7 +59,7 @@ program
     const result = await client().workspaces({ repo })({ name }).get();
     const status = unwrap(result) as WorkspaceStatus;
 
-    console.log(`repo:   ${status.repo}`);
+    console.log(`repo:   ${status.repoName}`);
     console.log(`name:   ${status.name}`);
     console.log(`branch: ${status.branch}`);
     console.log(`state:  ${status.state}`);
@@ -75,14 +75,20 @@ program
 program
   .command("create")
   .description("create a new workspace by cloning a repo/branch")
-  .argument("<repoOrUrl>", "clone URL or repo name")
+  .argument("<repoName>", "repo name (the directory the clone lands under)")
   .argument("<name>", "workspace name")
+  .requiredOption("-u, --url <url>", "git clone URL")
   .requiredOption("-b, --branch <branch>", "branch to check out")
-  .action(async (repoOrUrl: string, name: string, options: { branch: string }) => {
-    const result = await client().workspaces.post({ repo: repoOrUrl, name, branch: options.branch });
+  .action(async (repoName: string, name: string, options: { url: string; branch: string }) => {
+    const result = await client().workspaces.post({
+      url: options.url,
+      repoName,
+      name,
+      branch: options.branch,
+    });
     const summary = unwrap(result) as WorkspaceSummary;
 
-    console.log(`created workspace ${summary.repo}/${summary.name} on branch ${summary.branch}`);
+    console.log(`created workspace ${summary.repoName}/${summary.name} on branch ${summary.branch}`);
   });
 
 program

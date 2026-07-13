@@ -6,14 +6,14 @@ import { Terminal } from "@/components/Terminal";
 export function WorkspaceRoute() {
   const { repo = "", name = "" } = useParams();
   const { workspaces, activate, deactivate } = useFleet();
-  const ws = workspaces.find((w) => w.repo === repo && w.name === name);
+  const ws = workspaces.find((w) => w.repoName === repo && w.name === name);
 
   if (!ws) {
     return <div className="px-[30px] py-[28px] font-mono text-[12px] text-dim">workspace not found</div>;
   }
 
   const active = ws.active;
-  const siblings = workspaces.filter((w) => w.repo === repo);
+  const siblings = workspaces.filter((w) => w.repoName === repo);
 
   return (
     <div className="flex h-full flex-col px-[30px] pb-6 pt-[24px]">

@@ -50,10 +50,10 @@ export function workspacesPlugin(manager: FleetManager) {
       },
       {
         body: t.Object({
-          repo: t.String(),
+          ship: t.String(),
+          repoName: t.String(),
           name: t.String(),
           branch: t.String(),
-          ship: t.String(),
         }),
       },
     )

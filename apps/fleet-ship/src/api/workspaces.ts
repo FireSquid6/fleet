@@ -63,7 +63,8 @@ export function workspacesPlugin(manager: WorkspaceManager) {
       },
       {
         body: t.Object({
-          repo: t.String(),
+          url: t.String(),
+          repoName: t.String(),
           name: t.String(),
           branch: t.String(),
         }),

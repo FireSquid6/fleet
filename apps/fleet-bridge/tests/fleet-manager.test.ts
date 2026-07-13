@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { BridgeError, FleetManager } from "../src/fleet-manager";
 import { getDb, type Db } from "../src/db";
 import { ShipService } from "../src/services/ship-service";
+import { ProjectRepoService } from "../src/services/project-repo-service";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
 describe("FleetManager", () => {
@@ -28,6 +29,12 @@ describe("FleetManager", () => {
   async function seed(rows: { name: string; url: string }[]): Promise<void> {
     const ships = new ShipService(db);
     for (const row of rows) await ships.createShip(row);
+  }
+
+  /** Register repos in the shared DB so `createWorkspace` can resolve them. */
+  async function seedRepos(rows: { name: string; url: string; provider?: string }[]): Promise<void> {
+    const repos = new ProjectRepoService(db);
+    for (const row of rows) await repos.createRepo({ provider: "custom", ...row });
   }
 
   function build(ships: Map<string, FakeShip>, syncTimeoutMs?: number): FleetManager {
@@ -60,10 +67,10 @@ describe("FleetManager", () => {
     const mgr = build(ships);
     await mgr.init();
 
-    const rows = mgr.listWorkspaces().sort((a, b) => a.repo.localeCompare(b.repo));
+    const rows = mgr.listWorkspaces().sort((a, b) => a.repoName.localeCompare(b.repoName));
     expect(rows).toEqual([
-      { repo: "repo1", name: "one", branch: "main", active: true, ship: "ship-a" },
-      { repo: "repo2", name: "two", branch: "main", active: false, ship: "ship-b" },
+      { repoName: "repo1", name: "one", branch: "main", active: true, ship: "ship-a" },
+      { repoName: "repo2", name: "two", branch: "main", active: false, ship: "ship-b" },
     ]);
     expect(mgr.listWorkspaces("active")).toHaveLength(1);
     expect(mgr.listWorkspaces("inactive")).toHaveLength(1);
@@ -132,32 +139,43 @@ describe("FleetManager", () => {
     await expect(mgr.removeShip("ship-a")).rejects.toMatchObject({ status: 404 });
   });
 
-  test("createWorkspace targets the named ship and rejects unknown ships / duplicates", async () => {
+  test("createWorkspace targets the named ship and rejects unknown ships / repos / duplicates", async () => {
     const ships = new Map<string, FakeShip>([
       ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")] }],
     ]);
     await seed([{ name: "ship-a", url: "http://ship-a" }]);
+    await seedRepos([
+      { name: "repo1", url: "git@github.com:acme/repo1.git" },
+      { name: "repo2", url: "git@github.com:acme/repo2.git" },
+    ]);
 
     const mgr = build(ships);
     await mgr.init();
 
+    // Unknown ship (checked before the repo).
     await expect(
-      mgr.createWorkspace({ repo: "r", name: "n", branch: "main", ship: "ghost" }),
+      mgr.createWorkspace({ ship: "ghost", repoName: "repo1", name: "n", branch: "main" }),
     ).rejects.toMatchObject({ status: 400 });
 
+    // Unregistered repo.
     await expect(
-      mgr.createWorkspace({ repo: "repo1", name: "one", branch: "main", ship: "ship-a" }),
+      mgr.createWorkspace({ ship: "ship-a", repoName: "ghost-repo", name: "n", branch: "main" }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    // Duplicate workspace.
+    await expect(
+      mgr.createWorkspace({ ship: "ship-a", repoName: "repo1", name: "one", branch: "main" }),
     ).rejects.toMatchObject({ status: 409 });
 
     const created = await mgr.createWorkspace({
-      repo: "git@github.com:acme/repo2.git",
+      ship: "ship-a",
+      repoName: "repo2",
       name: "feature",
       branch: "dev",
-      ship: "ship-a",
     });
-    expect(created).toEqual({ repo: "repo2", name: "feature", branch: "dev", active: false, ship: "ship-a" });
+    expect(created).toEqual({ repoName: "repo2", name: "feature", branch: "dev", active: false, ship: "ship-a" });
     // Optimistically visible immediately.
-    expect(mgr.listWorkspaces().some((w) => w.repo === "repo2" && w.name === "feature")).toBe(true);
+    expect(mgr.listWorkspaces().some((w) => w.repoName === "repo2" && w.name === "feature")).toBe(true);
   });
 
   test("getWorkspace proxies to the owning ship and annotates the ship", async () => {
@@ -170,7 +188,7 @@ describe("FleetManager", () => {
     await mgr.init();
 
     const status = await mgr.getWorkspace("repo1", "one");
-    expect(status).toMatchObject({ state: "inactive", repo: "repo1", name: "one", ship: "ship-a" });
+    expect(status).toMatchObject({ state: "inactive", repoName: "repo1", name: "one", ship: "ship-a" });
     await expect(mgr.getWorkspace("nope", "gone")).rejects.toMatchObject({ status: 404 });
   });
 
@@ -219,35 +237,30 @@ describe("FleetManager", () => {
     expect(b.resources).toBeNull();
   });
 
-  test("getShipRepos proxies one ship; unknown -> 400", async () => {
-    const ships = new Map<string, FakeShip>([
-      ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one"), ws("repo1", "two")] }],
-    ]);
-    const mgr = await boot(ships);
+  test("addRepo registers a repo (default provider), rejects duplicates, and lists them", async () => {
+    const mgr = build(new Map());
 
-    const repos = await mgr.getShipRepos("ship-a");
-    expect(repos).toEqual([{ repo: "repo1", remote: "git@fake/repo1.git", workspaces: 2 }]);
-    await expect(mgr.getShipRepos("ghost")).rejects.toMatchObject({ status: 400 });
+    const created = await mgr.addRepo({ name: "repo1", url: "git@fake/repo1.git" });
+    expect(created).toEqual({ name: "repo1", url: "git@fake/repo1.git", provider: "custom" });
+
+    await mgr.addRepo({ name: "repo2", url: "git@fake/repo2.git", provider: "github" });
+
+    await expect(mgr.addRepo({ name: "repo1", url: "other" })).rejects.toMatchObject({ status: 409 });
+
+    const repos = (await mgr.listRepos()).sort((a, b) => a.name.localeCompare(b.name));
+    expect(repos).toEqual([
+      { name: "repo1", url: "git@fake/repo1.git", provider: "custom" },
+      { name: "repo2", url: "git@fake/repo2.git", provider: "github" },
+    ]);
   });
 
-  test("listRepos merges repos across ships (counts summed, ships listed)", async () => {
-    const ships = new Map<string, FakeShip>([
-      ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")] }],
-      ["http://ship-b", { name: "ship-b", workspaces: [ws("repo1", "two"), ws("repo2", "x")] }],
-    ]);
-    const mgr = await boot(ships);
+  test("removeRepo deletes a repo; unknown -> 404", async () => {
+    const mgr = build(new Map());
+    await mgr.addRepo({ name: "repo1", url: "git@fake/repo1.git" });
 
-    const repos = (await mgr.listRepos()).sort((a, b) => a.repo.localeCompare(b.repo));
-    expect(repos).toHaveLength(2);
-
-    const repo1 = repos.find((r) => r.repo === "repo1")!;
-    expect(repo1.workspaces).toBe(2);
-    expect(repo1.ships.sort()).toEqual(["ship-a", "ship-b"]);
-    expect(repo1.remote).toBe("git@fake/repo1.git");
-
-    const repo2 = repos.find((r) => r.repo === "repo2")!;
-    expect(repo2.workspaces).toBe(1);
-    expect(repo2.ships).toEqual(["ship-b"]);
+    await mgr.removeRepo("repo1");
+    expect(await mgr.listRepos()).toEqual([]);
+    await expect(mgr.removeRepo("repo1")).rejects.toMatchObject({ status: 404 });
   });
 
   test("routes to 503 when the owning ship goes offline", async () => {
@@ -327,7 +340,7 @@ describe("FleetManager", () => {
     // ship-b independently reports repo1/one — ship-a already owns it.
     FakeSocket.byBase.get("http://ship-b")!.emit(evt("workspace.created", "ship-b", ws("repo1", "one")));
 
-    const rows = mgr.listWorkspaces().filter((w) => w.repo === "repo1" && w.name === "one");
+    const rows = mgr.listWorkspaces().filter((w) => w.repoName === "repo1" && w.name === "one");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.ship).toBe("ship-a");
   });

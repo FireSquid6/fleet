@@ -173,13 +173,13 @@ export class ShipConnection {
     switch (event.type) {
       case "sync":
         this.workspaces.clear();
-        for (const w of event.workspaces) this.workspaces.set(workspaceKey(w.repo, w.name), w);
+        for (const w of event.workspaces) this.workspaces.set(workspaceKey(w.repoName, w.name), w);
         break;
       case "workspace.removed":
-        this.workspaces.delete(workspaceKey(event.workspace.repo, event.workspace.name));
+        this.workspaces.delete(workspaceKey(event.workspace.repoName, event.workspace.name));
         break;
       default:
-        this.workspaces.set(workspaceKey(event.workspace.repo, event.workspace.name), event.workspace);
+        this.workspaces.set(workspaceKey(event.workspace.repoName, event.workspace.name), event.workspace);
     }
   }
 

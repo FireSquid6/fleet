@@ -12,7 +12,7 @@ export type {
   SwitchBranchRequest,
 } from "./src/workspace";
 export type { SystemResources } from "./src/system";
-export type { RepoSummary } from "./src/repo";
+export type { Repo } from "./src/repo";
 
 export {
   SyncEventSchema,

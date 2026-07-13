@@ -56,7 +56,7 @@ describe("ship /events WebSocket", () => {
     type: "workspace.created",
     ship: "ship-a",
     at: "t",
-    workspace: { repo: "r", name, branch: "main", active: false },
+    workspace: { repoName: "r", name, branch: "main", active: false },
   });
 
   test("sends a sync snapshot on connect, then broadcasts changes", async () => {

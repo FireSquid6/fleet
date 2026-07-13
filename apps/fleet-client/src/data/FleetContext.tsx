@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { bridge } from "./bridge";
-import type { FleetRepo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
 
 interface FleetValue {
   ships: Ship[];
-  repos: FleetRepo[];
+  repos: Repo[];
   workspaces: Workspace[];
   loading: boolean;
   /** Set when talking to the bridge fails (e.g. it is unreachable). */
@@ -25,7 +25,7 @@ const FleetContext = createContext<FleetValue | null>(null);
  */
 export function FleetProvider({ children }: { children: ReactNode }) {
   const [ships, setShips] = useState<Ship[]>([]);
-  const [repos, setRepos] = useState<FleetRepo[]>([]);
+  const [repos, setRepos] = useState<Repo[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

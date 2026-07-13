@@ -27,12 +27,12 @@ function makeApp(overrides: Record<string, unknown> = {}) {
 
 describe("ship API", () => {
   test("GET /workspaces parses the active filter", async () => {
-    // Stub reflects the filter it received back as the row's repo.
-    const call = makeApp({ list: async (f: unknown) => [{ repo: String(f), name: "x", branch: "main", active: false }] });
-    expect((await call("GET", "/workspaces")).body[0].repo).toBe("undefined");
-    expect((await call("GET", "/workspaces?active=true")).body[0].repo).toBe("active");
-    expect((await call("GET", "/workspaces?active=false")).body[0].repo).toBe("inactive");
-    expect((await call("GET", "/workspaces?active=garbage")).body[0].repo).toBe("undefined");
+    // Stub reflects the filter it received back as the row's repoName.
+    const call = makeApp({ list: async (f: unknown) => [{ repoName: String(f), name: "x", branch: "main", active: false }] });
+    expect((await call("GET", "/workspaces")).body[0].repoName).toBe("undefined");
+    expect((await call("GET", "/workspaces?active=true")).body[0].repoName).toBe("active");
+    expect((await call("GET", "/workspaces?active=false")).body[0].repoName).toBe("inactive");
+    expect((await call("GET", "/workspaces?active=garbage")).body[0].repoName).toBe("undefined");
   });
 
   test("GET /workspaces/:repo/:name returns status, maps 404", async () => {
@@ -49,18 +49,20 @@ describe("ship API", () => {
   });
 
   test("POST /workspaces returns 201, maps 409, validates body (422)", async () => {
-    const ok = await makeApp()("POST", "/workspaces", { repo: "r", name: "n", branch: "main" });
+    const ok = await makeApp()("POST", "/workspaces", { url: "git@x/r.git", repoName: "r", name: "n", branch: "main" });
     expect(ok.status).toBe(201);
-    expect(ok.body).toMatchObject({ repo: "r", name: "n", active: false });
+    expect(ok.body).toMatchObject({ repoName: "r", name: "n", active: false });
 
     const dup = makeApp({
       create: async () => {
         throw new WorkspaceError("workspace already exists: r/n", 409);
       },
     });
-    expect((await dup("POST", "/workspaces", { repo: "r", name: "n", branch: "main" })).status).toBe(409);
+    expect(
+      (await dup("POST", "/workspaces", { url: "git@x/r.git", repoName: "r", name: "n", branch: "main" })).status,
+    ).toBe(409);
 
-    expect((await makeApp()("POST", "/workspaces", { repo: "r" })).status).toBe(422);
+    expect((await makeApp()("POST", "/workspaces", { repoName: "r" })).status).toBe(422);
   });
 
   test("verb routes return { ok: true } and map errors", async () => {
@@ -98,14 +100,5 @@ describe("ship API", () => {
     expect(res.body.cpu.cores).toBeGreaterThan(0);
     expect(res.body.memory.total).toBeGreaterThan(0);
     expect(res.body.os.hostname.length).toBeGreaterThan(0);
-  });
-
-  test("GET /repos returns the manager's repo list", async () => {
-    const call = makeApp({
-      listRepos: async () => [{ repo: "sysdef", remote: "git@x/sysdef.git", workspaces: 2 }],
-    });
-    const res = await call("GET", "/repos");
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([{ repo: "sysdef", remote: "git@x/sysdef.git", workspaces: 2 }]);
   });
 });

@@ -6,7 +6,7 @@ import {
   type WorkspaceSummary,
 } from "fleet-protocol";
 
-const summary: WorkspaceSummary = { repo: "Hello-World", name: "ws1", branch: "main", active: true };
+const summary: WorkspaceSummary = { repoName: "Hello-World", name: "ws1", branch: "main", active: true };
 
 const samples: FleetEvent[] = [
   { type: "sync", ship: "ship-a", at: "2026-07-06T00:00:00.000Z", workspaces: [summary] },

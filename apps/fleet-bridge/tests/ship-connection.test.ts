@@ -20,18 +20,18 @@ class ManualSocket implements SocketLike {
   }
 }
 
-const sync = (ship: string, workspaces: Array<{ repo: string; name: string }>) => ({
+const sync = (ship: string, workspaces: Array<{ repoName: string; name: string }>) => ({
   type: "sync",
   ship,
   at: "2026-01-01T00:00:00.000Z",
   workspaces: workspaces.map((w) => ({ ...w, branch: "main", active: false })),
 });
 
-const change = (type: string, ship: string, repo: string, name: string) => ({
+const change = (type: string, ship: string, repoName: string, name: string) => ({
   type,
   ship,
   at: "2026-01-01T00:00:00.000Z",
-  workspace: { repo, name, branch: "main", active: false },
+  workspace: { repoName, name, branch: "main", active: false },
 });
 
 describe("toWsUrl", () => {
@@ -64,7 +64,7 @@ describe("ShipConnection", () => {
     const c = connect();
     c.connect();
     const p = c.waitForSync(1000);
-    socket.onmessage?.({ data: JSON.stringify(sync("ship-a", [{ repo: "r", name: "n" }])) });
+    socket.onmessage?.({ data: JSON.stringify(sync("ship-a", [{ repoName: "r", name: "n" }])) });
     const event = await p;
     expect(event.ship).toBe("ship-a");
     expect(c.name).toBe("ship-a");
@@ -80,7 +80,7 @@ describe("ShipConnection", () => {
     const c = connect();
     c.connect();
 
-    socket.onmessage?.({ data: JSON.stringify(sync("ship-a", [{ repo: "r", name: "one" }])) });
+    socket.onmessage?.({ data: JSON.stringify(sync("ship-a", [{ repoName: "r", name: "one" }])) });
     expect([...c.workspaces.keys()]).toEqual(["r/one"]);
 
     socket.onmessage?.({ data: JSON.stringify(change("workspace.created", "ship-a", "r", "two")) });

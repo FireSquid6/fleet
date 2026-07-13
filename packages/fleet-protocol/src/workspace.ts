@@ -1,10 +1,10 @@
 /**
  * src/workspace.ts — the workspace DTOs shared between the ship (host) and the CLI.
  *
- * A workspace is a git clone of `<repo>` on `<branch>`, living at
- * `<fleetDirectory>/<repo>/<name>`. It is identified by the `(repo, name)` pair —
- * names are unique only within a repo — and is either `active` (a tmux session
- * exists) or `inactive` (only the directory exists).
+ * A workspace is a git clone of `<repoName>` on `<branch>`, living at
+ * `<fleetDirectory>/<repoName>/<name>`. It is identified by the `(repoName, name)`
+ * pair — names are unique only within a repo — and is either `active` (a tmux
+ * session exists) or `inactive` (only the directory exists).
  */
 
 import { z } from "zod";
@@ -15,8 +15,8 @@ import { z } from "zod";
  * consumers can validate it directly.
  */
 export const WorkspaceSummarySchema = z.object({
-  /** Repo the workspace belongs to (the clone URL basename, `.git` stripped). */
-  repo: z.string(),
+  /** Unique name of the repo the workspace belongs to (also its ship directory). */
+  repoName: z.string(),
   /** Workspace name, unique within its repo. */
   name: z.string(),
   /** Currently checked-out branch. */
@@ -41,13 +41,13 @@ export interface WorkspaceDiff {
 export type WorkspaceStatus =
   | {
       readonly state: "inactive";
-      readonly repo: string;
+      readonly repoName: string;
       readonly name: string;
       readonly branch: string;
     }
   | {
       readonly state: "active";
-      readonly repo: string;
+      readonly repoName: string;
       readonly name: string;
       readonly branch: string;
       readonly diff: WorkspaceDiff;
@@ -61,9 +61,12 @@ export type WorkspaceStatus =
       readonly ship: string;
     };
 
-/** Body of `POST /workspaces` — create a new workspace by cloning a repo/branch. */
+/** Body of `POST /workspaces` — create a workspace by cloning `url` into `repoName`. */
 export interface CreateWorkspaceRequest {
-  readonly repo: string;
+  /** Git clone URL. */
+  readonly url: string;
+  /** Unique repo name; the directory the clone lands under on the ship. */
+  readonly repoName: string;
   readonly name: string;
   readonly branch: string;
 }

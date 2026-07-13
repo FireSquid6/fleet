@@ -1,7 +1,7 @@
 import type { SystemResources } from "fleet-protocol";
 import { makeBridgeClient, type BridgeClient } from "./client";
 import type { FleetBridge } from "./provider";
-import type { FleetRepo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
 
 /** Turn an Eden `{ error }` value into a thrown Error. */
 function edenError(error: { status?: unknown; value?: unknown }): Error {
@@ -32,9 +32,11 @@ export class EdenFleetBridge implements FleetBridge {
     return data.map((s) => ({ name: s.ship, spec: deriveSpec(s.resources), status: s.status }));
   }
 
-  async listRepos(): Promise<FleetRepo[]> {
+  async listRepos(): Promise<Repo[]> {
     const { data, error } = await this.client.repos.get();
     if (error) throw edenError(error);
+    // The handler can also surface an in-band `{ error }` body on a 200.
+    if (!Array.isArray(data)) throw edenError({ value: data });
     return data;
   }
 

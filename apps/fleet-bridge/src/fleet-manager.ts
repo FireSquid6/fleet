@@ -12,20 +12,19 @@
  * routing and duplicate detection.
  */
 
-import { basename } from "node:path";
-import type { FleetEvent, RepoSummary, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
+import type { FleetEvent, Repo, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import type { BridgeConfig } from "./config";
 import {
   workspaceKey,
   type BridgeWorkspaceStatus,
   type BridgeWorkspaceSummary,
-  type FleetRepo,
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
 import { getDb, type Db } from "./db";
 import { ShipService } from "./services/ship-service";
+import { ProjectRepoService } from "./services/project-repo-service";
 
 /** A typed error carrying the HTTP status the API layer should map it to. */
 export class BridgeError extends Error {
@@ -41,18 +40,12 @@ export class BridgeError extends Error {
 /** How long to wait for a ship's first `sync` before treating it as offline. */
 const SYNC_TIMEOUT_MS = 5000;
 
-/** Derive the repo id (directory name) from a clone URL's basename, minus `.git`. */
-function repoBasename(repoUrlOrName: string): string {
-  const base = basename(repoUrlOrName);
-  return base.endsWith(".git") ? base.slice(0, -".git".length) : base;
-}
-
-/** Body of `POST /workspaces` on the bridge (ship-targeted). */
+/** Body of `POST /workspaces` on the bridge (ship-targeted, names a registered repo). */
 export interface CreateWorkspaceInput {
-  readonly repo: string;
+  readonly ship: string;
+  readonly repoName: string;
   readonly name: string;
   readonly branch: string;
-  readonly ship: string;
 }
 
 type EdenResult<T> = { data: T | null; error: unknown };
@@ -65,8 +58,10 @@ export class FleetManager {
   private readonly deps?: Partial<ShipConnectionDeps>;
   /** How long to wait for a ship's first `sync` (overridable in tests). */
   private readonly syncTimeoutMs: number;
-  /** Roster persistence. Tests inject a shared in-memory `Db` via `opts.db`. */
+  /** Ship roster persistence. Tests inject a shared in-memory `Db` via `opts.db`. */
   private readonly ships: ShipService;
+  /** The bridge-owned repo registry. */
+  private readonly repos: ProjectRepoService;
 
   constructor(
     private readonly config: BridgeConfig,
@@ -75,7 +70,9 @@ export class FleetManager {
   ) {
     this.deps = deps;
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
-    this.ships = new ShipService(opts?.db ?? getDb(config));
+    const db = opts?.db ?? getDb(config);
+    this.ships = new ShipService(db);
+    this.repos = new ProjectRepoService(db);
   }
 
   /**
@@ -224,59 +221,25 @@ export class FleetManager {
     );
   }
 
-  // --- repos ----------------------------------------------------------------
+  // --- repos (bridge-owned registry) ----------------------------------------
 
-  /** `GET /ships/:ship/repos` — proxied live to one ship. */
-  async getShipRepos(shipName: string): Promise<RepoSummary[]> {
-    const conn = this.connections.get(shipName);
-    if (!conn) throw new BridgeError(`unknown ship: ${shipName}`, 400);
-    if (conn.status !== "online") throw new BridgeError(`ship "${shipName}" is offline`, 503);
-    return this.fetchRepos(conn);
+  /** `GET /repos` — the bridge's registered repos. */
+  async listRepos(): Promise<Repo[]> {
+    return this.repos.getAllRepos();
   }
 
-  /**
-   * `GET /repos` — fetch every online ship's repos and merge them by repo id into
-   * a fleet-wide view (total workspaces + the ships hosting each repo). Offline
-   * ships and any that error contribute nothing.
-   */
-  async listRepos(): Promise<FleetRepo[]> {
-    const online = [...this.connections.values()].filter((conn) => conn.status === "online");
-    const perShip = await Promise.all(
-      online.map(async (conn) => {
-        try {
-          return { ship: conn.name, repos: await this.fetchRepos(conn) };
-        } catch {
-          return { ship: conn.name, repos: [] as RepoSummary[] };
-        }
-      }),
-    );
-
-    const merged = new Map<string, FleetRepo>();
-    for (const { ship, repos } of perShip) {
-      for (const repo of repos) {
-        const existing = merged.get(repo.repo);
-        if (existing) {
-          existing.workspaces += repo.workspaces;
-          existing.ships.push(ship);
-          if (!existing.remote) existing.remote = repo.remote;
-        } else {
-          merged.set(repo.repo, {
-            repo: repo.repo,
-            remote: repo.remote,
-            workspaces: repo.workspaces,
-            ships: [ship],
-          });
-        }
-      }
+  /** `POST /repos` — register a repo. `provider` defaults to `"custom"`. */
+  async addRepo(input: { name: string; url: string; provider?: string }): Promise<Repo> {
+    if (await this.repos.getRepo(input.name)) {
+      throw new BridgeError(`repo already registered: ${input.name}`, 409);
     }
-    return [...merged.values()];
+    return this.repos.createRepo({ name: input.name, url: input.url, provider: input.provider ?? "custom" });
   }
 
-  private fetchRepos(conn: ShipConnection): Promise<RepoSummary[]> {
-    return this.call<RepoSummary[]>(
-      conn,
-      () => conn.client.repos.get() as Promise<EdenResult<RepoSummary[]>>,
-    );
+  /** `DELETE /repos/:name`. */
+  async removeRepo(name: string): Promise<void> {
+    const deleted = await this.repos.deleteRepo(name);
+    if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
   }
 
   // --- workspace API (superset of the ship's) -------------------------------
@@ -303,20 +266,24 @@ export class FleetManager {
     return { ...status, ship: conn.name };
   }
 
-  /** `POST /workspaces {repo,name,branch,ship}`. */
+  /** `POST /workspaces {ship,repoName,name,branch}` — clones a registered repo. */
   async createWorkspace(input: CreateWorkspaceInput): Promise<BridgeWorkspaceSummary> {
     const conn = this.connections.get(input.ship);
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
     if (conn.status !== "online") throw new BridgeError(`ship "${input.ship}" is offline`, 503);
 
-    const key = workspaceKey(repoBasename(input.repo), input.name);
+    const repo = await this.repos.getRepo(input.repoName);
+    if (!repo) throw new BridgeError(`unknown repo: ${input.repoName}`, 400);
+
+    const key = workspaceKey(input.repoName, input.name);
     if (this.index.has(key)) {
       throw new BridgeError(`workspace already exists: ${key}`, 409);
     }
 
     const summary = await this.call<WorkspaceSummary>(conn, () =>
       conn.client.workspaces.post({
-        repo: input.repo,
+        url: repo.url,
+        repoName: input.repoName,
         name: input.name,
         branch: input.branch,
       }) as Promise<EdenResult<WorkspaceSummary>>,
@@ -324,7 +291,7 @@ export class FleetManager {
 
     // Optimistic insert so a GET right after create doesn't race the /events WS;
     // the eventual `workspace.created` event overwrites with identical data.
-    const createdKey = workspaceKey(summary.repo, summary.name);
+    const createdKey = workspaceKey(summary.repoName, summary.name);
     conn.workspaces.set(createdKey, summary);
     this.claim(createdKey, conn.name);
 
@@ -398,12 +365,12 @@ export class FleetManager {
         break;
       }
       case "workspace.removed": {
-        const key = workspaceKey(event.workspace.repo, event.workspace.name);
+        const key = workspaceKey(event.workspace.repoName, event.workspace.name);
         if (this.index.get(key) === shipName) this.index.delete(key);
         break;
       }
       default: {
-        const key = workspaceKey(event.workspace.repo, event.workspace.name);
+        const key = workspaceKey(event.workspace.repoName, event.workspace.name);
         this.claim(key, shipName);
       }
     }

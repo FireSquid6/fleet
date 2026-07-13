@@ -9,7 +9,7 @@ import type { Workspace } from "@/data/types";
 export function WorkspaceNode({ ws }: { ws: Workspace }) {
   return (
     <Link
-      to={`/repos/${ws.repo}/workspaces/${ws.name}`}
+      to={`/repos/${ws.repoName}/workspaces/${ws.name}`}
       className="flex w-full flex-col gap-1 rounded-[var(--node-radius)] px-[9px] py-2 font-mono transition-[filter] hover:brightness-[1.14]"
       style={{
         background: ws.active ? "var(--node-bg-active)" : "var(--node-bg)",
@@ -17,7 +17,7 @@ export function WorkspaceNode({ ws }: { ws: Workspace }) {
       }}
     >
       <div className="flex items-center justify-between gap-1.5">
-        <span className="text-[11px] font-semibold text-text">{ws.repo}</span>
+        <span className="text-[11px] font-semibold text-text">{ws.repoName}</span>
         <span className={cn("h-1.5 w-1.5 flex-none rounded-full", ws.active ? "bg-accent" : "bg-dim2")} />
       </div>
       <div className="text-[10px] text-dim">⎇ {ws.branch}</div>

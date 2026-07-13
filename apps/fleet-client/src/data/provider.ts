@@ -1,4 +1,4 @@
-import type { FleetRepo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
 
 /**
  * The data our UI needs from the fleet bridge, expressed as one async surface.
@@ -18,8 +18,8 @@ import type { FleetRepo, Ship, Workspace, WorkspaceDetail } from "./types";
 export interface FleetBridge {
   /** `GET /ships` (joined with `GET /system-resources` for the spec blurb). */
   listShips(): Promise<Ship[]>;
-  /** `GET /repos` — fleet-wide merged repo view. */
-  listRepos(): Promise<FleetRepo[]>;
+  /** `GET /repos` — the bridge's registered repos. */
+  listRepos(): Promise<Repo[]>;
   /** `GET /workspaces` — every workspace across all ships. */
   listWorkspaces(): Promise<Workspace[]>;
   /** `GET /workspaces/:repo/:name` — detailed status (diff, ship, …). */

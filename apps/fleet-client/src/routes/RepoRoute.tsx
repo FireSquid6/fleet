@@ -21,7 +21,7 @@ export function RepoRoute() {
   const shipSpec = (name: string) => ships.find((s) => s.name === name)?.spec ?? "";
 
   const rows = workspaces
-    .filter((w) => w.repo === repo)
+    .filter((w) => w.repoName === repo)
     .sort(
       (a, b) =>
         shipOrder.indexOf(a.ship) - shipOrder.indexOf(b.ship) || Number(b.active) - Number(a.active),
@@ -69,7 +69,7 @@ export function RepoRoute() {
         {rows.map((w) => (
           <Link
             key={w.name}
-            to={`/repos/${w.repo}/workspaces/${w.name}`}
+            to={`/repos/${w.repoName}/workspaces/${w.name}`}
             className={cn(
               "grid items-center gap-3 border-t border-l-2 border-line px-4 py-[13px] font-mono transition-colors hover:bg-panel2",
               w.active ? "border-l-accent" : "border-l-transparent",

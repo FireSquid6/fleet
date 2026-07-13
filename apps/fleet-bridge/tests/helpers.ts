@@ -8,7 +8,6 @@
  * sync, to return an Eden error, or to throw (network failure).
  */
 
-import { basename } from "node:path";
 import type { FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
 import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 
@@ -22,11 +21,6 @@ export interface FakeShip {
   errorResponse?: { status: number; message: string };
   /** All Eden calls throw (simulated network failure). */
   throws?: boolean;
-}
-
-export function repoBasename(repoUrlOrName: string): string {
-  const base = basename(repoUrlOrName);
-  return base.endsWith(".git") ? base.slice(0, -".git".length) : base;
 }
 
 /** Reduce a `ws://host/events` (or `/…/terminal`) url back to its `http://host` base. */
@@ -113,33 +107,20 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
   };
 
   const workspacesFn: any = (params: { repo: string }) => (params2: { name: string }) => ({
-    get: () => wrap(() => ({ state: "inactive", repo: params.repo, name: params2.name, branch: "main" })),
+    get: () => wrap(() => ({ state: "inactive", repoName: params.repo, name: params2.name, branch: "main" })),
     branch: { post: () => wrap(() => ({ ok: true })) },
     activate: { post: () => wrap(() => ({ ok: true })) },
     deactivate: { post: () => wrap(() => ({ ok: true })) },
     delete: () => wrap(() => ({ ok: true })),
   });
   workspacesFn.get = () => wrap(() => [...(ship()?.workspaces ?? [])]);
-  workspacesFn.post = (body: { repo: string; name: string; branch: string }) =>
-    wrap(() => ({ repo: repoBasename(body.repo), name: body.name, branch: body.branch, active: false }));
+  workspacesFn.post = (body: { url: string; repoName: string; name: string; branch: string }) =>
+    wrap(() => ({ repoName: body.repoName, name: body.name, branch: body.branch, active: false }));
 
   return {
     workspaces: workspacesFn,
     "system-resources": { get: () => wrap(() => fakeResources(ship()?.name ?? "unknown")) },
-    repos: { get: () => wrap(() => reposOf(ship())) },
   };
-}
-
-/** Derive a RepoSummary[] from a fake ship's workspaces (grouped by repo). */
-export function reposOf(ship?: FakeShip) {
-  if (!ship) return [];
-  const counts = new Map<string, number>();
-  for (const w of ship.workspaces) counts.set(w.repo, (counts.get(w.repo) ?? 0) + 1);
-  return [...counts.entries()].map(([repo, workspaces]) => ({
-    repo,
-    remote: `git@fake/${repo}.git`,
-    workspaces,
-  }));
 }
 
 /** Build `ShipConnectionDeps` backed by the fake ships (optionally overriding pieces). */
@@ -155,8 +136,8 @@ export function makeDeps(
 }
 
 /** Convenience `WorkspaceSummary` builder. */
-export const ws = (repo: string, name: string, active = false): WorkspaceSummary => ({
-  repo,
+export const ws = (repoName: string, name: string, active = false): WorkspaceSummary => ({
+  repoName,
   name,
   branch: "main",
   active,

@@ -9,7 +9,7 @@ export function formatWorkspaceTable(rows: readonly WorkspaceSummary[]): string 
   const headers = ["REPO", "NAME", "BRANCH", "ACTIVE"] as const;
 
   const lines: string[][] = rows.map((row) => [
-    row.repo,
+    row.repoName,
     row.name,
     row.branch,
     row.active ? "yes" : "no",

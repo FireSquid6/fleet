@@ -84,27 +84,38 @@ describe("bridge API", () => {
   test("GET /workspaces/:repo/:name proxies (200) or 404s", async () => {
     const ok = await call("GET", "/workspaces/repo1/one");
     expect(ok.status).toBe(200);
-    expect(ok.body).toMatchObject({ repo: "repo1", name: "one", ship: "ship-a" });
+    expect(ok.body).toMatchObject({ repoName: "repo1", name: "one", ship: "ship-a" });
     expect((await call("GET", "/workspaces/nope/gone")).status).toBe(404);
   });
 
-  test("POST /workspaces: 201 create, 400 unknown ship, 409 duplicate, 422 invalid", async () => {
+  test("POST /workspaces: 201 create, 400 unknown ship/repo, 409 duplicate, 422 invalid", async () => {
+    await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" });
+    await call("POST", "/repos", { name: "repo3", url: "git@fake/repo3.git" });
+
     const created = await call("POST", "/workspaces", {
-      repo: "repo3",
+      ship: "ship-a",
+      repoName: "repo3",
       name: "three",
       branch: "main",
-      ship: "ship-a",
     });
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ repo: "repo3", name: "three", ship: "ship-a" });
+    expect(created.body).toMatchObject({ repoName: "repo3", name: "three", ship: "ship-a" });
 
+    // Unknown ship.
     expect(
-      (await call("POST", "/workspaces", { repo: "r", name: "n", branch: "main", ship: "ghost" })).status,
+      (await call("POST", "/workspaces", { ship: "ghost", repoName: "repo3", name: "n", branch: "main" })).status,
     ).toBe(400);
+    // Unregistered repo.
     expect(
-      (await call("POST", "/workspaces", { repo: "repo1", name: "one", branch: "main", ship: "ship-a" })).status,
+      (await call("POST", "/workspaces", { ship: "ship-a", repoName: "ghost-repo", name: "n", branch: "main" }))
+        .status,
+    ).toBe(400);
+    // Duplicate workspace (repo1/one already synced from ship-a).
+    expect(
+      (await call("POST", "/workspaces", { ship: "ship-a", repoName: "repo1", name: "one", branch: "main" })).status,
     ).toBe(409);
-    expect((await call("POST", "/workspaces", { repo: "r", name: "n", branch: "main" })).status).toBe(422);
+    // Missing `ship`.
+    expect((await call("POST", "/workspaces", { repoName: "repo3", name: "n", branch: "main" })).status).toBe(422);
   });
 
   test("verb routes return { ok: true }", async () => {
@@ -129,19 +140,23 @@ describe("bridge API", () => {
     expect((await call("GET", "/ships/ship-b/system-resources")).status).toBe(503);
   });
 
-  test("GET /repos merges; per-ship 200/400/503", async () => {
-    const agg = await call("GET", "/repos");
-    expect(agg.status).toBe(200);
-    expect(agg.body.map((r: { repo: string }) => r.repo).sort()).toEqual(["repo1", "repo2"]);
+  test("repo registry: GET/POST/DELETE /repos", async () => {
+    expect((await call("GET", "/repos")).body).toEqual([]);
 
-    const perShip = await call("GET", "/ships/ship-a/repos");
-    expect(perShip.status).toBe(200);
-    expect(perShip.body).toEqual([{ repo: "repo1", remote: "git@fake/repo1.git", workspaces: 1 }]);
+    const created = await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" });
+    expect(created.status).toBe(201);
+    expect(created.body).toEqual({ name: "repo1", url: "git@fake/repo1.git", provider: "custom" });
 
-    expect((await call("GET", "/ships/ghost/repos")).status).toBe(400);
+    expect((await call("POST", "/repos", { name: "repo2", url: "u", provider: "github" })).status).toBe(201);
+    // Duplicate name.
+    expect((await call("POST", "/repos", { name: "repo1", url: "u" })).status).toBe(409);
+    // Missing url.
+    expect((await call("POST", "/repos", { name: "x" })).status).toBe(422);
 
-    ships.delete("http://ship-b");
-    FakeSocket.byBase.get("http://ship-b")?.close();
-    expect((await call("GET", "/ships/ship-b/repos")).status).toBe(503);
+    const list = await call("GET", "/repos");
+    expect(list.body.map((r: { name: string }) => r.name).sort()).toEqual(["repo1", "repo2"]);
+
+    expect((await call("DELETE", "/repos/repo1")).status).toBe(200);
+    expect((await call("DELETE", "/repos/repo1")).status).toBe(404);
   });
 });

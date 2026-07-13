@@ -9,14 +9,18 @@ import type { WorkspaceManager } from "../src/workspace-manager";
 export function stubManager(overrides: Record<string, unknown> = {}): WorkspaceManager {
   const base: Record<string, unknown> = {
     list: async () => [],
-    listRepos: async () => [],
-    get: async () => ({ state: "inactive", repo: "r", name: "n", branch: "main" }),
-    create: async (b: { repo: string; name: string; branch: string }) => ({ ...b, active: false }),
+    get: async () => ({ state: "inactive", repoName: "r", name: "n", branch: "main" }),
+    create: async (b: { url: string; repoName: string; name: string; branch: string }) => ({
+      repoName: b.repoName,
+      name: b.name,
+      branch: b.branch,
+      active: false,
+    }),
     switchBranch: async () => {},
     activate: async () => {},
     deactivate: async () => {},
     remove: async () => {},
-    sessionName: (repo: string, name: string) => `${repo}__${name}`,
+    sessionName: (repoName: string, name: string) => `${repoName}__${name}`,
     subscribe: () => () => {},
     snapshotEvent: async () => ({ type: "sync", ship: "stub", at: "t", workspaces: [] }),
     ...overrides,

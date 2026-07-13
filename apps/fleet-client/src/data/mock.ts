@@ -1,6 +1,6 @@
 import type { WorkspaceDiff } from "fleet-protocol";
 import type { FleetBridge } from "./provider";
-import type { FleetRepo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
 
 /**
  * In-memory implementation of {@link FleetBridge}. Seed data is ported from the
@@ -17,20 +17,20 @@ const SHIPS: Ship[] = [
 ];
 
 const SEED_WORKSPACES: Workspace[] = [
-  { name: "ws-4f2a", repo: "api-gateway", ship: "forge-01", branch: "main", active: true },
-  { name: "ws-9c11", repo: "api-gateway", ship: "forge-01", branch: "fix/rate-limit", active: true },
-  { name: "ws-2e70", repo: "api-gateway", ship: "atlas-7", branch: "release/2.3", active: false },
-  { name: "ws-6b83", repo: "auth-svc", ship: "forge-02", branch: "main", active: true },
-  { name: "ws-d904", repo: "auth-svc", ship: "nimbus", branch: "feat/oauth-pkce", active: false },
-  { name: "ws-1a5f", repo: "web-client", ship: "forge-01", branch: "main", active: true },
-  { name: "ws-7fc2", repo: "web-client", ship: "forge-02", branch: "feat/redesign", active: true },
-  { name: "ws-3d18", repo: "web-client", ship: "atlas-7", branch: "hotfix/csp", active: false },
-  { name: "ws-8e40", repo: "billing", ship: "atlas-7", branch: "main", active: true },
-  { name: "ws-c227", repo: "notifier", ship: "nimbus", branch: "main", active: false },
-  { name: "ws-5b96", repo: "data-pipeline", ship: "forge-02", branch: "main", active: true },
-  { name: "ws-0a3e", repo: "data-pipeline", ship: "forge-02", branch: "spike/backfill", active: false },
-  { name: "ws-b6d1", repo: "search-idx", ship: "atlas-7", branch: "main", active: true },
-  { name: "ws-e812", repo: "mobile-bff", ship: "nimbus", branch: "feat/push", active: true },
+  { name: "ws-4f2a", repoName: "api-gateway", ship: "forge-01", branch: "main", active: true },
+  { name: "ws-9c11", repoName: "api-gateway", ship: "forge-01", branch: "fix/rate-limit", active: true },
+  { name: "ws-2e70", repoName: "api-gateway", ship: "atlas-7", branch: "release/2.3", active: false },
+  { name: "ws-6b83", repoName: "auth-svc", ship: "forge-02", branch: "main", active: true },
+  { name: "ws-d904", repoName: "auth-svc", ship: "nimbus", branch: "feat/oauth-pkce", active: false },
+  { name: "ws-1a5f", repoName: "web-client", ship: "forge-01", branch: "main", active: true },
+  { name: "ws-7fc2", repoName: "web-client", ship: "forge-02", branch: "feat/redesign", active: true },
+  { name: "ws-3d18", repoName: "web-client", ship: "atlas-7", branch: "hotfix/csp", active: false },
+  { name: "ws-8e40", repoName: "billing", ship: "atlas-7", branch: "main", active: true },
+  { name: "ws-c227", repoName: "notifier", ship: "nimbus", branch: "main", active: false },
+  { name: "ws-5b96", repoName: "data-pipeline", ship: "forge-02", branch: "main", active: true },
+  { name: "ws-0a3e", repoName: "data-pipeline", ship: "forge-02", branch: "spike/backfill", active: false },
+  { name: "ws-b6d1", repoName: "search-idx", ship: "atlas-7", branch: "main", active: true },
+  { name: "ws-e812", repoName: "mobile-bff", ship: "nimbus", branch: "feat/push", active: true },
 ];
 
 function key(repo: string, name: string): string {
@@ -54,7 +54,7 @@ export class MockFleetBridge implements FleetBridge {
   private readonly workspaces: Workspace[] = SEED_WORKSPACES.map((w) => ({ ...w }));
 
   private find(repo: string, name: string): Workspace {
-    const w = this.workspaces.find((x) => x.repo === repo && x.name === name);
+    const w = this.workspaces.find((x) => x.repoName === repo && x.name === name);
     if (!w) throw new Error(`workspace not found: ${key(repo, name)}`);
     return w;
   }
@@ -63,30 +63,18 @@ export class MockFleetBridge implements FleetBridge {
     return SHIPS.map((s) => ({ ...s }));
   }
 
-  async listRepos(): Promise<FleetRepo[]> {
-    // Merge workspaces into fleet-wide repo rows, preserving first-seen order —
-    // this is what the bridge does across ships in `GET /repos`.
-    const order: string[] = [];
-    const byRepo = new Map<string, { ships: Set<string>; count: number }>();
+  async listRepos(): Promise<Repo[]> {
+    // The bridge owns a registry of repos; mirror it here by taking the distinct
+    // repo names seen across the seed workspaces, in first-seen order.
+    const names: string[] = [];
     for (const w of this.workspaces) {
-      let entry = byRepo.get(w.repo);
-      if (!entry) {
-        entry = { ships: new Set(), count: 0 };
-        byRepo.set(w.repo, entry);
-        order.push(w.repo);
-      }
-      entry.ships.add(w.ship);
-      entry.count++;
+      if (!names.includes(w.repoName)) names.push(w.repoName);
     }
-    return order.map((repo) => {
-      const entry = byRepo.get(repo)!;
-      return {
-        repo,
-        remote: `git@github.com:orchestra/${repo}.git`,
-        workspaces: entry.count,
-        ships: [...entry.ships],
-      };
-    });
+    return names.map((name) => ({
+      name,
+      url: `git@github.com:orchestra/${name}.git`,
+      provider: "custom",
+    }));
   }
 
   async listWorkspaces(): Promise<Workspace[]> {
@@ -96,11 +84,11 @@ export class MockFleetBridge implements FleetBridge {
   async getWorkspace(repo: string, name: string): Promise<WorkspaceDetail> {
     const w = this.find(repo, name);
     if (!w.active) {
-      return { state: "inactive", repo: w.repo, name: w.name, branch: w.branch, ship: w.ship };
+      return { state: "inactive", repoName: w.repoName, name: w.name, branch: w.branch, ship: w.ship };
     }
     return {
       state: "active",
-      repo: w.repo,
+      repoName: w.repoName,
       name: w.name,
       branch: w.branch,
       diff: mockDiff(w.name),

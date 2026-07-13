@@ -12,14 +12,12 @@ import type { FleetShipConfig } from "fleet-protocol";
 import { workspacesPlugin } from "./workspaces";
 import { eventsPlugin } from "./events";
 import { systemResourcesPlugin } from "./system-resources";
-import { reposPlugin } from "./repos";
 
 export function createApp(manager: WorkspaceManager, _config: FleetShipConfig) {
   return new Elysia()
     .use(workspacesPlugin(manager))
     .use(eventsPlugin(manager))
-    .use(systemResourcesPlugin())
-    .use(reposPlugin(manager));
+    .use(systemResourcesPlugin());
 }
 
 export type App = ReturnType<typeof createApp>;

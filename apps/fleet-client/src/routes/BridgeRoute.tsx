@@ -8,9 +8,9 @@ export function BridgeRoute() {
 
   const totalWs = workspaces.length;
   const activeWs = workspaces.filter((w) => w.active).length;
-  const activeInRepo = (repo: string) => workspaces.filter((w) => w.repo === repo && w.active).length;
+  const activeInRepo = (repo: string) => workspaces.filter((w) => w.repoName === repo && w.active).length;
   const cellWorkspaces = (repo: string, ship: string) =>
-    workspaces.filter((w) => w.repo === repo && w.ship === ship);
+    workspaces.filter((w) => w.repoName === repo && w.ship === ship);
 
   return (
     <div className="px-[30px] pb-[60px] pt-[28px]">
@@ -42,20 +42,20 @@ export function BridgeRoute() {
         ))}
 
         {repos.map((r) => (
-          <Fragment key={r.repo}>
+          <Fragment key={r.name}>
             <Link
-              to={`/repos/${r.repo}`}
+              to={`/repos/${r.name}`}
               className="flex flex-col gap-1 border-b border-r border-line bg-panel px-[13px] py-[12px] text-left transition-colors hover:bg-panel2"
             >
-              <span className="font-mono text-[12.5px] font-semibold text-text">{r.repo}</span>
-              <span className="font-mono text-[9.5px] text-dim2">{activeInRepo(r.repo)} active&nbsp;&nbsp;↗</span>
+              <span className="font-mono text-[12.5px] font-semibold text-text">{r.name}</span>
+              <span className="font-mono text-[9.5px] text-dim2">{activeInRepo(r.name)} active&nbsp;&nbsp;↗</span>
             </Link>
             {ships.map((s) => (
               <div
                 key={s.name}
                 className="flex min-h-[66px] flex-col gap-2 border-b border-r border-line bg-bg p-[9px]"
               >
-                {cellWorkspaces(r.repo, s.name).map((w) => (
+                {cellWorkspaces(r.name, s.name).map((w) => (
                   <WorkspaceNode key={w.name} ws={w} />
                 ))}
               </div>
