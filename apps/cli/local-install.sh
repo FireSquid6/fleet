@@ -3,4 +3,5 @@
 cd $(dirname "$0") || exit
 
 bun run ./build.ts
+cp ./out/fleet ~/.local/bin
 

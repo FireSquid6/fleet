@@ -17,10 +17,6 @@ export function BridgeRoute() {
       <div className="mb-[22px] flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-mono text-[21px] font-bold tracking-[.01em] text-text">Bridge</h1>
-          <p className="mt-[7px] max-w-[540px] font-prose text-[12.5px] leading-[1.5] text-dim">
-            Every workspace across all repos and ships. Rows are repos, columns are ships (hosts). Open a repo
-            header or a workspace node.
-          </p>
         </div>
         <div className="whitespace-nowrap font-mono text-[12px] text-dim">
           <span className="text-[15px] font-bold text-accent">{activeWs}</span> / {totalWs} sessions active

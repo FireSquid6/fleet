@@ -13,14 +13,11 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test tests",
-    "db:generate": "drizzle-kit generate --config drizzle-configs/dev.config.ts"
+    "test": "bun test tests"
   },
   "dependencies": {
     "@elysiajs/eden": "latest",
     "commander": "latest",
-    "drizzle": "^1.4.0",
-    "drizzle-orm": "^0.45.2",
     "elysia": "latest",
     "fleet-protocol": "workspace:*",
     "fleet-ship": "workspace:*",
@@ -28,8 +25,7 @@
     "zod": "latest"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "drizzle-kit": "^0.31.10"
+    "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"

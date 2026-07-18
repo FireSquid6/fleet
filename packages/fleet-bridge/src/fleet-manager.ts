@@ -22,9 +22,7 @@ import {
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
-import { getDb, type Db } from "./db";
-import { ShipService } from "./services/ship-service";
-import { ProjectRepoService } from "./services/project-repo-service";
+import { Store } from "./store/store";
 
 /** A typed error carrying the HTTP status the API layer should map it to. */
 export class BridgeError extends Error {
@@ -58,21 +56,17 @@ export class FleetManager {
   private readonly deps?: Partial<ShipConnectionDeps>;
   /** How long to wait for a ship's first `sync` (overridable in tests). */
   private readonly syncTimeoutMs: number;
-  /** Ship roster persistence. Tests inject a shared in-memory `Db` via `opts.db`. */
-  private readonly ships: ShipService;
-  /** The bridge-owned repo registry. */
-  private readonly repos: ProjectRepoService;
+  /** Ship roster + repo registry persistence. Tests inject a shared `Store` via `opts.store`. */
+  private readonly store: Store;
 
   constructor(
     private readonly config: BridgeConfig,
     deps?: Partial<ShipConnectionDeps>,
-    opts?: { syncTimeoutMs?: number; db?: Db },
+    opts?: { syncTimeoutMs?: number; store?: Store },
   ) {
     this.deps = deps;
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
-    const db = opts?.db ?? getDb(config);
-    this.ships = new ShipService(db);
-    this.repos = new ProjectRepoService(db);
+    this.store = opts?.store ?? new Store(config.dataDirectory);
   }
 
   /**
@@ -82,7 +76,8 @@ export class FleetManager {
    * the background.
    */
   async init(): Promise<void> {
-    const records = await this.ships.getAllShips();
+    await this.store.load();
+    const records = await this.store.getAllShips();
     for (const record of records) {
       const conn = this.createConnection(record.url, record.name);
       conn.member = true;
@@ -225,20 +220,20 @@ export class FleetManager {
 
   /** `GET /repos` — the bridge's registered repos. */
   async listRepos(): Promise<Repo[]> {
-    return this.repos.getAllRepos();
+    return this.store.getAllRepos();
   }
 
   /** `POST /repos` — register a repo. `provider` defaults to `"custom"`. */
   async addRepo(input: { name: string; url: string; provider?: string }): Promise<Repo> {
-    if (await this.repos.getRepo(input.name)) {
+    if (await this.store.getRepo(input.name)) {
       throw new BridgeError(`repo already registered: ${input.name}`, 409);
     }
-    return this.repos.createRepo({ name: input.name, url: input.url, provider: input.provider ?? "custom" });
+    return this.store.createRepo({ name: input.name, url: input.url, provider: input.provider ?? "custom" });
   }
 
   /** `DELETE /repos/:name`. */
   async removeRepo(name: string): Promise<void> {
-    const deleted = await this.repos.deleteRepo(name);
+    const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
   }
 
@@ -272,7 +267,7 @@ export class FleetManager {
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
     if (conn.status !== "online") throw new BridgeError(`ship "${input.ship}" is offline`, 503);
 
-    const repo = await this.repos.getRepo(input.repoName);
+    const repo = await this.store.getRepo(input.repoName);
     if (!repo) throw new BridgeError(`unknown repo: ${input.repoName}`, 400);
 
     const key = workspaceKey(input.repoName, input.name);
@@ -460,7 +455,7 @@ export class FleetManager {
   }
 
   private async persist(): Promise<void> {
-    await this.ships.replaceAll(
+    await this.store.replaceAllShips(
       [...this.connections.values()].map((conn) => ({ name: conn.name, url: conn.url })),
     );
   }

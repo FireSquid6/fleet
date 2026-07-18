@@ -19,9 +19,6 @@ export const BridgeConfigSchema = z.object({
   port: z.number().int(),
   /** Human-facing name of this bridge. */
   name: z.string().min(1),
-
-  /** Optional config value for in-memory database */ 
-  ephemeralDb: z.boolean().optional(),
 });
 
 /** The parsed `fleet-bridge-config.yaml`, inferred from the schema. */

@@ -13,8 +13,7 @@ import { join } from "node:path";
 import type { Server } from "bun";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
-import { getDb } from "../src/db";
-import { ShipService } from "../src/services/ship-service";
+import { Store } from "../src/store/store";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
 const opened = (sock: WebSocket) =>
@@ -58,10 +57,11 @@ describe("bridge terminal proxy", () => {
       [`http://localhost:${upstream.port}`, { name: "ship-a", workspaces: [ws("repo1", "w1")] }],
     ]);
 
-    const config = { dataDirectory: dir, port: 4800, name: "bridge", ephemeralDb: true };
-    const db = getDb(config);
-    await new ShipService(db).createShip({ name: "ship-a", url: `http://localhost:${upstream.port}` });
-    manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, db });
+    const config = { dataDirectory: dir, port: 4800, name: "bridge" };
+    const store = new Store(dir);
+    await store.load();
+    await store.createShip({ name: "ship-a", url: `http://localhost:${upstream.port}` });
+    manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
 
     bridge = createApp(manager, config);

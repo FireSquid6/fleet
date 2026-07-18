@@ -10,8 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
-import { getDb } from "../src/db";
-import { ShipService } from "../src/services/ship-service";
+import { Store } from "../src/store/store";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
 describe("bridge API", () => {
@@ -40,12 +39,12 @@ describe("bridge API", () => {
       ["http://ship-b", { name: "ship-b", workspaces: [ws("repo2", "two")] }],
       ["http://ship-c", { name: "ship-c", workspaces: [] }], // reachable, not yet added
     ]);
-    const config = { dataDirectory: dir, port: 4800, name: "bridge", ephemeralDb: true };
-    const db = getDb(config);
-    const seed = new ShipService(db);
-    await seed.createShip({ name: "ship-a", url: "http://ship-a" });
-    await seed.createShip({ name: "ship-b", url: "http://ship-b" });
-    manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, db });
+    const config = { dataDirectory: dir, port: 4800, name: "bridge" };
+    const store = new Store(dir);
+    await store.load();
+    await store.createShip({ name: "ship-a", url: "http://ship-a" });
+    await store.createShip({ name: "ship-b", url: "http://ship-b" });
+    manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
     app = createApp(manager, config);
   });

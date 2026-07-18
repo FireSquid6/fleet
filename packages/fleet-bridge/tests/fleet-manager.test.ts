@@ -3,21 +3,19 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BridgeError, FleetManager } from "../src/fleet-manager";
-import { getDb, type Db } from "../src/db";
-import { ShipService } from "../src/services/ship-service";
-import { ProjectRepoService } from "../src/services/project-repo-service";
+import { Store } from "../src/store/store";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
 describe("FleetManager", () => {
   let dir: string;
-  let db: Db;
+  let store: Store;
   let manager: FleetManager | undefined;
 
   beforeEach(async () => {
-    // `dir` is only a `dataDirectory` placeholder; the DB is in-memory (ephemeral).
     dir = await mkdtemp(join(tmpdir(), "fleet-bridge-mgr-"));
     FakeSocket.byBase.clear();
-    db = getDb({ dataDirectory: dir, port: 4800, name: "bridge", ephemeralDb: true });
+    store = new Store(dir);
+    await store.load();
   });
   afterEach(async () => {
     manager?.shutdown();
@@ -25,23 +23,21 @@ describe("FleetManager", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  /** Seed the roster into the shared in-memory DB the manager reads from. */
+  /** Seed the roster into the shared store the manager reads from. */
   async function seed(rows: { name: string; url: string }[]): Promise<void> {
-    const ships = new ShipService(db);
-    for (const row of rows) await ships.createShip(row);
+    for (const row of rows) await store.createShip(row);
   }
 
-  /** Register repos in the shared DB so `createWorkspace` can resolve them. */
+  /** Register repos in the shared store so `createWorkspace` can resolve them. */
   async function seedRepos(rows: { name: string; url: string; provider?: string }[]): Promise<void> {
-    const repos = new ProjectRepoService(db);
-    for (const row of rows) await repos.createRepo({ provider: "custom", ...row });
+    for (const row of rows) await store.createRepo({ provider: "custom", ...row });
   }
 
   function build(ships: Map<string, FakeShip>, syncTimeoutMs?: number): FleetManager {
     manager = new FleetManager(
-      { dataDirectory: dir, port: 4800, name: "bridge", ephemeralDb: true },
+      { dataDirectory: dir, port: 4800, name: "bridge" },
       makeDeps(ships),
-      { syncTimeoutMs: syncTimeoutMs ?? 1000, db },
+      { syncTimeoutMs: syncTimeoutMs ?? 1000, store },
     );
     return manager;
   }
@@ -119,8 +115,8 @@ describe("FleetManager", () => {
     expect(info).toMatchObject({ name: "ship-b", url: "http://ship-b", status: "online" });
     expect(mgr.listWorkspaces().map((w) => w.ship).sort()).toEqual(["ship-a", "ship-b"]);
 
-    // Persisted to the roster DB.
-    const persisted = await new ShipService(db).getAllShips();
+    // Persisted to the roster store.
+    const persisted = await store.getAllShips();
     expect(persisted.map((s) => s.name).sort()).toEqual(["ship-a", "ship-b"]);
   });
 
