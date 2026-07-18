@@ -4,12 +4,8 @@ import { loadConfig } from "./config";
 import { FleetManager } from "./fleet-manager";
 import { createApp } from "./api";
 
-const bridge = new Command();
-
-bridge.name("bridge").description("Fleet Bridge — orchestrates multiple ships").version("0.1.0");
-
-bridge
-  .command("start")
+export const bridge = new Command()
+  .name("bridge")
   .description("start the Fleet Bridge HTTP + WebSocket API")
   .option("-c, --config <path>", "path to the fleet-bridge config yaml", "./fleet-bridge-config.yaml")
   .action(async (options: { config: string }) => {
@@ -27,5 +23,3 @@ bridge
     app.listen(config.port);
     console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
   });
-
-export { bridge };

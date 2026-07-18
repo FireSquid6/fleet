@@ -15,7 +15,9 @@
     "@elysiajs/eden": "latest",
     "elysia": "latest",
     "fleet-protocol": "workspace:*",
-    "fleet-ship": "workspace:*"
+    "fleet-ship": "workspace:*",
+    "fleet-bridge": "workspace:*",
+    "fleet-client": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"
