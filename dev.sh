@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 #
-# dev.sh — bring up the whole fleet locally for development:
-#   1. start a fleet-ship  (host, from fleet-ship-config.yaml)
-#   2. start a fleet-bridge (aggregator, from fleet-bridge-config.yaml)
+# dev.sh — bring up the whole fleet locally for development, all through the
+# unified `cli` (apps/cli):
+#   1. start a fleet-ship  (cli ship,  from fleet-ship-config.yaml)
+#   2. start a fleet-bridge (cli bridge, from fleet-bridge-config.yaml)
 #   3. register the ship with the bridge
-#   4. start the fleet-client (React UI, proxying /bridge -> the bridge)
+#   4. start the fleet-client (cli client serve, proxying /bridge -> the bridge)
 #
 # Ctrl+C tears all three down. Ports come from the yaml configs; BRIDGE_URL
 # (where the client proxies to) comes from .env.
 set -euo pipefail
-cd "$(dirname "$0")"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
+# The unified CLI entry point every service is launched through.
+CLI="$ROOT/apps/cli/src/index.ts"
 
 # --- config ---------------------------------------------------------------
 # Load .env (BRIDGE_URL, etc.) into the environment.
@@ -53,13 +58,13 @@ wait_for() { # <url> <name>
 
 # --- 1. fleet-ship --------------------------------------------------------
 echo "dev.sh: starting fleet-ship at ${SHIP_URL} …"
-bun apps/fleet-ship/src/index.ts start -c "$SHIP_CONFIG" &
+bun "$CLI" ship -c "$SHIP_CONFIG" &
 pids+=($!)
 wait_for "${SHIP_URL}/system-resources" "fleet-ship"
 
 # --- 2. fleet-bridge ------------------------------------------------------
 echo "dev.sh: starting fleet-bridge at ${BRIDGE_URL} …"
-bun apps/fleet-bridge/src/index.ts start -c "$BRIDGE_CONFIG" &
+bun "$CLI" bridge -c "$BRIDGE_CONFIG" &
 pids+=($!)
 wait_for "${BRIDGE_URL}/ships" "fleet-bridge"
 
@@ -74,9 +79,9 @@ else
 fi
 
 # --- 4. fleet-client ------------------------------------------------------
-# Run from the app dir so its bunfig.toml (Tailwind plugin) is picked up.
-# BRIDGE_URL is exported above, so the client's proxy targets the bridge.
+# Run from the package dir so its bunfig.toml (Tailwind plugin) is picked up;
+# the bridge to proxy to is passed explicitly via the CLI's --url flag.
 echo "dev.sh: starting fleet-client (proxying /bridge -> ${BRIDGE_URL}) …"
 # Foreground (not exec) so the cleanup trap still tears down the ship and bridge
 # when the client exits or is interrupted.
-( cd apps/fleet-client && bun --hot src/index.ts )
+( cd packages/fleet-client && bun --hot "$CLI" client serve --url "${BRIDGE_URL}" )

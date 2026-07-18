@@ -11,13 +11,14 @@
     "test": "bun test tests"
   },
   "dependencies": {
-    "commander": "latest",
     "@elysiajs/eden": "latest",
+    "bun-plugin-tailwind": "^0.1.2",
+    "commander": "latest",
     "elysia": "latest",
-    "fleet-protocol": "workspace:*",
-    "fleet-ship": "workspace:*",
     "fleet-bridge": "workspace:*",
-    "fleet-client": "workspace:*"
+    "fleet-client": "workspace:*",
+    "fleet-protocol": "workspace:*",
+    "fleet-ship": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

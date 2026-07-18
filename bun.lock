@@ -22,6 +22,7 @@
       },
       "dependencies": {
         "@elysiajs/eden": "latest",
+        "bun-plugin-tailwind": "^0.1.2",
         "commander": "latest",
         "elysia": "latest",
         "fleet-bridge": "workspace:*",
