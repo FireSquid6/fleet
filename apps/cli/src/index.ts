@@ -150,4 +150,4 @@ mainCommand.addCommand(clientCommand);
 mainCommand.addCommand(ship);
 mainCommand.addCommand(bridge);
 
-clientCommand.parseAsync(process.argv);
+mainCommand.parseAsync(process.argv);
