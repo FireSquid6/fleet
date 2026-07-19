@@ -1,11 +1,11 @@
 /**
  * webterm/protocol.ts — the JSON-over-WebSocket contract between the browser and
  * the Bun server. Both sides import from this file. It contains only type
- * definitions plus a few pure data tables (no PTY / no libghostty), so it is safe
- * to bundle straight into the browser.
+ * definitions plus a few pure data tables (no PTY / no VT emulator), so it is
+ * safe to bundle straight into the browser.
  *
  * The server is the terminal emulator: it parses the shell's raw VT bytes with
- * libghostty-vt into a cell grid and streams full grid snapshots to the client.
+ * bun-vt into a cell grid and streams full grid snapshots to the client.
  * The client only paints cells and sends keystrokes.
  */
 

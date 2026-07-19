@@ -11,21 +11,22 @@ import { Command } from "commander";
 import { DEFAULT_PORT, type WorkspaceStatus, type WorkspaceSummary } from "fleet-protocol";
 import { makeClient, normalizeUrl, unwrap } from "./client";
 import { formatWorkspaceTable } from "./format";
+import { ship } from "fleet-ship";
+import { bridge } from "fleet-bridge";
+import { startClientServer } from "fleet-client";
 
-const program = new Command();
 
-program
-  .name("fleet-cli")
-  .description("CLI for driving a Fleet Ship workspace host")
-  .version("0.1.0")
+const clientCommand = new Command()
+  .name("client")
+  .description("Client subcommand")
   .option("--url <baseUrl>", "base URL of the Fleet Ship host", `http://localhost:${DEFAULT_PORT}`);
 
 function client() {
-  const opts = program.opts<{ url: string }>();
+  const opts = clientCommand.opts<{ url: string }>();
   return makeClient(normalizeUrl(opts.url));
 }
 
-program
+clientCommand
   .command("ls")
   .description("list workspaces")
   .option("--active", "only show active workspaces")
@@ -50,7 +51,7 @@ program
     console.log(formatWorkspaceTable(rows));
   });
 
-program
+clientCommand
   .command("status")
   .description("show detailed status for a workspace")
   .argument("<repo>", "repo name")
@@ -72,7 +73,7 @@ program
     }
   });
 
-program
+clientCommand
   .command("create")
   .description("create a new workspace by cloning a repo/branch")
   .argument("<repoName>", "repo name (the directory the clone lands under)")
@@ -91,7 +92,7 @@ program
     console.log(`created workspace ${summary.repoName}/${summary.name} on branch ${summary.branch}`);
   });
 
-program
+clientCommand
   .command("branch")
   .description("switch (and create if needed) the branch of a workspace")
   .argument("<repo>", "repo name")
@@ -104,7 +105,7 @@ program
     console.log(`switched ${repo}/${name} to branch ${newBranch}`);
   });
 
-program
+clientCommand
   .command("activate")
   .description("activate a workspace (start its tmux session)")
   .argument("<repo>", "repo name")
@@ -116,7 +117,7 @@ program
     console.log(`activated ${repo}/${name}`);
   });
 
-program
+clientCommand
   .command("deactivate")
   .description("deactivate a workspace (stop its tmux session)")
   .argument("<repo>", "repo name")
@@ -128,7 +129,7 @@ program
     console.log(`deactivated ${repo}/${name}`);
   });
 
-program
+clientCommand
   .command("rm")
   .description("delete a workspace")
   .argument("<repo>", "repo name")
@@ -140,4 +141,19 @@ program
     console.log(`removed ${repo}/${name}`);
   });
 
-program.parseAsync(process.argv);
+clientCommand
+  .command("serve")
+  .description("Serve the client web ui")
+  .option("--url <bridgeUrl>", "URL of the bridge to proxy to", `http://localhost:${DEFAULT_PORT}`)
+  .action((options: { url: string }) => {
+    startClientServer(normalizeUrl(options.url));
+  })
+
+
+const mainCommand = new Command();
+
+mainCommand.addCommand(clientCommand);
+mainCommand.addCommand(ship);
+mainCommand.addCommand(bridge);
+
+mainCommand.parseAsync(process.argv);

@@ -2,7 +2,7 @@
  * server.ts — the server-side terminal bridge.
  *
  * A `TerminalBridge` owns one PTY subprocess (e.g. `tmux attach ...`) plus one
- * libghostty-vt `Terminal`. Raw bytes from the PTY are fed into the VT parser;
+ * bun-vt `Terminal`. Raw bytes from the PTY are fed into the VT parser;
  * grid snapshots (coalesced to ~60fps) are pushed to a `send` callback. Client
  * keystrokes and resizes are forwarded to the PTY.
  *
@@ -11,7 +11,7 @@
  * here.
  */
 
-import { Terminal as VtTerminal } from "libghostty-bun";
+import { Terminal as VtTerminal } from "bun-vt";
 import { serializeGrid } from "./encode";
 import type { ClientMsg, ServerMsg } from "./protocol";
 

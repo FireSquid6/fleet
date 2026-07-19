@@ -1,9 +1,9 @@
 /**
- * encode.ts — turn a libghostty-vt `Terminal`'s current grid into a `GridMsg`
+ * encode.ts — turn a bun-vt `Terminal`'s current grid into a `GridMsg`
  * snapshot, using the compact per-cell encoding from `protocol.ts`.
  */
 
-import type { Cell, CellStyle, Color, Terminal } from "libghostty-bun";
+import type { Cell, CellStyle, Color, Terminal } from "bun-vt";
 import {
   ATTR,
   UNDERLINE,

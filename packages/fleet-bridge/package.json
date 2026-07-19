@@ -1,24 +1,28 @@
 {
-  "name": "cli",
+  "name": "fleet-bridge",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/api/index.ts"
+  },
   "bin": {
-    "fleet-cli": "src/index.ts"
+    "fleet-bridge": "src/index.ts"
   },
   "scripts": {
+    "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test tests"
   },
   "dependencies": {
     "@elysiajs/eden": "latest",
-    "bun-plugin-tailwind": "^0.1.2",
     "commander": "latest",
     "elysia": "latest",
-    "fleet-bridge": "workspace:*",
-    "fleet-client": "workspace:*",
     "fleet-protocol": "workspace:*",
-    "fleet-ship": "workspace:*"
+    "fleet-ship": "workspace:*",
+    "yaml": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -1,21 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Terminal } from "libghostty-bun";
+import { Terminal } from "bun-vt";
 import { encodeCell, serializeGrid } from "webterm";
 
-/** libghostty needs a native shim built; skip the suite if it isn't available. */
-function ghosttyAvailable(): boolean {
-  try {
-    const t = new Terminal({ cols: 2, rows: 1 });
-    t.free();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const d = ghosttyAvailable() ? describe : describe.skip;
-
-d("encode", () => {
+describe("encode", () => {
   test("a blank default cell serializes to 0", () => {
     using term = new Terminal({ cols: 4, rows: 1 });
     expect(encodeCell(term.cell(0, 0))).toBe(0);

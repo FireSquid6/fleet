@@ -1,0 +1,21 @@
+{
+  "name": "bun-vt",
+  "description": "Pure-TypeScript port of libghostty's VT terminal emulation (parser + screen model). No native code, no FFI.",
+  "module": "index.ts",
+  "types": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
