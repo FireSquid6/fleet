@@ -75,6 +75,18 @@ export class EdenFleetBridge implements FleetBridge {
     return data;
   }
 
+  async createWorkspace(input: {
+    ship: string;
+    repoName: string;
+    name: string;
+    branch: string;
+  }): Promise<Workspace> {
+    const { data, error } = await this.client.workspaces.post(input);
+    if (error) throw edenError(error);
+    if (!data || "error" in data) throw edenError({ value: data });
+    return data;
+  }
+
   async getWorkspace(repo: string, name: string): Promise<WorkspaceDetail> {
     const { data, error } = await this.client.workspaces({ repo })({ name }).get();
     if (error) throw edenError(error);

@@ -1,10 +1,12 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
 import { useFleet } from "@/data/FleetContext";
 import { WorkspaceNode } from "@/components/WorkspaceNode";
+import { CreateWorkspaceModal } from "@/components/CreateWorkspaceModal";
 
 export function BridgeRoute() {
   const { ships, repos, workspaces } = useFleet();
+  const [creating, setCreating] = useState<{ repoName: string; ship: string } | null>(null);
 
   const totalWs = workspaces.length;
   const activeWs = workspaces.filter((w) => w.active).length;
@@ -54,11 +56,27 @@ export function BridgeRoute() {
                 {cellWorkspaces(r.name, s.name).map((w) => (
                   <WorkspaceNode key={w.name} ws={w} />
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setCreating({ repoName: r.name, ship: s.name })}
+                  aria-label={`New workspace for ${r.name} on ${s.name}`}
+                  className="mt-auto rounded-[var(--node-radius)] border border-dashed border-line py-[5px] font-mono text-[11px] text-dim2 transition-colors hover:border-accent hover:text-text"
+                >
+                  +
+                </button>
               </div>
             ))}
           </Fragment>
         ))}
       </div>
+
+      {creating && (
+        <CreateWorkspaceModal
+          repoName={creating.repoName}
+          ship={creating.ship}
+          onClose={() => setCreating(null)}
+        />
+      )}
     </div>
   );
 }

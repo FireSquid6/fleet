@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
+import { CreateWorkspaceModal } from "@/components/CreateWorkspaceModal";
 
 const COLS = "150px 1.3fr 1fr 118px";
 
@@ -16,6 +18,7 @@ function Stat({ label, value, accent }: { label: string; value: number; accent?:
 export function RepoRoute() {
   const { repo = "" } = useParams();
   const { ships, workspaces } = useFleet();
+  const [creating, setCreating] = useState(false);
 
   const shipOrder = ships.map((s) => s.name);
   const shipSpec = (name: string) => ships.find((s) => s.name === name)?.spec ?? "";
@@ -45,6 +48,13 @@ export function RepoRoute() {
           <p className="mt-2 font-prose text-[12.5px] text-dim">
             All workspaces for this repo and the ship each one is running on.
           </p>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="mt-3 rounded-md border border-line bg-panel px-[14px] py-[8px] font-mono text-[11px] font-semibold text-text transition-colors hover:bg-panel2"
+          >
+            + New Workspace
+          </button>
         </div>
         <div className="flex overflow-hidden rounded-md border border-line bg-panel">
           <Stat label="WORKSPACES" value={rows.length} />
@@ -91,6 +101,8 @@ export function RepoRoute() {
           </Link>
         ))}
       </div>
+
+      {creating && <CreateWorkspaceModal repoName={repo} onClose={() => setCreating(false)} />}
     </div>
   );
 }

@@ -30,6 +30,8 @@ export interface FleetBridge {
   deleteShip(name: string): Promise<void>;
   /** `GET /workspaces` — every workspace across all ships. */
   listWorkspaces(): Promise<Workspace[]>;
+  /** `POST /workspaces` — create a workspace on a given ship for a repo. */
+  createWorkspace(input: { ship: string; repoName: string; name: string; branch: string }): Promise<Workspace>;
   /** `GET /workspaces/:repo/:name` — detailed status (diff, ship, …). */
   getWorkspace(repo: string, name: string): Promise<WorkspaceDetail>;
   /** `POST /workspaces/:repo/:name/activate` — attach a session. */

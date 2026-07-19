@@ -125,6 +125,22 @@ export class MockFleetBridge implements FleetBridge {
     return this.workspaces.map((w) => ({ ...w }));
   }
 
+  async createWorkspace(input: {
+    ship: string;
+    repoName: string;
+    name: string;
+    branch: string;
+  }): Promise<Workspace> {
+    if (!this.ships.some((s) => s.name === input.ship)) throw new Error(`unknown ship: ${input.ship}`);
+    if (!this.repos.some((r) => r.name === input.repoName)) throw new Error(`unknown repo: ${input.repoName}`);
+    if (this.workspaces.some((w) => w.repoName === input.repoName && w.name === input.name)) {
+      throw new Error(`workspace already exists: ${key(input.repoName, input.name)}`);
+    }
+    const ws: Workspace = { ...input, active: false };
+    this.workspaces.push(ws);
+    return { ...ws };
+  }
+
   async getWorkspace(repo: string, name: string): Promise<WorkspaceDetail> {
     const w = this.find(repo, name);
     if (!w.active) {

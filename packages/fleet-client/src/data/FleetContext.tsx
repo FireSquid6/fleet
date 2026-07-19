@@ -14,6 +14,8 @@ interface FleetValue {
   activate: (repo: string, name: string) => Promise<void>;
   deactivate: (repo: string, name: string) => Promise<void>;
   getWorkspace: (repo: string, name: string) => Promise<WorkspaceDetail>;
+  /** Create a workspace, then refresh the workspace list. Rejects on failure. */
+  createWorkspace: (input: { ship: string; repoName: string; name: string; branch: string }) => Promise<void>;
   /** Register a repo, then refresh the repo list. Rejects on failure. */
   createRepo: (input: { name: string; url: string; provider?: string }) => Promise<void>;
   /** Remove a repo, then refresh the repo list. Rejects on failure. */
@@ -125,6 +127,14 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     [refreshShips],
   );
 
+  const createWorkspace = useCallback(
+    async (input: { ship: string; repoName: string; name: string; branch: string }) => {
+      await bridge.createWorkspace(input);
+      await refresh();
+    },
+    [refresh],
+  );
+
   const value: FleetValue = {
     ships,
     repos,
@@ -139,6 +149,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     deleteRepo,
     createShip,
     deleteShip,
+    createWorkspace,
   };
 
   return <FleetContext.Provider value={value}>{children}</FleetContext.Provider>;
