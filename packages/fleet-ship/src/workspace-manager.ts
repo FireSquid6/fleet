@@ -29,8 +29,13 @@ import {
   existingRepoPath,
   existingWorkspacePath,
 } from "./contained-path";
+import { WORKSPACE_TMUX_NAMESPACE, workspaceSessionName } from "./workspace-session";
 
-const TMUX_NAMESPACE = "fleet-ship";
+export interface WorkspaceTmux {
+  hasSession(name: string): Promise<boolean>;
+  newSession(options: { name: string; dir: string }): Promise<unknown>;
+  session(name: string): { kill(): Promise<void> };
+}
 
 /** A typed error carrying the HTTP status the API layer should map it to. */
 export class WorkspaceError extends Error {
@@ -56,7 +61,7 @@ export interface InitAgentOptions {
 }
 
 export class WorkspaceManager {
-  private readonly tmux: Tmux;
+  private readonly tmux: WorkspaceTmux;
 
   private readonly listeners = new Set<(event: FleetEvent) => void>();
 
@@ -65,8 +70,11 @@ export class WorkspaceManager {
   // session goes away — see deactivate()/remove().
   private readonly agentStatuses = new Map<string, AgentStatus>();
 
-  constructor(private readonly config: FleetShipConfig) {
-    this.tmux = new Tmux({ namespace: TMUX_NAMESPACE });
+  constructor(
+    private readonly config: FleetShipConfig,
+    tmux: WorkspaceTmux = new Tmux({ namespace: WORKSPACE_TMUX_NAMESPACE }),
+  ) {
+    this.tmux = tmux;
   }
 
   /**
@@ -102,8 +110,7 @@ export class WorkspaceManager {
   /** Deterministic tmux session name for a `(repoName, name)` pair. */
   sessionName(repoName: string, name: string): string {
     this.validateIdentifiers(repoName, name);
-    const sanitize = (s: string) => s.replace(/[.:]/g, "-");
-    return `${sanitize(repoName)}__${sanitize(name)}`;
+    return workspaceSessionName(repoName, name);
   }
 
   workspaceDir(repoName: string, name: string): string {

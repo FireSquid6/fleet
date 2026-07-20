@@ -15,6 +15,7 @@ import {
 } from "webterm";
 import type { ServerMsg } from "webterm/protocol";
 import type { WorkspaceManager } from "../workspace-manager";
+import { WORKSPACE_TMUX_NAMESPACE } from "../workspace-session";
 import { mapError } from "./http";
 
 // One terminal connection per workspace session — guards against two browser
@@ -221,7 +222,7 @@ export function workspacesPlugin(
 
         try {
           const bridge = createTerminal({
-            argv: ["tmux", "-L", "fleet-ship", "attach", "-t", sessionName],
+            argv: ["tmux", "-L", WORKSPACE_TMUX_NAMESPACE, "attach", "-t", sessionName],
             send: (msg: ServerMsg) => {
               if (msg.type === "exit") {
                 try {

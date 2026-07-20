@@ -8,6 +8,7 @@ import {
 } from "webterm/protocol";
 import type { ServerMsg } from "webterm/protocol";
 import { createApp } from "../src/api";
+import { WORKSPACE_TMUX_NAMESPACE, workspaceSessionName } from "../src/workspace-session";
 import { stubConfig, stubManager } from "./helpers";
 
 const opened = (socket: WebSocket) =>
@@ -24,15 +25,18 @@ describe("ship terminal protocol", () => {
   let handled: unknown[];
   let stops: number;
   let creates: number;
+  let argvs: string[][];
   let sendOnCreate: ServerMsg | undefined;
 
   beforeEach(() => {
     handled = [];
     stops = 0;
     creates = 0;
+    argvs = [];
     sendOnCreate = undefined;
     app = createApp(stubManager(), stubConfig, (options) => {
       creates++;
+      argvs.push([...options.argv]);
       if (sendOnCreate) options.send(sendOnCreate);
       return {
         handle: (message) => handled.push(message),
@@ -45,6 +49,25 @@ describe("ship terminal protocol", () => {
 
   test("configures the Bun WebSocket payload limit through Elysia", () => {
     expect(app.config.websocket?.maxPayloadLength).toBe(MAX_CLIENT_FRAME_BYTES);
+  });
+
+  test("attaches formerly colliding workspaces to their own session targets", async () => {
+    const first = new WebSocket(`ws://localhost:${app.server?.port}/workspaces/a.b/workspace/terminal`);
+    const second = new WebSocket(`ws://localhost:${app.server?.port}/workspaces/a-b/workspace/terminal`);
+    await Promise.all([opened(first), opened(second)]);
+
+    expect(argvs).toHaveLength(2);
+    expect(argvs).toContainEqual([
+      "tmux", "-L", WORKSPACE_TMUX_NAMESPACE, "attach", "-t", workspaceSessionName("a.b", "workspace"),
+    ]);
+    expect(argvs).toContainEqual([
+      "tmux", "-L", WORKSPACE_TMUX_NAMESPACE, "attach", "-t", workspaceSessionName("a-b", "workspace"),
+    ]);
+
+    const closes = [closed(first), closed(second)];
+    first.close();
+    second.close();
+    await Promise.all(closes);
   });
 
   test("closes and releases immediately when the terminal exits", async () => {

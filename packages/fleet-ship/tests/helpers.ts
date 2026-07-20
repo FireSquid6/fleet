@@ -5,6 +5,7 @@
  */
 
 import type { WorkspaceManager } from "../src/workspace-manager";
+import { workspaceSessionName } from "../src/workspace-session";
 
 export function stubManager(overrides: Record<string, unknown> = {}): WorkspaceManager {
   const base: Record<string, unknown> = {
@@ -35,7 +36,7 @@ export function stubManager(overrides: Record<string, unknown> = {}): WorkspaceM
     activate: async () => {},
     deactivate: async () => {},
     remove: async () => {},
-    sessionName: (repoName: string, name: string) => `${repoName}__${name}`,
+    sessionName: workspaceSessionName,
     subscribe: () => () => {},
     snapshotEvent: async () => ({ type: "sync", ship: "stub", at: "t", workspaces: [] }),
     ...overrides,
