@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { FleetAgentActivation } from "../plugins/opencode.js";
+// @ts-expect-error Bun imports this module's source text rather than its exports.
+import pluginSource from "../plugins/opencode.js" with { type: "text" };
+
+const pluginUrl = `data:text/javascript;base64,${Buffer.from(pluginSource).toString("base64")}`;
+const { FleetAgentActivation } = (await import(pluginUrl)) as typeof import("../plugins/opencode.js");
 
 function shellResult(exitCode: number, stdout: string) {
   return () => {

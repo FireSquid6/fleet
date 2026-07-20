@@ -25,7 +25,16 @@
 import { chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import claudeManifest from "../plugins/claude-code/.claude-plugin/plugin.json" with { type: "text" };
+import claudeHooks from "../plugins/claude-code/hooks/hooks.json" with { type: "text" };
+// TypeScript resolves the source extension before Bun's text-loader override.
+// @ts-expect-error Bun imports this shell script as a string.
+import claudeActivationHook from "../plugins/claude-code/hooks/activate-fleet-skill.sh" with {
+  type: "text",
+};
+import copilotHookSource from "../plugins/copilot/session-start-hook.json" with { type: "text" };
+// @ts-expect-error Bun imports this module's source text rather than its exports.
+import openCodePluginSource from "../plugins/opencode.js" with { type: "text" };
 import {
   ensureManagedDirectory,
   inspectManagedFile,
@@ -36,7 +45,6 @@ import {
 } from "./managed-fs";
 
 const CLAUDE_PLUGIN_NAME = "fleet-agent-bootstrap";
-const DEFAULT_PLUGINS_DIR = fileURLToPath(new URL("../plugins", import.meta.url));
 
 type Provider = "claude-code" | "opencode" | "copilot";
 
@@ -61,7 +69,11 @@ export type InstallFleetPluginOptions = {
 
 export type InspectFleetPluginOptions = InstallFleetPluginOptions;
 
-type FileMapping = { source: string; destination: string; executable: boolean };
+type FileMapping = {
+  contents: () => Promise<string>;
+  destination: string;
+  executable: boolean;
+};
 
 type PluginSpec = {
   provider: Provider;
@@ -77,7 +89,7 @@ async function treeFiles(sourceDir: string, destinationDir: string): Promise<Fil
   const mappings: FileMapping[] = [];
   for await (const relative of new Bun.Glob("**/*").scan({ cwd: sourceDir, dot: true })) {
     mappings.push({
-      source: join(sourceDir, relative),
+      contents: () => Bun.file(join(sourceDir, relative)).text(),
       destination: join(destinationDir, relative),
       // The hook is executed directly by the harness, so it must stay runnable.
       executable: relative.endsWith(".sh"),
@@ -86,7 +98,7 @@ async function treeFiles(sourceDir: string, destinationDir: string): Promise<Fil
   return mappings.sort((a, b) => a.destination.localeCompare(b.destination));
 }
 
-function pluginSpecs(homeDirectory: string, pluginsDir: string): PluginSpec[] {
+function pluginSpecs(homeDirectory: string, pluginsDir?: string): PluginSpec[] {
   const claudeRoot = join(homeDirectory, ".claude", "skills", CLAUDE_PLUGIN_NAME);
   const openCodePlugin = join(homeDirectory, ".config", "opencode", "plugins", "fleet-agent.js");
   const copilotHook = join(homeDirectory, ".copilot", "hooks", "fleet-agent-session-start.json");
@@ -96,14 +108,39 @@ function pluginSpecs(homeDirectory: string, pluginsDir: string): PluginSpec[] {
       provider: "claude-code",
       configRoot: join(homeDirectory, ".claude"),
       path: claudeRoot,
-      files: () => treeFiles(join(pluginsDir, "claude-code"), claudeRoot),
+      files: () =>
+        pluginsDir
+          ? treeFiles(join(pluginsDir, "claude-code"), claudeRoot)
+          : Promise.resolve([
+              {
+                contents: async () => claudeManifest as unknown as string,
+                destination: join(claudeRoot, ".claude-plugin", "plugin.json"),
+                executable: false,
+              },
+              {
+                contents: async () => claudeHooks as unknown as string,
+                destination: join(claudeRoot, "hooks", "hooks.json"),
+                executable: false,
+              },
+              {
+                contents: async () => claudeActivationHook,
+                destination: join(claudeRoot, "hooks", "activate-fleet-skill.sh"),
+                executable: true,
+              },
+            ]),
     },
     {
       provider: "opencode",
       configRoot: join(homeDirectory, ".config", "opencode"),
       path: openCodePlugin,
       files: async () => [
-        { source: join(pluginsDir, "opencode.js"), destination: openCodePlugin, executable: false },
+        {
+          contents: pluginsDir
+            ? () => Bun.file(join(pluginsDir, "opencode.js")).text()
+            : async () => openCodePluginSource,
+          destination: openCodePlugin,
+          executable: false,
+        },
       ],
     },
     {
@@ -112,7 +149,9 @@ function pluginSpecs(homeDirectory: string, pluginsDir: string): PluginSpec[] {
       path: copilotHook,
       files: async () => [
         {
-          source: join(pluginsDir, "copilot", "session-start-hook.json"),
+          contents: pluginsDir
+            ? () => Bun.file(join(pluginsDir, "copilot", "session-start-hook.json")).text()
+            : async () => copilotHookSource as unknown as string,
           destination: copilotHook,
           executable: false,
         },
@@ -124,7 +163,7 @@ function pluginSpecs(homeDirectory: string, pluginsDir: string): PluginSpec[] {
 /** The plugin specs to act on, optionally narrowed to `providers`. */
 function selectedSpecs(
   homeDirectory: string,
-  pluginsDir: string,
+  pluginsDir?: string,
   providers?: readonly string[],
 ): PluginSpec[] {
   const all = pluginSpecs(homeDirectory, pluginsDir);
@@ -173,7 +212,7 @@ async function installPlugin(spec: PluginSpec): Promise<PluginInstallation | und
 
   const statuses: WriteStatus[] = [];
   for (const file of files) {
-    const source = await Bun.file(file.source).text();
+    const source = await file.contents();
     statuses.push(await syncManagedFile(file.destination, source));
     if (file.executable) await chmod(file.destination, 0o755);
   }
@@ -185,7 +224,7 @@ export async function installFleetPlugin(
   options: InstallFleetPluginOptions = {},
 ): Promise<PluginInstallation[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
-  const pluginsDirectory = options.pluginsDirectory ?? DEFAULT_PLUGINS_DIR;
+  const pluginsDirectory = options.pluginsDirectory;
   const installations: PluginInstallation[] = [];
   const failures: Error[] = [];
 
@@ -216,7 +255,7 @@ export async function inspectFleetPlugin(
   options: InspectFleetPluginOptions = {},
 ): Promise<PluginStatus[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
-  const pluginsDirectory = options.pluginsDirectory ?? DEFAULT_PLUGINS_DIR;
+  const pluginsDirectory = options.pluginsDirectory;
 
   const statuses: PluginStatus[] = [];
   for (const spec of selectedSpecs(homeDirectory, pluginsDirectory, options.providers)) {
@@ -227,7 +266,7 @@ export async function inspectFleetPlugin(
       const files = await spec.files();
       const fileStates = await Promise.all(
         files.map(async (file) =>
-          inspectManagedFile(file.destination, await Bun.file(file.source).text()),
+          inspectManagedFile(file.destination, await file.contents()),
         ),
       );
       state = overallPresence(fileStates);

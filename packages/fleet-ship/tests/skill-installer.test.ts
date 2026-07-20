@@ -71,6 +71,18 @@ describe("installFleetSkill", () => {
     }
   });
 
+  test("installs the embedded skill source by default", async () => {
+    const { homeDirectory } = await fixture();
+    await mkdir(join(homeDirectory, ".claude"));
+
+    const [installation] = await installFleetSkill({ homeDirectory, providers: ["claude-code"] });
+
+    expect(await Bun.file(installation!.path).text()).toContain("name: fleet-agent");
+    expect(await inspectFleetSkill({ homeDirectory, providers: ["claude-code"] })).toEqual([
+      { provider: "claude-code", path: installation!.path, state: "current" },
+    ]);
+  });
+
   test("installs only for the providers that are present", async () => {
     const fixtureOptions = await fixture();
     const { homeDirectory } = fixtureOptions;

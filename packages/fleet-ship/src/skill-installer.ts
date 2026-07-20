@@ -8,7 +8,9 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+// TypeScript resolves the source extension before Bun's text-loader override.
+// @ts-expect-error Bun imports this Markdown file as a string.
+import embeddedSkill from "../skill/SKILL.md" with { type: "text" };
 import {
   ensureManagedDirectory,
   inspectManagedFile,
@@ -19,7 +21,6 @@ import {
 } from "./managed-fs";
 
 const SKILL_NAME = "fleet-agent";
-const DEFAULT_SOURCE_PATH = fileURLToPath(new URL("../skill/SKILL.md", import.meta.url));
 
 type Provider = "claude-code" | "opencode" | "copilot" | "codex";
 
@@ -121,8 +122,7 @@ export async function installFleetSkill(
   options: InstallFleetSkillOptions = {},
 ): Promise<SkillInstallation[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
-  const sourcePath = options.sourcePath ?? DEFAULT_SOURCE_PATH;
-  const source = await Bun.file(sourcePath).text();
+  const source = options.sourcePath ? await Bun.file(options.sourcePath).text() : embeddedSkill;
   const installations: SkillInstallation[] = [];
   const failures: Error[] = [];
 
@@ -152,8 +152,7 @@ export async function inspectFleetSkill(
   options: InspectFleetSkillOptions = {},
 ): Promise<SkillStatus[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
-  const sourcePath = options.sourcePath ?? DEFAULT_SOURCE_PATH;
-  const source = await Bun.file(sourcePath).text();
+  const source = options.sourcePath ? await Bun.file(options.sourcePath).text() : embeddedSkill;
 
   const statuses: SkillStatus[] = [];
   for (const paths of selectedPaths(homeDirectory, options.providers)) {

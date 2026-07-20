@@ -46,6 +46,11 @@ and no config-file edit. That's why the installer is a single symlink-safe copy
 routine over a per-provider file list; a directory tree (claude-code) and a
 single file (opencode, copilot) are just different-length file lists.
 
+The plugin files and `SKILL.md` are imported with Bun's text loader, so compiled
+standalone executables contain their contents directly. Installation does not
+depend on the repository layout or a runtime `import.meta.url`; explicit source
+path options remain available for tests and development overrides.
+
 ### Why a Claude Code plugin (not a settings.json hook)
 
 Claude Code has no auto-discovered drop-in directory for bare *hooks* — a raw

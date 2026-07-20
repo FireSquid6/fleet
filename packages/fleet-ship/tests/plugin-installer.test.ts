@@ -85,6 +85,32 @@ describe("installFleetPlugin", () => {
     expect(await exists(copilotHook(homeDirectory))).toBe(true);
   });
 
+  test("installs the embedded plugin sources by default", async () => {
+    const { homeDirectory } = await fixture();
+    await Promise.all([
+      mkdir(join(homeDirectory, ".claude")),
+      mkdir(join(homeDirectory, ".config", "opencode"), { recursive: true }),
+      mkdir(join(homeDirectory, ".copilot")),
+    ]);
+
+    await installFleetPlugin({ homeDirectory });
+
+    expect(
+      await Bun.file(join(claudeRoot(homeDirectory), ".claude-plugin", "plugin.json")).json(),
+    ).toMatchObject({ name: "fleet-agent-bootstrap" });
+    expect(await Bun.file(join(claudeRoot(homeDirectory), "hooks", "hooks.json")).text()).toContain(
+      "SessionStart",
+    );
+    expect(
+      await Bun.file(join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh")).text(),
+    ).toContain("fleet-agent in-workspace");
+    expect(await Bun.file(openCodePlugin(homeDirectory)).text()).toContain("FleetAgentActivation");
+    expect(await Bun.file(copilotHook(homeDirectory)).json()).toMatchObject({ version: 1 });
+    expect((await inspectFleetPlugin({ homeDirectory })).every(({ state }) => state === "current")).toBe(
+      true,
+    );
+  });
+
   test("installs only for the providers that are present", async () => {
     const { homeDirectory, pluginsDirectory } = await fixture();
     await mkdir(join(homeDirectory, ".copilot"));
