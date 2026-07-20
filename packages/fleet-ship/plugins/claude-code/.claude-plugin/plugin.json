@@ -1,0 +1,6 @@
+{
+  "name": "fleet-agent-bootstrap",
+  "description": "Detects a fleet workspace on session start and tells the agent to activate the fleet-agent skill.",
+  "version": "0.1.0",
+  "author": { "name": "Fleet" }
+}

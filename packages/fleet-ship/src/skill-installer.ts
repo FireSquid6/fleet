@@ -1,7 +1,20 @@
-import { lstat, mkdir, stat } from "node:fs/promises";
+/**
+ * skill-installer.ts — install the `fleet-agent` SKILL.md into each agent
+ * provider's skills directory.
+ *
+ * This module owns *skill* installation only. The startup plugins/hooks that
+ * tell an agent to activate the skill live in plugin-installer.ts.
+ */
+
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  ensureManagedDirectory,
+  isDirectory,
+  syncManagedFile,
+  type WriteStatus,
+} from "./managed-fs";
 
 const SKILL_NAME = "fleet-agent";
 const DEFAULT_SOURCE_PATH = fileURLToPath(new URL("../skill/SKILL.md", import.meta.url));
@@ -11,7 +24,7 @@ type Provider = "claude-code" | "opencode" | "copilot" | "codex";
 export type SkillInstallation = {
   provider: Provider;
   path: string;
-  status: "installed" | "updated" | "unchanged";
+  status: WriteStatus;
 };
 
 export type InstallFleetSkillOptions = {
@@ -71,71 +84,18 @@ function providerPaths(homeDirectory: string): ProviderPaths[] {
   ];
 }
 
-function isMissing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException).code === "ENOENT";
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch (error) {
-    if (isMissing(error)) return false;
-    throw error;
-  }
-}
-
-async function ensureManagedDirectory(path: string): Promise<void> {
-  try {
-    const entry = await lstat(path);
-    if (entry.isSymbolicLink() || !entry.isDirectory()) {
-      throw new Error(`Refusing to use non-directory skill path: ${path}`);
-    }
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-    await mkdir(path);
-  }
-}
-
-async function installManagedFile(
-  destination: string,
-  source: string,
-  kind: "plugin" | "skill",
-): Promise<SkillInstallation["status"]> {
-  let previous: string | undefined;
-  try {
-    const entry = await lstat(destination);
-    if (entry.isSymbolicLink() || !entry.isFile()) {
-      throw new Error(`Refusing to replace non-file ${kind} path: ${destination}`);
-    }
-    previous = await Bun.file(destination).text();
-  } catch (error) {
-    if (!isMissing(error)) throw error;
-  }
-
-  if (previous === source) return "unchanged";
-
-  await Bun.write(destination, source);
-  return previous === undefined ? "installed" : "updated";
-}
-
 async function installForProvider(
   paths: ProviderPaths,
   source: string,
-  openCodePluginSource: string,
 ): Promise<SkillInstallation | undefined> {
   if (!(await isDirectory(paths.configRoot))) return undefined;
 
   for (const directory of paths.directories) await ensureManagedDirectory(directory);
 
-  if (paths.plugin) {
-    for (const directory of paths.plugin.directories) await ensureManagedDirectory(directory);
-    await installManagedFile(paths.plugin.destination, openCodePluginSource, "plugin");
-  }
-
   return {
     provider: paths.provider,
     path: paths.destination,
-    status: await installManagedFile(paths.destination, source, "skill"),
+    status: await syncManagedFile(paths.destination, source),
   };
 }
 
@@ -144,16 +104,13 @@ export async function installFleetSkill(
 ): Promise<SkillInstallation[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
   const sourcePath = options.sourcePath ?? DEFAULT_SOURCE_PATH;
-  const openCodePluginSourcePath =
-    options.openCodePluginSourcePath ?? DEFAULT_OPENCODE_PLUGIN_SOURCE_PATH;
   const source = await Bun.file(sourcePath).text();
-  const openCodePluginSource = await Bun.file(openCodePluginSourcePath).text();
   const installations: SkillInstallation[] = [];
   const failures: Error[] = [];
 
   for (const paths of providerPaths(homeDirectory)) {
     try {
-      const installation = await installForProvider(paths, source, openCodePluginSource);
+      const installation = await installForProvider(paths, source);
       if (installation) installations.push(installation);
     } catch (error) {
       failures.push(

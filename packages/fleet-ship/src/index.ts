@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { loadConfig } from "./config";
 import { writeAtlas } from "./atlas";
 import { installFleetSkill } from "./skill-installer";
+import { installFleetPlugin } from "./plugin-installer";
 
 export const ship = new Command()
   .name("ship")
@@ -16,6 +17,7 @@ export const ship = new Command()
 
     const config = await loadConfig(options.config);
     await installFleetSkill();
+    await installFleetPlugin();
     const manager = new WorkspaceManager(config);
     const app = createApp(manager, config);
     app.listen(config.port);
