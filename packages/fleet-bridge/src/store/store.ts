@@ -9,13 +9,7 @@
  */
 
 import { join } from "node:path";
-import type { Repo } from "fleet-protocol";
-
-/** A registered fleet member: its name and the endpoint the bridge connects to. */
-export interface Ship {
-  name: string;
-  url: string;
-}
+import { FleetIdentifierSchema, RepoSchema, ShipSchema, type Repo, type Ship } from "fleet-protocol";
 
 export class Store {
   private ships = new Map<string, Ship>();
@@ -31,8 +25,12 @@ export class Store {
    */
   async load(): Promise<void> {
     if (this.loaded) return;
-    for (const ship of await this.readFile<Ship>("ships.json")) this.ships.set(ship.name, ship);
-    for (const repo of await this.readFile<Repo>("repos.json")) this.repos.set(repo.name, repo);
+    for (const ship of ShipSchema.array().parse(await this.readFile<unknown>("ships.json"))) {
+      this.ships.set(ship.name, ship);
+    }
+    for (const repo of RepoSchema.array().parse(await this.readFile<unknown>("repos.json"))) {
+      this.repos.set(repo.name, repo);
+    }
     this.loaded = true;
   }
 
@@ -61,6 +59,7 @@ export class Store {
   }
 
   async createShip(ship: Ship): Promise<Ship> {
+    ship = ShipSchema.parse(ship);
     this.ships.set(ship.name, ship);
     await this.persistShips();
     return ship;
@@ -72,15 +71,17 @@ export class Store {
   }
 
   async updateShip(name: string, values: Partial<Omit<Ship, "name">>): Promise<Ship | undefined> {
+    FleetIdentifierSchema.parse(name);
     const existing = this.ships.get(name);
     if (!existing) return undefined;
-    const updated = { ...existing, ...values };
+    const updated = ShipSchema.parse({ ...existing, ...values, name });
     this.ships.set(name, updated);
     await this.persistShips();
     return updated;
   }
 
   async deleteShip(name: string): Promise<Ship | undefined> {
+    FleetIdentifierSchema.parse(name);
     const existing = this.ships.get(name);
     if (!existing) return undefined;
     this.ships.delete(name);
@@ -90,6 +91,7 @@ export class Store {
 
   /** Overwrite the entire ship roster (clear, then set all) in a single rewrite. */
   async replaceAllShips(ships: Ship[]): Promise<void> {
+    ships = ShipSchema.array().parse(ships);
     this.ships = new Map(ships.map((ship) => [ship.name, ship]));
     await this.persistShips();
   }
@@ -105,6 +107,7 @@ export class Store {
   }
 
   async createRepo(repo: Repo): Promise<Repo> {
+    repo = RepoSchema.parse(repo);
     this.repos.set(repo.name, repo);
     await this.persistRepos();
     return repo;
@@ -116,9 +119,10 @@ export class Store {
   }
 
   async updateRepo(name: string, values: Partial<Omit<Repo, "name">>): Promise<Repo | undefined> {
+    FleetIdentifierSchema.parse(name);
     const existing = this.repos.get(name);
     if (!existing) return undefined;
-    const updated = { ...existing, ...values };
+    const updated = RepoSchema.parse({ ...existing, ...values, name });
     this.repos.set(name, updated);
     await this.persistRepos();
     return updated;

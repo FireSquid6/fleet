@@ -7,7 +7,7 @@
  */
 
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { AtlasSchema } from "fleet-protocol";
+import { AtlasSchema, FleetIdentifierSchema } from "fleet-protocol";
 
 export interface WorkspaceLocation {
   readonly repo: string;
@@ -33,7 +33,10 @@ export async function findWorkspace(startDir: string = process.cwd()): Promise<W
     if (port !== null) {
       const segments = relative(dir, start).split(sep).filter((segment) => segment.length > 0);
       if (segments.length < 2) return null;
-      return { repo: segments[0]!, name: segments[1]!, baseUrl: `http://localhost:${port}` };
+      const repo = FleetIdentifierSchema.safeParse(segments[0]);
+      const name = FleetIdentifierSchema.safeParse(segments[1]);
+      if (!repo.success || !name.success) return null;
+      return { repo: repo.data, name: name.data, baseUrl: `http://localhost:${port}` };
     }
 
     const parent = dirname(dir);

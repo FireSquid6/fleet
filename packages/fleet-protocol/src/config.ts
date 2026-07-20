@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { FleetIdentifierSchema } from "./identifier";
 
 /** Runtime validator for a parsed `fleet-ship-config.yaml`. */
 export const FleetShipConfigSchema = z.object({
@@ -16,7 +17,7 @@ export const FleetShipConfigSchema = z.object({
   /** Port the ship's HTTP + WebSocket API listens on. */
   port: z.number().int(),
   /** Human-facing name of this ship (surfaced as `ship` on active workspace status). */
-  name: z.string().min(1),
+  name: FleetIdentifierSchema,
 });
 
 /** The parsed `fleet-ship-config.yaml`, inferred from the schema. */

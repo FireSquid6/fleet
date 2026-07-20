@@ -4,7 +4,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AtlasSchema } from "fleet-protocol";
@@ -35,10 +35,22 @@ describe("atlas", () => {
     expect(AtlasSchema.parse(written).port).toBe(4700);
   });
 
-  test("writeAtlas creates the data directory if it doesn't exist", async () => {
-    const dir = join(await tempDir(), "nested", "fleet-data");
+  test("writeAtlas uses the startup-created fleet directory", async () => {
+    const dir = await tempDir();
     await writeAtlas(dir, { port: 5000 });
 
     expect(await Bun.file(atlasPath(dir)).json()).toEqual({ port: 5000 });
+    expect((await readdir(dir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
+
+  test("refuses a symlink atlas leaf without modifying its target", async () => {
+    const dir = await tempDir();
+    const outside = join(await tempDir(), "outside.json");
+    await Bun.write(outside, "unchanged");
+    await symlink(outside, atlasPath(dir));
+
+    await expect(writeAtlas(dir, { port: 5000 })).rejects.toThrow(/symbolic link/);
+    expect(await Bun.file(outside).text()).toBe("unchanged");
+    expect((await readdir(dir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

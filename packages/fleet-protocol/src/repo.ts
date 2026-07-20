@@ -3,15 +3,26 @@
  *
  * A repo is a bridge-registered git project with a unique `name` (which is also
  * the directory a workspace clone lands under on the ship) and a clone `url`.
- * Like `WorkspaceStatus`, this travels over the typed Eden surface, so it is a
- * plain interface (no zod schema).
+ * The runtime schemas keep persisted and service-boundary data aligned with the
+ * exported types.
  */
 
-export interface Repo {
+import { z } from "zod";
+import { FleetIdentifierSchema } from "./identifier";
+
+export const RepoSchema = z.object({
   /** Unique repo name; also the ship-side directory under `fleetDirectory`. */
-  readonly name: string;
+  name: FleetIdentifierSchema,
   /** Git clone URL. */
-  readonly url: string;
+  url: z.string(),
   /** Where the repo is hosted (e.g. "github", "gitlab", or "custom"). */
-  readonly provider: string;
-}
+  provider: z.string(),
+});
+
+export type Repo = z.infer<typeof RepoSchema>;
+
+export const CreateRepoInputSchema = RepoSchema.omit({ provider: true }).extend({
+  provider: z.string().optional(),
+});
+
+export type CreateRepoInput = z.infer<typeof CreateRepoInputSchema>;

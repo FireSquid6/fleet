@@ -12,7 +12,19 @@
  * routing and duplicate detection.
  */
 
-import type { FleetEvent, Repo, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
+import {
+  CreateRepoInputSchema,
+  FleetIdentifierSchema,
+  ShipSchema,
+  WorkspaceSummarySchema,
+  WorkspaceStatusSchema,
+  type CreateRepoInput,
+  type FleetEvent,
+  type Repo,
+  type SystemResources,
+  type WorkspaceStatus,
+  type WorkspaceSummary,
+} from "fleet-protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import type { BridgeConfig } from "./config";
 import {
@@ -136,7 +148,9 @@ export class FleetManager {
     let name: string;
     try {
       const sync = await probe.waitForSync(this.syncTimeoutMs);
-      name = sync.ship;
+      const parsed = ShipSchema.safeParse({ name: sync.ship, url });
+      if (!parsed.success) throw new Error("invalid ship identity");
+      name = parsed.data.name;
     } catch (err) {
       probe.close();
       throw new BridgeError(`ship at ${url} did not respond: ${(err as Error).message}`, 502);
@@ -166,6 +180,7 @@ export class FleetManager {
 
   /** `DELETE /ships/:name`. */
   async removeShip(name: string): Promise<void> {
+    this.identifier(name, "ship");
     const conn = this.connections.get(name);
     if (!conn) throw new BridgeError(`ship not found: ${name}`, 404);
 
@@ -224,15 +239,17 @@ export class FleetManager {
   }
 
   /** `POST /repos` — register a repo. `provider` defaults to `"custom"`. */
-  async addRepo(input: { name: string; url: string; provider?: string }): Promise<Repo> {
-    if (await this.store.getRepo(input.name)) {
-      throw new BridgeError(`repo already registered: ${input.name}`, 409);
+  async addRepo(input: CreateRepoInput): Promise<Repo> {
+    const parsed = this.parseInput(CreateRepoInputSchema, input, "repo");
+    if (await this.store.getRepo(parsed.name)) {
+      throw new BridgeError(`repo already registered: ${parsed.name}`, 409);
     }
-    return this.store.createRepo({ name: input.name, url: input.url, provider: input.provider ?? "custom" });
+    return this.store.createRepo({ name: parsed.name, url: parsed.url, provider: parsed.provider ?? "custom" });
   }
 
   /** `DELETE /repos/:name`. */
   async removeRepo(name: string): Promise<void> {
+    this.identifier(name, "repo");
     const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
   }
@@ -268,14 +285,22 @@ export class FleetManager {
   /** `GET /workspaces/:repo/:name` — proxied live to the owning ship for fresh diff. */
   async getWorkspace(repo: string, name: string): Promise<BridgeWorkspaceStatus> {
     const conn = this.routeFor(repo, name);
-    const status = await this.call<WorkspaceStatus>(conn, () =>
+    const response = await this.call<WorkspaceStatus>(conn, () =>
       conn.client.workspaces({ repo })({ name }).get() as Promise<EdenResult<WorkspaceStatus>>,
     );
+    const parsed = WorkspaceStatusSchema.safeParse(response);
+    if (!parsed.success) throw new BridgeError(`ship "${conn.name}" returned an invalid workspace status`, 502);
+    const status = parsed.data;
+    if (status.repoName !== repo || status.name !== name) {
+      throw new BridgeError(`ship "${conn.name}" returned a workspace identity that was not requested`, 502);
+    }
     return { ...status, ship: conn.name };
   }
 
   /** `POST /workspaces {ship,repoName,name,branch}` — clones a registered repo. */
   async createWorkspace(input: CreateWorkspaceInput): Promise<BridgeWorkspaceSummary> {
+    this.identifier(input.repoName, "repo");
+    this.identifier(input.name, "workspace");
     const conn = this.connections.get(input.ship);
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
     if (conn.status !== "online") throw new BridgeError(`ship "${input.ship}" is offline`, 503);
@@ -288,7 +313,7 @@ export class FleetManager {
       throw new BridgeError(`workspace already exists: ${key}`, 409);
     }
 
-    const summary = await this.call<WorkspaceSummary>(conn, () =>
+    const response = await this.call<WorkspaceSummary>(conn, () =>
       conn.client.workspaces.post({
         url: repo.url,
         repoName: input.repoName,
@@ -296,6 +321,14 @@ export class FleetManager {
         branch: input.branch,
       }) as Promise<EdenResult<WorkspaceSummary>>,
     );
+    const parsedSummary = WorkspaceSummarySchema.safeParse(response);
+    if (!parsedSummary.success) {
+      throw new BridgeError(`ship "${conn.name}" returned an invalid workspace summary`, 502);
+    }
+    const summary = parsedSummary.data;
+    if (summary.repoName !== input.repoName || summary.name !== input.name) {
+      throw new BridgeError(`ship "${conn.name}" returned a workspace identity that was not requested`, 502);
+    }
 
     // Optimistic insert so a GET right after create doesn't race the /events WS;
     // the eventual `workspace.created` event overwrites with identical data.
@@ -385,6 +418,9 @@ export class FleetManager {
   }
 
   private applyWorkspaceSnapshot(conn: ShipConnection, workspaces: WorkspaceSummary[]): void {
+    const parsed = WorkspaceSummarySchema.array().safeParse(workspaces);
+    if (!parsed.success) throw new BridgeError(`ship "${conn.name}" returned an invalid workspace snapshot`, 502);
+    workspaces = parsed.data;
     const keys = new Set(workspaces.map((workspace) => workspaceKey(workspace.repoName, workspace.name)));
     for (const key of conn.workspaces.keys()) {
       if (keys.has(key)) continue;
@@ -439,6 +475,8 @@ export class FleetManager {
   }
 
   private routeFor(repo: string, name: string): ShipConnection {
+    this.identifier(repo, "repo");
+    this.identifier(name, "workspace");
     const key = workspaceKey(repo, name);
     const shipName = this.index.get(key);
     if (!shipName) throw new BridgeError(`workspace not found: ${key}`, 404);
@@ -478,6 +516,18 @@ export class FleetManager {
     if (result.data === null) {
       throw new BridgeError(`ship "${conn.name}" returned no data`, 502);
     }
+    return result.data;
+  }
+
+  private identifier(value: string, label: string): void {
+    if (!FleetIdentifierSchema.safeParse(value).success) {
+      throw new BridgeError(`invalid ${label} identifier`, 400);
+    }
+  }
+
+  private parseInput<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, value: unknown, label: string): T {
+    const result = schema.safeParse(value);
+    if (!result.success) throw new BridgeError(`invalid ${label}`, 400);
     return result.data;
   }
 

@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { loadConfig } from "./config";
+import { canonicalizeFleetDirectory, loadConfig } from "./config";
 import { writeAtlas } from "./atlas";
 import { installFleetSkill } from "./skill-installer";
 import { installFleetPlugin } from "./plugin-installer";
@@ -17,7 +17,7 @@ export const ship = new Command()
     const { WorkspaceManager } = await import("./workspace-manager");
     const { createApp } = await import("./api");
 
-    const config = await loadConfig(options.config);
+    const config = await canonicalizeFleetDirectory(await loadConfig(options.config));
     await installFleetSkill();
     await installFleetPlugin();
     const manager = new WorkspaceManager(config);
@@ -29,4 +29,3 @@ export const ship = new Command()
 
     console.log(`fleet-ship "${config.name}" listening on http://localhost:${config.port}`);
   });
-

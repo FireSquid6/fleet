@@ -6,8 +6,8 @@
  * workspace can walk up to find it and learn the local port to reach the ship.
  */
 
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, open, rename, unlink } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { ATLAS_FILENAME, type Atlas } from "fleet-protocol";
 
 export function atlasPath(fleetDirectory: string): string {
@@ -15,6 +15,26 @@ export function atlasPath(fleetDirectory: string): string {
 }
 
 export async function writeAtlas(fleetDirectory: string, atlas: Atlas): Promise<void> {
-  await mkdir(fleetDirectory, { recursive: true });
-  await Bun.write(atlasPath(fleetDirectory), JSON.stringify(atlas, null, 2));
+  const target = atlasPath(fleetDirectory);
+  try {
+    const info = await lstat(target);
+    if (info.isSymbolicLink()) throw new Error(`refusing to replace symbolic link: ${target}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  const temporary = join(fleetDirectory, `.${basename(target)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, "wx", 0o600);
+    await handle.writeFile(JSON.stringify(atlas, null, 2));
+    await handle.close();
+    handle = undefined;
+    await rename(temporary, target);
+  } finally {
+    await handle?.close().catch(() => {});
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
 }

@@ -133,6 +133,16 @@ describe("FleetManager", () => {
     expect(persisted.map((s) => s.name).sort()).toEqual(["ship-a", "ship-b"]);
   });
 
+  test("rejects invalid ship identities at manager boundaries", async () => {
+    const ships = new Map<string, FakeShip>([
+      ["http://bad-ship", { name: "../ship", workspaces: [] }],
+    ]);
+    const mgr = build(ships, 20);
+
+    await expect(mgr.addShip("http://bad-ship")).rejects.toMatchObject({ status: 502 });
+    await expect(mgr.removeShip("../ship")).rejects.toMatchObject({ status: 400 });
+  });
+
   test("removeShip unregisters and drops its workspaces", async () => {
     const ships = new Map<string, FakeShip>([
       ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")] }],
@@ -187,6 +197,23 @@ describe("FleetManager", () => {
     expect((await mgr.listWorkspaces()).some((w) => w.repoName === "repo2" && w.name === "feature")).toBe(true);
   });
 
+  test.each([
+    ["malformed", { repoName: "repo2", name: "feature" }],
+    ["wrong identity", { repoName: "other", name: "feature", branch: "main", active: false }],
+  ])("maps a %s upstream create summary to 502", async (_case, createResponse) => {
+    const ships = new Map<string, FakeShip>([
+      ["http://ship-a", { name: "ship-a", workspaces: [], createResponse }],
+    ]);
+    await seed([{ name: "ship-a", url: "http://ship-a" }]);
+    await seedRepos([{ name: "repo2", url: "git@example/repo2.git" }]);
+    const mgr = build(ships);
+    await mgr.init();
+
+    await expect(
+      mgr.createWorkspace({ ship: "ship-a", repoName: "repo2", name: "feature", branch: "main" }),
+    ).rejects.toMatchObject({ status: 502 });
+  });
+
   test("getWorkspace proxies to the owning ship and annotates the ship", async () => {
     const ships = new Map<string, FakeShip>([
       ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")] }],
@@ -199,6 +226,25 @@ describe("FleetManager", () => {
     const status = await mgr.getWorkspace("repo1", "one");
     expect(status).toMatchObject({ state: "inactive", repoName: "repo1", name: "one", ship: "ship-a" });
     await expect(mgr.getWorkspace("nope", "gone")).rejects.toMatchObject({ status: 404 });
+  });
+
+  test.each([
+    ["malformed", { state: "inactive", repoName: "repo1" }],
+    ["wrong identity", { state: "inactive", repoName: "repo1", name: "other", branch: "main" }],
+  ])("maps a %s detailed workspace status to 502", async (_case, statusResponse) => {
+    const ships = new Map<string, FakeShip>([
+      ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")], statusResponse }],
+    ]);
+    const mgr = await boot(ships);
+    await expect(mgr.getWorkspace("repo1", "one")).rejects.toMatchObject({ status: 502 });
+  });
+
+  test("maps a malformed workspace snapshot to 502", async () => {
+    const ships = new Map<string, FakeShip>([
+      ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")], workspaceSnapshot: [{ name: "one" }] }],
+    ]);
+    const mgr = await boot(ships);
+    await expect(mgr.listWorkspaces()).rejects.toMatchObject({ status: 502 });
   });
 
   test("getShipSystemResources proxies one ship; unknown -> 400", async () => {
@@ -339,6 +385,27 @@ describe("FleetManager", () => {
     });
 
     expect((await mgr.listWorkspaces()).map((w) => w.name).sort()).toEqual(["three", "two"]);
+  });
+
+  test("ignores identity-mismatched events without desynchronizing manager keys", async () => {
+    const ships = new Map<string, FakeShip>([
+      ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one")] }],
+    ]);
+    const mgr = await boot(ships);
+    ships.get("http://ship-a")!.throws = true;
+    const socket = FakeSocket.byBase.get("http://ship-a")!;
+
+    socket.emit(evt("workspace.created", "ship-b", ws("repo1", "injected")));
+    socket.emit({
+      type: "sync",
+      ship: "ship-b",
+      at: "2026-01-01T00:00:01.000Z",
+      workspaces: [ws("repo2", "replacement")],
+    });
+
+    expect(mgr.listShips().map((ship) => ship.name)).toEqual(["ship-a"]);
+    expect((await mgr.listWorkspaces()).map((workspace) => workspace.name)).toEqual(["one"]);
+    await expect(mgr.getWorkspace("repo1", "injected")).rejects.toMatchObject({ status: 404 });
   });
 
   test("runtime duplicate collision keeps the first owner (first-writer-wins)", async () => {

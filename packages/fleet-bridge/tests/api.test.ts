@@ -166,4 +166,25 @@ describe("bridge API", () => {
     expect((await call("DELETE", "/repos/repo1")).status).toBe(200);
     expect((await call("DELETE", "/repos/repo1")).status).toBe(404);
   });
+
+  test("invalid repo and workspace identifiers return 400", async () => {
+    expect((await call("POST", "/repos", { name: "bad\\repo", url: "url" })).status).toBe(400);
+    expect(
+      (await call("POST", "/workspaces", { ship: "ship-a", repoName: "repo1", name: "..", branch: "main" }))
+        .status,
+    ).toBe(400);
+  });
+
+  test("malformed upstream workspace summaries return 502", async () => {
+    await call("POST", "/repos", { name: "repo3", url: "git@fake/repo3.git" });
+    ships.get("http://ship-a")!.createResponse = { repoName: "wrong", name: "ws", branch: "main", active: false };
+
+    const response = await call("POST", "/workspaces", {
+      ship: "ship-a",
+      repoName: "repo3",
+      name: "ws",
+      branch: "main",
+    });
+    expect(response.status).toBe(502);
+  });
 });

@@ -59,4 +59,14 @@ describe("findWorkspace", () => {
     roots.push(orphan);
     expect(await findWorkspace(orphan)).toBeNull();
   });
+
+  test.each(["bad\\repo", "a".repeat(129), "bad\nrepo"])(
+    "rejects an invalid disk-derived repo component %p",
+    async (repo) => {
+      const dir = await dataDir(4700);
+      const workspace = join(dir, repo, "ws");
+      await mkdir(workspace, { recursive: true });
+      expect(await findWorkspace(workspace)).toBeNull();
+    },
+  );
 });

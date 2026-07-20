@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Git } from "git-bun";
@@ -21,6 +21,82 @@ describe("WorkspaceManager pure helpers", () => {
     expect(manager.workspaceDir("hello-world", "feature")).toBe(
       join(config.fleetDirectory, "hello-world", "feature"),
     );
+  });
+
+  test.each([
+    ["..", "name"],
+    ["repo/escape", "name"],
+    ["repo", ".."],
+    ["repo", "bad\\name"],
+    ["repo", "bad\nname"],
+  ])("rejects invalid identifiers at direct manager boundaries", async (repoName, name) => {
+    expect(() => manager.workspaceDir(repoName, name)).toThrow(WorkspaceError);
+    await expect(manager.has(repoName, name)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("WorkspaceManager path containment", () => {
+  test("rejects symlinked components, non-directory parents, and existing clone destinations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-paths-"));
+    const outside = await mkdtemp(join(tmpdir(), "fleet-ship-outside-"));
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" });
+    try {
+      await mkdir(join(outside, "ws", ".git"), { recursive: true });
+      await symlink(outside, join(root, "linked-repo"));
+      await expect(manager.has("linked-repo", "ws")).rejects.toThrow(/symbolic links/);
+
+      await mkdir(join(root, "repo"));
+      await symlink(join(outside, "ws"), join(root, "repo", "linked-ws"));
+      await expect(manager.has("repo", "linked-ws")).rejects.toThrow(/symbolic links/);
+
+      await Bun.write(join(root, "not-a-directory"), "file");
+      await expect(
+        manager.create({ url: outside, repoName: "not-a-directory", name: "ws", branch: "main" }),
+      ).rejects.toThrow(/not a directory/);
+
+      await mkdir(join(root, "repo", "already-there"));
+      await expect(
+        manager.create({ url: outside, repoName: "repo", name: "already-there", branch: "main" }),
+      ).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("list ignores invalid and symlinked disk-derived components", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-list-"));
+    const outside = await mkdtemp(join(tmpdir(), "fleet-ship-list-outside-"));
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" });
+    try {
+      await mkdir(join(root, "bad\\repo", "ws", ".git"), { recursive: true });
+      await mkdir(join(outside, "ws", ".git"), { recursive: true });
+      await symlink(outside, join(root, "linked"));
+      expect(await manager.list()).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects gitfile metadata that can redirect outside the fleet root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-gitfile-"));
+    const outside = await mkdtemp(join(tmpdir(), "fleet-ship-gitdir-"));
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" });
+    try {
+      await mkdir(join(root, "repo", "ws"), { recursive: true });
+      await Bun.write(join(root, "repo", "ws", ".git"), `gitdir: ${outside}\n`);
+      await mkdir(join(root, "repo", "linked-git"), { recursive: true });
+      await symlink(outside, join(root, "repo", "linked-git", ".git"));
+
+      await expect(manager.has("repo", "ws")).rejects.toThrow(/not a directory/);
+      await expect(manager.get("repo", "ws")).rejects.toMatchObject({ status: 400 });
+      await expect(manager.has("repo", "linked-git")).rejects.toThrow(/not a directory/);
+      expect(await manager.list()).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
 

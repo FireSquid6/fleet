@@ -15,6 +15,9 @@ import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 export interface FakeShip {
   name: string;
   workspaces: WorkspaceSummary[];
+  createResponse?: unknown;
+  statusResponse?: unknown;
+  workspaceSnapshot?: unknown;
   /** Socket opens but never sends a `sync` (for waitForSync timeout tests). */
   neverSync?: boolean;
   /** All Eden calls resolve to this error `{status, value:{error}}`. */
@@ -113,13 +116,15 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
     };
     return {
       get: () =>
-        wrap(() => ({
-          state: "inactive",
-          repoName: params.repo,
-          name: params2.name,
-          branch:
-            ship()?.workspaces.find((w) => w.repoName === params.repo && w.name === params2.name)?.branch ?? "main",
-        })),
+        wrap(() =>
+          ship()?.statusResponse ?? {
+            state: "inactive",
+            repoName: params.repo,
+            name: params2.name,
+            branch:
+              ship()?.workspaces.find((w) => w.repoName === params.repo && w.name === params2.name)?.branch ?? "main",
+          },
+        ),
       branch: {
         post: (body: { branch: string }) =>
           wrap(() => {
@@ -149,12 +154,12 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
         }),
     };
   };
-  workspacesFn.get = () => wrap(() => [...(ship()?.workspaces ?? [])]);
+  workspacesFn.get = () => wrap(() => ship()?.workspaceSnapshot ?? [...(ship()?.workspaces ?? [])]);
   workspacesFn.post = (body: { url: string; repoName: string; name: string; branch: string }) =>
     wrap(() => {
       const workspace = { repoName: body.repoName, name: body.name, branch: body.branch, active: false };
       ship()?.workspaces.push(workspace);
-      return workspace;
+      return ship()?.createResponse ?? workspace;
     });
 
   return {

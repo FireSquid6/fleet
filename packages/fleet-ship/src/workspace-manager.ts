@@ -7,18 +7,28 @@
  * repo name. It is identified by the `(repoName, name)` pair.
  */
 
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, readdir, rm } from "node:fs/promises";
 import { Git } from "git-bun";
 import { Tmux } from "tmux-bun";
-import type {
-  AgentStatus,
-  FleetEvent,
-  FleetShipConfig,
-  WorkspaceDiff,
-  WorkspaceStatus,
-  WorkspaceSummary,
+import {
+  FleetIdentifierSchema,
+  CreateWorkspaceRequestSchema,
+  type CreateWorkspaceRequest,
+  type AgentStatus,
+  type FleetEvent,
+  type FleetShipConfig,
+  type WorkspaceDiff,
+  type WorkspaceStatus,
+  type WorkspaceSummary,
 } from "fleet-protocol";
+import {
+  ContainedPathError,
+  CloneDestinationExistsError,
+  assertCloneDestinationAvailable,
+  containedPath,
+  existingRepoPath,
+  existingWorkspacePath,
+} from "./contained-path";
 
 const TMUX_NAMESPACE = "fleet-ship";
 
@@ -33,14 +43,7 @@ export class WorkspaceError extends Error {
   }
 }
 
-export interface CreateWorkspaceOptions {
-  /** Git clone URL. */
-  readonly url: string;
-  /** Unique repo name; the directory the clone lands under on the ship. */
-  readonly repoName: string;
-  readonly name: string;
-  readonly branch: string;
-}
+export type CreateWorkspaceOptions = CreateWorkspaceRequest;
 
 export interface SwitchBranchOptions {
   readonly branch: string;
@@ -92,40 +95,107 @@ export class WorkspaceManager {
 
   /** Map key for the `(repoName, name)` pair that identifies a workspace. */
   private key(repoName: string, name: string): string {
+    this.validateIdentifiers(repoName, name);
     return `${repoName}/${name}`;
   }
 
   /** Deterministic tmux session name for a `(repoName, name)` pair. */
   sessionName(repoName: string, name: string): string {
+    this.validateIdentifiers(repoName, name);
     const sanitize = (s: string) => s.replace(/[.:]/g, "-");
     return `${sanitize(repoName)}__${sanitize(name)}`;
   }
 
   workspaceDir(repoName: string, name: string): string {
-    return join(this.config.fleetDirectory, repoName, name);
+    this.validateIdentifiers(repoName, name);
+    return containedPath(this.config.fleetDirectory, repoName, name);
   }
 
   /** Whether the workspace directory exists on disk (is a git working tree). */
   async has(repoName: string, name: string): Promise<boolean> {
+    this.validateIdentifiers(repoName, name);
     try {
-      const gitStat = await stat(join(this.workspaceDir(repoName, name), ".git"));
-      return gitStat.isDirectory() || gitStat.isFile();
-    } catch {
-      return false;
+      const dir = await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+      const gitStat = await lstat(containedPath(dir, ".git"));
+      if (!gitStat.isDirectory()) throw new ContainedPathError(`git metadata is not a directory: ${dir}/.git`);
+      await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+      return true;
+    } catch (error) {
+      if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
+      if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+      throw error;
     }
+  }
+
+  private async requireWorkspace(repoName: string, name: string): Promise<string> {
+    this.validateIdentifiers(repoName, name);
+    try {
+      const dir = await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+      const gitStat = await lstat(containedPath(dir, ".git"));
+      if (!gitStat.isDirectory()) throw new ContainedPathError(`git metadata is not a directory: ${dir}/.git`);
+      return existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+    } catch (error) {
+      if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
+      if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
+      }
+      throw error;
+    }
+  }
+
+  private validateIdentifiers(repoName: string, name: string): void {
+    for (const [label, value] of [["repo", repoName], ["workspace", name]] as const) {
+      const result = FleetIdentifierSchema.safeParse(value);
+      if (!result.success) throw new WorkspaceError(`invalid ${label} identifier`, 400);
+    }
+  }
+
+  private async directoryNames(dir: string): Promise<string[]> {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+      return entries
+        .filter((entry) => entry.isDirectory() && FleetIdentifierSchema.safeParse(entry.name).success)
+        .map((entry) => entry.name);
+    } catch (error) {
+      if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return [];
+      throw error;
+    }
+  }
+
+  private async existingDirectoryNames(repoName?: string): Promise<string[]> {
+    const parent = repoName === undefined
+      ? this.config.fleetDirectory
+      : await existingRepoPath(this.config.fleetDirectory, repoName);
+    const names = await this.directoryNames(parent);
+    const valid: string[] = [];
+    for (const name of names) {
+      try {
+        if (repoName === undefined) {
+          await existingRepoPath(this.config.fleetDirectory, name);
+        } else {
+          await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+        }
+        valid.push(name);
+      } catch {
+        // Disk entries are untrusted; invalid or raced entries are omitted.
+      }
+    }
+    return valid;
   }
 
   async list(filter?: "active" | "inactive"): Promise<WorkspaceSummary[]> {
     const summaries: WorkspaceSummary[] = [];
 
-    const repoNames = await this.safeReaddir(this.config.fleetDirectory);
+    const repoNames = await this.existingDirectoryNames();
     for (const repoName of repoNames) {
-      const repoDir = join(this.config.fleetDirectory, repoName);
-      const names = await this.safeReaddir(repoDir);
+      const names = await this.existingDirectoryNames(repoName);
       for (const name of names) {
-        if (!(await this.has(repoName, name))) continue;
-        const summary = await this.summarize(repoName, name);
-        summaries.push(summary);
+        try {
+          if (!(await this.has(repoName, name))) continue;
+          summaries.push(await this.summarize(repoName, name));
+        } catch {
+          // A disk entry can be replaced between discovery and use; omit it.
+        }
       }
     }
 
@@ -134,11 +204,7 @@ export class WorkspaceManager {
   }
 
   async get(repoName: string, name: string): Promise<WorkspaceStatus> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
-
-    const dir = this.workspaceDir(repoName, name);
+    const dir = await this.requireWorkspace(repoName, name);
     const git = new Git({ cwd: dir });
     const branch = await git.currentBranch();
     const active = await this.tmux.hasSession(this.sessionName(repoName, name));
@@ -166,9 +232,7 @@ export class WorkspaceManager {
    * status to `idle`. Requires an up tmux session — the agent lives in it.
    */
   async initAgent(repoName: string, name: string, options: InitAgentOptions): Promise<AgentStatus> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
+    await this.requireWorkspace(repoName, name);
     if (!(await this.tmux.hasSession(this.sessionName(repoName, name)))) {
       throw new WorkspaceError(`workspace not active: ${repoName}/${name}`, 400);
     }
@@ -186,6 +250,7 @@ export class WorkspaceManager {
 
   /** Current agent status for a workspace, or `null` if none is attached. */
   agentStatus(repoName: string, name: string): AgentStatus | null {
+    this.validateIdentifiers(repoName, name);
     return this.agentStatuses.get(this.key(repoName, name)) ?? null;
   }
 
@@ -198,9 +263,7 @@ export class WorkspaceManager {
     name: string,
     update: { state: AgentStatus["state"]; description: string },
   ): Promise<AgentStatus> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
+    await this.requireWorkspace(repoName, name);
     const current = this.agentStatuses.get(this.key(repoName, name));
     if (current === undefined) {
       throw new WorkspaceError(`agent not initialized: ${repoName}/${name}`, 400);
@@ -212,16 +275,17 @@ export class WorkspaceManager {
   }
 
   async create(options: CreateWorkspaceOptions): Promise<WorkspaceSummary> {
-    const { url, repoName, name, branch } = options;
-
-    if (await this.has(repoName, name)) {
-      throw new WorkspaceError(`workspace already exists: ${repoName}/${name}`, 409);
+    const parsed = CreateWorkspaceRequestSchema.safeParse(options);
+    if (!parsed.success) throw new WorkspaceError("invalid workspace create request", 400);
+    const { url, repoName, name, branch } = parsed.data;
+    let dir: string;
+    try {
+      dir = await assertCloneDestinationAvailable(this.config.fleetDirectory, repoName, name);
+    } catch (error) {
+      if (error instanceof CloneDestinationExistsError) throw new WorkspaceError(error.message, 409);
+      if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
+      throw error;
     }
-
-    const repoDir = join(this.config.fleetDirectory, repoName);
-    await mkdir(repoDir, { recursive: true });
-
-    const dir = this.workspaceDir(repoName, name);
     await Git.clone(url, dir, { branch });
 
     const summary: WorkspaceSummary = { repoName, name, branch, active: false };
@@ -230,10 +294,8 @@ export class WorkspaceManager {
   }
 
   async switchBranch(repoName: string, name: string, options: SwitchBranchOptions): Promise<void> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
-    const git = new Git({ cwd: this.workspaceDir(repoName, name) });
+    const dir = await this.requireWorkspace(repoName, name);
+    const git = new Git({ cwd: dir });
     await git.switchBranch(options.branch, { create: true });
 
     const workspace = await this.summarize(repoName, name);
@@ -241,23 +303,20 @@ export class WorkspaceManager {
   }
 
   async activate(repoName: string, name: string): Promise<void> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
+    await this.requireWorkspace(repoName, name);
     const sessionName = this.sessionName(repoName, name);
     if (await this.tmux.hasSession(sessionName)) {
       throw new WorkspaceError(`workspace already active: ${repoName}/${name}`, 400);
     }
-    await this.tmux.newSession({ name: sessionName, dir: this.workspaceDir(repoName, name) });
+    const dir = await this.requireWorkspace(repoName, name);
+    await this.tmux.newSession({ name: sessionName, dir });
 
     const workspace = await this.summarize(repoName, name);
     this.emit({ type: "workspace.activated", ...this.stamp(), workspace });
   }
 
   async deactivate(repoName: string, name: string): Promise<void> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
+    await this.requireWorkspace(repoName, name);
     const sessionName = this.sessionName(repoName, name);
     if (!(await this.tmux.hasSession(sessionName))) {
       throw new WorkspaceError(`workspace not active: ${repoName}/${name}`, 400);
@@ -270,20 +329,19 @@ export class WorkspaceManager {
   }
 
   async remove(repoName: string, name: string): Promise<void> {
-    if (!(await this.has(repoName, name))) {
-      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
-    }
+    const dir = await this.requireWorkspace(repoName, name);
 
     // Capture the branch before deleting the directory so the `removed` event can
     // still identify the workspace's last-known state.
-    const git = new Git({ cwd: this.workspaceDir(repoName, name) });
+    const git = new Git({ cwd: dir });
     const branch = await git.currentBranch().catch(() => "");
 
     const sessionName = this.sessionName(repoName, name);
     if (await this.tmux.hasSession(sessionName)) {
       await this.tmux.session(sessionName).kill();
     }
-    await rm(this.workspaceDir(repoName, name), { recursive: true, force: true });
+    const removalTarget = await this.requireWorkspace(repoName, name);
+    await rm(removalTarget, { recursive: true, force: true });
     this.agentStatuses.delete(this.key(repoName, name));
 
     const workspace: WorkspaceSummary = { repoName, name, branch, active: false };
@@ -291,7 +349,8 @@ export class WorkspaceManager {
   }
 
   private async summarize(repoName: string, name: string): Promise<WorkspaceSummary> {
-    const git = new Git({ cwd: this.workspaceDir(repoName, name) });
+    const dir = await this.requireWorkspace(repoName, name);
+    const git = new Git({ cwd: dir });
     const branch = await git.currentBranch();
     const active = await this.tmux.hasSession(this.sessionName(repoName, name));
     return { repoName, name, branch, active };
@@ -319,14 +378,5 @@ export class WorkspaceManager {
     }
 
     return { added, removed, commits: status.ahead };
-  }
-
-  private async safeReaddir(dir: string): Promise<string[]> {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      return entries.filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
-      return [];
-    }
   }
 }
