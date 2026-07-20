@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "bun-vt": "workspace:*"
+    "bun-vt": "workspace:*",
+    "zod": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest"

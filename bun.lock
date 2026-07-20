@@ -58,6 +58,7 @@
         "fleet-protocol": "workspace:*",
         "fleet-ship": "workspace:*",
         "logestic": "^1.2.4",
+        "webterm": "workspace:*",
         "yaml": "latest",
         "zod": "latest",
       },
@@ -153,6 +154,7 @@
       "name": "webterm",
       "dependencies": {
         "bun-vt": "workspace:*",
+        "zod": "latest",
       },
       "devDependencies": {
         "@types/bun": "latest",

@@ -6,6 +6,17 @@
  */
 
 import { Elysia, t } from "elysia";
+import {
+  BINARY_MESSAGE_CLOSE_CODE,
+  BINARY_MESSAGE_CLOSE_REASON,
+  BUFFER_LIMIT_CLOSE_CODE,
+  BUFFER_LIMIT_CLOSE_REASON,
+  decodeClientMessage,
+  INVALID_MESSAGE_CLOSE_CODE,
+  INVALID_MESSAGE_CLOSE_REASON,
+  MAX_PENDING_BYTES,
+  utf8ByteLength,
+} from "webterm/protocol";
 import type { ServerMsg } from "webterm/protocol";
 import type { FleetManager } from "../fleet-manager";
 import { mapError } from "./http";
@@ -119,14 +130,30 @@ export function workspacesPlugin(manager: FleetManager) {
         // the upstream socket is open so the browser's first `init` isn't lost.
         const upstream = new WebSocket(target);
         const buffer: string[] = [];
+        const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
+        data.upstream = upstream;
+        data.buffer = buffer;
+        data.pendingBytes = 0;
         upstream.onopen = () => {
           for (const frame of buffer) upstream.send(frame);
           buffer.length = 0;
+          data.pendingBytes = 0;
         };
-        upstream.onmessage = (ev) => ws.send(typeof ev.data === "string" ? ev.data : String(ev.data));
-        upstream.onclose = () => {
+        upstream.onmessage = (event) => {
+          if (typeof event.data === "string") {
+            ws.send(event.data);
+            return;
+          }
+          buffer.length = 0;
+          data.pendingBytes = 0;
+          ws.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+          upstream.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+        };
+        upstream.onclose = (event) => {
+          buffer.length = 0;
+          data.pendingBytes = 0;
           try {
-            ws.close();
+            ws.close(event.code, event.reason);
           } catch {
             // already closed
           }
@@ -138,23 +165,48 @@ export function workspacesPlugin(manager: FleetManager) {
             // already closed
           }
         };
-
-        const data = ws.data as { upstream?: WebSocket; buffer?: string[] };
-        data.upstream = upstream;
-        data.buffer = buffer;
       },
       message(ws, message) {
-        const data = ws.data as { upstream?: WebSocket; buffer?: string[] };
+        const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
         const upstream = data.upstream;
         if (!upstream) return;
-        const frame = typeof message === "string" ? message : JSON.stringify(message);
-        if (upstream.readyState === WebSocket.OPEN) upstream.send(frame);
-        else data.buffer?.push(frame);
-      },
-      close(ws) {
-        const data = ws.data as { upstream?: WebSocket };
+        if (ArrayBuffer.isView(message) || message instanceof ArrayBuffer) {
+          data.buffer?.splice(0);
+          data.pendingBytes = 0;
+          upstream.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+          ws.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+          return;
+        }
+        let frame: string;
         try {
-          data.upstream?.close();
+          frame = JSON.stringify(decodeClientMessage(message));
+        } catch {
+          data.buffer?.splice(0);
+          data.pendingBytes = 0;
+          upstream.close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
+          ws.close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
+          return;
+        }
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(frame);
+        else {
+          const pendingBytes = (data.pendingBytes ?? 0) + utf8ByteLength(frame);
+          if (pendingBytes > MAX_PENDING_BYTES) {
+            data.buffer?.splice(0);
+            data.pendingBytes = 0;
+            upstream.close(BUFFER_LIMIT_CLOSE_CODE, BUFFER_LIMIT_CLOSE_REASON);
+            ws.close(BUFFER_LIMIT_CLOSE_CODE, BUFFER_LIMIT_CLOSE_REASON);
+            return;
+          }
+          data.buffer?.push(frame);
+          data.pendingBytes = pendingBytes;
+        }
+      },
+      close(ws, code, reason) {
+        const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
+        data.buffer?.splice(0);
+        data.pendingBytes = 0;
+        try {
+          data.upstream?.close(code, reason);
         } catch {
           // already closed — releases the ship's single-terminal guard
         }

@@ -9,6 +9,33 @@
  * The client only paints cells and sends keystrokes.
  */
 
+import { z } from "zod";
+
+export const MIN_TERMINAL_COLS = 1;
+export const MAX_TERMINAL_COLS = 1024;
+export const MIN_TERMINAL_ROWS = 1;
+export const MAX_TERMINAL_ROWS = 512;
+export const MAX_INPUT_BYTES = 256 * 1024;
+export const MAX_PENDING_BYTES = 256 * 1024;
+export const MAX_CLIENT_FRAME_BYTES = MAX_INPUT_BYTES * 6 + 128;
+
+export const INVALID_MESSAGE_CLOSE_CODE = 1008;
+export const INVALID_MESSAGE_CLOSE_REASON = "Invalid terminal message";
+export const BINARY_MESSAGE_CLOSE_CODE = 1003;
+export const BINARY_MESSAGE_CLOSE_REASON = "Binary terminal messages are not supported";
+export const BUFFER_LIMIT_CLOSE_CODE = 1009;
+export const BUFFER_LIMIT_CLOSE_REASON = "Terminal buffer limit exceeded";
+
+const utf8 = new TextEncoder();
+const colsSchema = z.number().int().min(MIN_TERMINAL_COLS).max(MAX_TERMINAL_COLS);
+const rowsSchema = z.number().int().min(MIN_TERMINAL_ROWS).max(MAX_TERMINAL_ROWS);
+const inputSchema = z.string().refine((data) => utf8.encode(data).byteLength <= MAX_INPUT_BYTES);
+
+const InitMsgSchema = z.strictObject({ type: z.literal("init"), cols: colsSchema, rows: rowsSchema });
+const InputMsgSchema = z.strictObject({ type: z.literal("input"), data: inputSchema });
+const ResizeMsgSchema = z.strictObject({ type: z.literal("resize"), cols: colsSchema, rows: rowsSchema });
+const ClientMsgSchema = z.discriminatedUnion("type", [InitMsgSchema, InputMsgSchema, ResizeMsgSchema]);
+
 // ---------------------------------------------------------------------------
 // Client → server
 // ---------------------------------------------------------------------------
@@ -103,6 +130,93 @@ export interface WireCellObject {
  * common case) serializes as the literal number `0`; otherwise a `WireCellObject`.
  */
 export type WireCell = 0 | WireCellObject;
+
+const byteSchema = z.number().int().min(0).max(255);
+const WireColorSchema = z.union([byteSchema, z.tuple([byteSchema, byteSchema, byteSchema])]);
+const WireCellSchema = z.union([
+  z.literal(0),
+  z.strictObject({
+    t: z.string().optional(),
+    f: WireColorSchema.optional(),
+    b: WireColorSchema.optional(),
+    a: byteSchema.optional(),
+    u: z.number().int().min(1).max(5).optional(),
+    w: z.number().int().min(1).max(3).optional(),
+  }),
+]);
+const WireCursorSchema = z.strictObject({
+  x: z.number().int().nonnegative(),
+  y: z.number().int().nonnegative(),
+  visible: z.boolean(),
+  shape: z.enum(["block", "underline", "bar"]).optional(),
+  blinking: z.boolean().optional(),
+  color: WireColorSchema.optional(),
+});
+const GridMsgSchema = z
+  .strictObject({
+    type: z.literal("grid"),
+    cols: colsSchema,
+    rows: rowsSchema,
+    cursor: WireCursorSchema,
+    cells: z.array(z.array(WireCellSchema)),
+  })
+  .superRefine((grid, ctx) => {
+    if (grid.cells.length !== grid.rows || grid.cells.some((row) => row.length !== grid.cols)) {
+      ctx.addIssue({ code: "custom", message: "grid dimensions do not match cells" });
+    }
+    if (grid.cursor.x >= grid.cols || grid.cursor.y >= grid.rows) {
+      ctx.addIssue({ code: "custom", message: "cursor is outside grid" });
+    }
+  });
+const ExitMsgSchema = z.strictObject({ type: z.literal("exit"), code: z.number().int() });
+const ServerMsgSchema = z.discriminatedUnion("type", [GridMsgSchema, ExitMsgSchema]);
+
+function parseJsonFrame(frame: unknown): unknown {
+  if (typeof frame === "string") return JSON.parse(frame);
+  if (frame !== null && typeof frame === "object" && !ArrayBuffer.isView(frame) && !(frame instanceof ArrayBuffer)) {
+    return frame;
+  }
+  throw new TypeError("terminal frames must be text");
+}
+
+export function decodeClientMessage(frame: unknown): ClientMsg {
+  return ClientMsgSchema.parse(parseJsonFrame(frame));
+}
+
+export function decodeServerMessage(frame: unknown): ServerMsg {
+  return ServerMsgSchema.parse(parseJsonFrame(frame));
+}
+
+export function utf8ByteLength(value: string): number {
+  return utf8.encode(value).byteLength;
+}
+
+export function clampTerminalSize(cols: number, rows: number): { cols: number; rows: number } {
+  return {
+    cols: Math.min(MAX_TERMINAL_COLS, Math.max(MIN_TERMINAL_COLS, Math.trunc(Number.isFinite(cols) ? cols : 0))),
+    rows: Math.min(MAX_TERMINAL_ROWS, Math.max(MIN_TERMINAL_ROWS, Math.trunc(Number.isFinite(rows) ? rows : 0))),
+  };
+}
+
+export function splitInput(data: string): string[] {
+  if (utf8ByteLength(data) <= MAX_INPUT_BYTES) return [data];
+
+  const chunks: string[] = [];
+  let chunk = "";
+  let bytes = 0;
+  for (const character of data) {
+    const characterBytes = utf8ByteLength(character);
+    if (bytes + characterBytes > MAX_INPUT_BYTES) {
+      chunks.push(chunk);
+      chunk = "";
+      bytes = 0;
+    }
+    chunk += character;
+    bytes += characterBytes;
+  }
+  if (chunk) chunks.push(chunk);
+  return chunks;
+}
 
 // ---------------------------------------------------------------------------
 // Shared index tables (pure data — used by both encoder and renderer)

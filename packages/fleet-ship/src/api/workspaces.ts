@@ -5,8 +5,15 @@
 
 import { Elysia, t } from "elysia";
 import { AGENT_STATES } from "fleet-protocol";
-import { TerminalBridge } from "webterm";
-import type { ClientMsg, ServerMsg } from "webterm/protocol";
+import {
+  BINARY_MESSAGE_CLOSE_CODE,
+  BINARY_MESSAGE_CLOSE_REASON,
+  decodeClientMessage,
+  INVALID_MESSAGE_CLOSE_CODE,
+  INVALID_MESSAGE_CLOSE_REASON,
+  TerminalBridge,
+} from "webterm";
+import type { ServerMsg } from "webterm/protocol";
 import type { WorkspaceManager } from "../workspace-manager";
 import { mapError } from "./http";
 
@@ -14,7 +21,25 @@ import { mapError } from "./http";
 // tabs racing to attach the same tmux session through separate PTYs.
 const activeTerminals = new Map<string, true>();
 
-export function workspacesPlugin(manager: WorkspaceManager) {
+interface TerminalHandler {
+  handle(message: ReturnType<typeof decodeClientMessage>): void;
+  stop(): void;
+}
+
+interface TerminalConnectionData {
+  bridge?: TerminalHandler;
+  sessionName?: string;
+  initialized?: boolean;
+  finished?: boolean;
+  finish?: (closeSocket: boolean, code?: number, reason?: string) => void;
+}
+
+type CreateTerminal = (options: ConstructorParameters<typeof TerminalBridge>[0]) => TerminalHandler;
+
+export function workspacesPlugin(
+  manager: WorkspaceManager,
+  createTerminal: CreateTerminal = (options) => new TerminalBridge(options),
+) {
   return new Elysia({ name: "ship-workspaces" })
     .get(
       "/workspaces",
@@ -177,26 +202,68 @@ export function workspacesPlugin(manager: WorkspaceManager) {
         }
         activeTerminals.set(sessionName, true);
 
-        const bridge = new TerminalBridge({
-          argv: ["tmux", "-L", "fleet-ship", "attach", "-t", sessionName],
-          send: (msg: ServerMsg) => {
-            ws.send(JSON.stringify(msg));
-          },
-        });
+        const data = ws.data as TerminalConnectionData;
+        data.sessionName = sessionName;
+        data.initialized = false;
+        data.finished = false;
+        data.finish = (closeSocket, code, reason) => {
+          if (data.finished) return;
+          data.finished = true;
+          const bridge = data.bridge;
+          data.bridge = undefined;
+          try {
+            bridge?.stop();
+          } finally {
+            activeTerminals.delete(sessionName);
+          }
+          if (closeSocket) ws.close(code, reason);
+        };
 
-        (ws.data as { bridge?: TerminalBridge; sessionName?: string }).bridge = bridge;
-        (ws.data as { bridge?: TerminalBridge; sessionName?: string }).sessionName = sessionName;
+        try {
+          const bridge = createTerminal({
+            argv: ["tmux", "-L", "fleet-ship", "attach", "-t", sessionName],
+            send: (msg: ServerMsg) => {
+              if (msg.type === "exit") {
+                try {
+                  ws.send(JSON.stringify(msg));
+                } finally {
+                  data.finish?.(true);
+                }
+              } else {
+                ws.send(JSON.stringify(msg));
+              }
+            },
+          });
+          if (data.finished) bridge.stop();
+          else data.bridge = bridge;
+        } catch {
+          data.finish(true);
+        }
       },
       message(ws, message) {
-        const bridge = (ws.data as { bridge?: TerminalBridge }).bridge;
-        if (!bridge) return;
-        const parsed: ClientMsg = typeof message === "string" ? JSON.parse(message) : (message as ClientMsg);
-        bridge.handle(parsed);
+        const data = ws.data as TerminalConnectionData;
+        if (!data.bridge) return;
+        const reject = (code: number, reason: string) => {
+          data.finish?.(true, code, reason);
+        };
+        if (ArrayBuffer.isView(message) || message instanceof ArrayBuffer) {
+          reject(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+          return;
+        }
+        try {
+          const parsed = decodeClientMessage(message);
+          if ((parsed.type === "init") !== !data.initialized) {
+            reject(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
+            return;
+          }
+          if (parsed.type === "init") data.initialized = true;
+          data.bridge.handle(parsed);
+        } catch {
+          reject(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
+        }
       },
       close(ws) {
-        const data = ws.data as { bridge?: TerminalBridge; sessionName?: string };
-        data.bridge?.stop();
-        if (data.sessionName) activeTerminals.delete(data.sessionName);
+        (ws.data as TerminalConnectionData).finish?.(false);
       },
     });
 }

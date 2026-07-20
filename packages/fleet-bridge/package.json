@@ -22,6 +22,7 @@
     "fleet-protocol": "workspace:*",
     "fleet-ship": "workspace:*",
     "logestic": "^1.2.4",
+    "webterm": "workspace:*",
     "yaml": "latest",
     "zod": "latest"
   },
