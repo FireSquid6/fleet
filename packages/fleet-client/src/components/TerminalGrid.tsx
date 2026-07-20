@@ -70,7 +70,7 @@ function drawGrid(
       const cell = row[c];
       if (cell === 0 || cell === undefined) continue;
       const x = colEdge(c);
-      paintCell(ctx, cell, x, y, colEdge(c + 1) - x, h, colors);
+      paintCell(ctx, cell, x, y, colEdge(c + 1) - x, h, colors, dpr);
     }
   }
 
@@ -84,6 +84,94 @@ function drawGrid(
   }
 }
 
+/**
+ * Paint a Block Elements glyph (U+2580–U+259F) by filling rectangles keyed to
+ * the cell bounds, and report whether `code` was one. These glyphs are meant to
+ * tile edge-to-edge (solid art, progress bars, the startup mascot), but our cell
+ * is `FONT_SIZE * LINE_HEIGHT` tall — taller than the font glyph — so drawing
+ * them as text leaves a seam between every row. Filling the cell geometrically
+ * keeps them contiguous at any line height. Sub-cell divisions are snapped to a
+ * whole device pixel so halves/quadrants stay crisp and abut without a gap.
+ */
+function paintBlockElement(
+  ctx: CanvasRenderingContext2D,
+  code: number,
+  x: number,
+  y: number,
+  cw: number,
+  ch: number,
+  dpr: number,
+): boolean {
+  if (code < 0x2580 || code > 0x259f) return false;
+
+  const snap = (v: number) => Math.round(v * dpr) / dpr;
+  const right = x + cw;
+  const bottom = y + ch;
+  const midX = snap(x + cw / 2);
+  const midY = snap(y + ch / 2);
+  const fill = (x0: number, y0: number, x1: number, y1: number) =>
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+
+  // Lower/left n-eighth edges, and shade coverage, computed lazily below.
+  const lowerEighth = (n: number) => fill(x, snap(bottom - (ch * n) / 8), right, bottom);
+  const leftEighth = (n: number) => fill(x, y, snap(x + (cw * n) / 8), bottom);
+  const shade = (alpha: number) => {
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * alpha;
+    fill(x, y, right, bottom);
+    ctx.globalAlpha = prev;
+  };
+
+  switch (code) {
+    case 0x2588: fill(x, y, right, bottom); return true; // █ full block
+    case 0x2580: fill(x, y, right, midY); return true; // ▀ upper half
+    case 0x2584: fill(x, midY, right, bottom); return true; // ▄ lower half
+    case 0x258c: fill(x, y, midX, bottom); return true; // ▌ left half
+    case 0x2590: fill(midX, y, right, bottom); return true; // ▐ right half
+    case 0x2594: fill(x, y, right, snap(y + ch / 8)); return true; // ▔ upper eighth
+    case 0x2595: fill(snap(right - cw / 8), y, right, bottom); return true; // ▕ right eighth
+    case 0x2581: lowerEighth(1); return true; // ▁
+    case 0x2582: lowerEighth(2); return true; // ▂
+    case 0x2583: lowerEighth(3); return true; // ▃
+    case 0x2585: lowerEighth(5); return true; // ▅
+    case 0x2586: lowerEighth(6); return true; // ▆
+    case 0x2587: lowerEighth(7); return true; // ▇
+    case 0x2589: leftEighth(7); return true; // ▉
+    case 0x258a: leftEighth(6); return true; // ▊
+    case 0x258b: leftEighth(5); return true; // ▋
+    case 0x258d: leftEighth(3); return true; // ▍
+    case 0x258e: leftEighth(2); return true; // ▎
+    case 0x258f: leftEighth(1); return true; // ▏
+    case 0x2591: shade(0.25); return true; // ░ light shade
+    case 0x2592: shade(0.5); return true; // ▒ medium shade
+    case 0x2593: shade(0.75); return true; // ▓ dark shade
+    default:
+      break;
+  }
+
+  // Quadrants (U+2596–U+259F): fill any subset of the four cell corners.
+  const q = {
+    ul: () => fill(x, y, midX, midY),
+    ur: () => fill(midX, y, right, midY),
+    ll: () => fill(x, midY, midX, bottom),
+    lr: () => fill(midX, midY, right, bottom),
+  };
+  switch (code) {
+    case 0x2596: q.ll(); return true; // ▖
+    case 0x2597: q.lr(); return true; // ▗
+    case 0x2598: q.ul(); return true; // ▘
+    case 0x2599: q.ul(); q.ll(); q.lr(); return true; // ▙
+    case 0x259a: q.ul(); q.lr(); return true; // ▚
+    case 0x259b: q.ul(); q.ur(); q.ll(); return true; // ▛
+    case 0x259c: q.ul(); q.ur(); q.lr(); return true; // ▜
+    case 0x259d: q.ur(); return true; // ▝
+    case 0x259e: q.ur(); q.ll(); return true; // ▞
+    case 0x259f: q.ur(); q.ll(); q.lr(); return true; // ▟
+    default:
+      return false;
+  }
+}
+
 function paintCell(
   ctx: CanvasRenderingContext2D,
   cell: WireCellObject,
@@ -92,6 +180,7 @@ function paintCell(
   cw: number,
   ch: number,
   colors: TermColors,
+  dpr: number,
 ) {
   const attrs = cell.a ?? 0;
   const inverse = (attrs & ATTR.inverse) !== 0;
@@ -109,8 +198,15 @@ function paintCell(
   }
 
   ctx.globalAlpha = (attrs & ATTR.faint) !== 0 ? 0.55 : 1;
-  ctx.font = baseFont((attrs & ATTR.bold) !== 0, (attrs & ATTR.italic) !== 0);
   ctx.fillStyle = fg;
+
+  const code = cell.t.codePointAt(0);
+  if (code !== undefined && paintBlockElement(ctx, code, x, y, cw, ch, dpr)) {
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  ctx.font = baseFont((attrs & ATTR.bold) !== 0, (attrs & ATTR.italic) !== 0);
   ctx.fillText(cell.t, x, y + (ch - FONT_SIZE) / 2);
 
   if (cell.u || (attrs & ATTR.strikethrough) !== 0 || (attrs & ATTR.overline) !== 0) {
