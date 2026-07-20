@@ -66,6 +66,17 @@ the per-provider specs and, for each provider whose config root exists:
 - is idempotent — unchanged files are left alone and the returned status
   (`installed` / `updated` / `unchanged`) reflects what actually moved.
 
+## Managing it by hand
+
+The ship auto-installs on boot, but the `ship plugin` command group lets you
+inspect and (re)install on demand:
+
+- `fleet-cli ship plugin doctor` — read-only report of the skill and plugin
+  state (`current` / `stale` / `missing` / `absent`) for every provider.
+- `fleet-cli ship plugin install <provider|all>` — install both the skill and
+  the plugin for one provider (`claude-code`, `opencode`, `copilot`, `codex`) or
+  all of them. `codex` installs the skill only (it has no plugin).
+
 ## Codex — not handled here (yet)
 
 Codex is intentionally excluded from the plugin installer. Unlike the others it

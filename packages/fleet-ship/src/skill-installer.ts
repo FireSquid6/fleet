@@ -11,8 +11,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ensureManagedDirectory,
+  inspectManagedFile,
   isDirectory,
   syncManagedFile,
+  type PresenceState,
   type WriteStatus,
 } from "./managed-fs";
 
@@ -27,10 +29,20 @@ export type SkillInstallation = {
   status: WriteStatus;
 };
 
+export type SkillStatus = {
+  provider: Provider;
+  path: string;
+  state: PresenceState;
+};
+
 export type InstallFleetSkillOptions = {
   homeDirectory?: string;
   sourcePath?: string;
+  /** Restrict to these providers; omit to target all of them. */
+  providers?: readonly string[];
 };
+
+export type InspectFleetSkillOptions = InstallFleetSkillOptions;
 
 type ProviderPaths = {
   provider: Provider;
@@ -84,6 +96,12 @@ function providerPaths(homeDirectory: string): ProviderPaths[] {
   ];
 }
 
+/** The provider spec rows to act on, optionally narrowed to `providers`. */
+function selectedPaths(homeDirectory: string, providers?: readonly string[]): ProviderPaths[] {
+  const all = providerPaths(homeDirectory);
+  return providers ? all.filter((paths) => providers.includes(paths.provider)) : all;
+}
+
 async function installForProvider(
   paths: ProviderPaths,
   source: string,
@@ -108,7 +126,7 @@ export async function installFleetSkill(
   const installations: SkillInstallation[] = [];
   const failures: Error[] = [];
 
-  for (const paths of providerPaths(homeDirectory)) {
+  for (const paths of selectedPaths(homeDirectory, options.providers)) {
     try {
       const installation = await installForProvider(paths, source);
       if (installation) installations.push(installation);
@@ -124,4 +142,25 @@ export async function installFleetSkill(
   }
 
   return installations;
+}
+
+/**
+ * Report the install state of the skill for each provider spec row, without
+ * writing anything. Codex contributes two rows (native + shared `~/.agents`).
+ */
+export async function inspectFleetSkill(
+  options: InspectFleetSkillOptions = {},
+): Promise<SkillStatus[]> {
+  const homeDirectory = options.homeDirectory ?? homedir();
+  const sourcePath = options.sourcePath ?? DEFAULT_SOURCE_PATH;
+  const source = await Bun.file(sourcePath).text();
+
+  const statuses: SkillStatus[] = [];
+  for (const paths of selectedPaths(homeDirectory, options.providers)) {
+    const state: PresenceState = (await isDirectory(paths.configRoot))
+      ? await inspectManagedFile(paths.destination, source)
+      : "absent";
+    statuses.push({ provider: paths.provider, path: paths.destination, state });
+  }
+  return statuses;
 }

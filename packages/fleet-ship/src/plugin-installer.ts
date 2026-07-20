@@ -28,8 +28,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   ensureManagedDirectory,
+  inspectManagedFile,
   isDirectory,
   syncManagedFile,
+  type PresenceState,
   type WriteStatus,
 } from "./managed-fs";
 
@@ -44,10 +46,20 @@ export type PluginInstallation = {
   status: WriteStatus;
 };
 
+export type PluginStatus = {
+  provider: Provider;
+  path: string;
+  state: PresenceState;
+};
+
 export type InstallFleetPluginOptions = {
   homeDirectory?: string;
   pluginsDirectory?: string;
+  /** Restrict to these providers; omit to target all of them. */
+  providers?: readonly string[];
 };
+
+export type InspectFleetPluginOptions = InstallFleetPluginOptions;
 
 type FileMapping = { source: string; destination: string; executable: boolean };
 
@@ -109,6 +121,16 @@ function pluginSpecs(homeDirectory: string, pluginsDir: string): PluginSpec[] {
   ];
 }
 
+/** The plugin specs to act on, optionally narrowed to `providers`. */
+function selectedSpecs(
+  homeDirectory: string,
+  pluginsDir: string,
+  providers?: readonly string[],
+): PluginSpec[] {
+  const all = pluginSpecs(homeDirectory, pluginsDir);
+  return providers ? all.filter((spec) => providers.includes(spec.provider)) : all;
+}
+
 /** Directories from just below `configRoot` down to `leaf` inclusive, shallowest first. */
 function directoriesWithin(configRoot: string, leaf: string): string[] {
   const chain: string[] = [];
@@ -125,6 +147,13 @@ function overallStatus(statuses: WriteStatus[]): WriteStatus {
   if (statuses.every((status) => status === "unchanged")) return "unchanged";
   if (statuses.every((status) => status === "installed")) return "installed";
   return "updated";
+}
+
+/** Roll per-file presence up into one: current only if all match, missing only if all absent. */
+function overallPresence(states: Array<Exclude<PresenceState, "absent">>): PresenceState {
+  if (states.every((state) => state === "current")) return "current";
+  if (states.every((state) => state === "missing")) return "missing";
+  return "stale";
 }
 
 async function installPlugin(spec: PluginSpec): Promise<PluginInstallation | undefined> {
@@ -160,7 +189,7 @@ export async function installFleetPlugin(
   const installations: PluginInstallation[] = [];
   const failures: Error[] = [];
 
-  for (const spec of pluginSpecs(homeDirectory, pluginsDirectory)) {
+  for (const spec of selectedSpecs(homeDirectory, pluginsDirectory, options.providers)) {
     try {
       const installation = await installPlugin(spec);
       if (installation) installations.push(installation);
@@ -176,4 +205,34 @@ export async function installFleetPlugin(
   }
 
   return installations;
+}
+
+/**
+ * Report the install state of the plugin for each provider, without writing.
+ * A provider's files are aggregated into a single state. Codex isn't included —
+ * it has no drop-in plugin (see the module header).
+ */
+export async function inspectFleetPlugin(
+  options: InspectFleetPluginOptions = {},
+): Promise<PluginStatus[]> {
+  const homeDirectory = options.homeDirectory ?? homedir();
+  const pluginsDirectory = options.pluginsDirectory ?? DEFAULT_PLUGINS_DIR;
+
+  const statuses: PluginStatus[] = [];
+  for (const spec of selectedSpecs(homeDirectory, pluginsDirectory, options.providers)) {
+    let state: PresenceState;
+    if (!(await isDirectory(spec.configRoot))) {
+      state = "absent";
+    } else {
+      const files = await spec.files();
+      const fileStates = await Promise.all(
+        files.map(async (file) =>
+          inspectManagedFile(file.destination, await Bun.file(file.source).text()),
+        ),
+      );
+      state = overallPresence(fileStates);
+    }
+    statuses.push({ provider: spec.provider, path: spec.path, state });
+  }
+  return statuses;
 }

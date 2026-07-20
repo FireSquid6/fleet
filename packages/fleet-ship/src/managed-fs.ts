@@ -58,3 +58,25 @@ export async function syncManagedFile(destination: string, source: string): Prom
   await Bun.write(destination, source);
   return previous === undefined ? "installed" : "updated";
 }
+
+/**
+ * Read-only counterpart to a config root + file check:
+ *   - `absent`  — the provider's config root doesn't exist (harness not installed)
+ *   - `missing` — config root exists but the file hasn't been installed
+ *   - `stale`   — installed, but its contents differ from `source`
+ *   - `current` — installed and byte-for-byte equal to `source`
+ */
+export type PresenceState = "absent" | "missing" | "stale" | "current";
+
+/** Inspect a single managed file without writing. `absent` is reported by callers. */
+export async function inspectManagedFile(
+  destination: string,
+  source: string,
+): Promise<Exclude<PresenceState, "absent">> {
+  try {
+    return (await Bun.file(destination).text()) === source ? "current" : "stale";
+  } catch (error) {
+    if (isMissing(error)) return "missing";
+    throw error;
+  }
+}

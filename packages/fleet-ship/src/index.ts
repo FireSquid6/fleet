@@ -3,10 +3,12 @@ import { loadConfig } from "./config";
 import { writeAtlas } from "./atlas";
 import { installFleetSkill } from "./skill-installer";
 import { installFleetPlugin } from "./plugin-installer";
+import { pluginCommand } from "./plugin-command";
 
 export const ship = new Command()
   .name("ship")
   .description("start the Fleet Ship HTTP + WebSocket API")
+  .addCommand(pluginCommand)
   .option("-c, --config <path>", "path to the fleet-ship config yaml", "./fleet-ship-config.yaml")
   .action(async (options: { config: string }) => {
     // Deferred so merely mounting this subcommand in the unified CLI doesn't

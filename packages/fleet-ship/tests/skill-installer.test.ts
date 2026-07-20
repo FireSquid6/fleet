@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installFleetSkill } from "../src/skill-installer";
+import { installFleetSkill, inspectFleetSkill } from "../src/skill-installer";
 
 describe("installFleetSkill", () => {
   const dirs: string[] = [];
@@ -153,5 +153,46 @@ describe("installFleetSkill", () => {
       "Failed to install fleet skill",
     );
     expect(await Bun.file(target).text()).toBe("user managed");
+  });
+
+  test("installs only the requested providers", async () => {
+    const fixtureOptions = await fixture();
+    const { homeDirectory } = fixtureOptions;
+    await Promise.all([
+      mkdir(join(homeDirectory, ".claude")),
+      mkdir(join(homeDirectory, ".config", "opencode"), { recursive: true }),
+    ]);
+
+    const installations = await installFleetSkill({ ...fixtureOptions, providers: ["opencode"] });
+
+    expect(installations.map(({ provider }) => provider)).toEqual(["opencode"]);
+    expect(
+      await exists(join(homeDirectory, ".claude", "skills", "fleet-agent", "SKILL.md")),
+    ).toBe(false);
+  });
+
+  test("inspectFleetSkill reports absent / missing / stale / current", async () => {
+    const fixtureOptions = await fixture();
+    const { homeDirectory, sourcePath } = fixtureOptions;
+    const source = await Bun.file(sourcePath).text();
+
+    // absent: no config root at all yet.
+    let statuses = await inspectFleetSkill(fixtureOptions);
+    expect(statuses.every((status) => status.state === "absent")).toBe(true);
+
+    // claude-code present but not installed → missing.
+    await mkdir(join(homeDirectory, ".claude"));
+    statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
+    expect(statuses[0]?.state).toBe("missing");
+
+    // install → current.
+    await installFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
+    statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
+    expect(statuses[0]?.state).toBe("current");
+
+    // drift the installed file → stale.
+    await Bun.write(statuses[0]!.path, `${source}drift`);
+    statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
+    expect(statuses[0]?.state).toBe("stale");
   });
 });

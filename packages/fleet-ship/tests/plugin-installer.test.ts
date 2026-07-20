@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installFleetPlugin } from "../src/plugin-installer";
+import { installFleetPlugin, inspectFleetPlugin } from "../src/plugin-installer";
 
 describe("installFleetPlugin", () => {
   const dirs: string[] = [];
@@ -136,5 +136,41 @@ describe("installFleetPlugin", () => {
       "Failed to install fleet plugin",
     );
     expect(await Bun.file(target).text()).toBe("user managed");
+  });
+
+  test("installs only the requested providers", async () => {
+    const { homeDirectory, pluginsDirectory } = await fixture();
+    await Promise.all([
+      mkdir(join(homeDirectory, ".claude")),
+      mkdir(join(homeDirectory, ".copilot")),
+    ]);
+
+    const installations = await installFleetPlugin({
+      homeDirectory,
+      pluginsDirectory,
+      providers: ["copilot"],
+    });
+
+    expect(installations.map(({ provider }) => provider)).toEqual(["copilot"]);
+    expect(await exists(claudeRoot(homeDirectory))).toBe(false);
+  });
+
+  test("inspectFleetPlugin reports absent / missing / stale / current", async () => {
+    const { homeDirectory, pluginsDirectory } = await fixture();
+
+    let statuses = await inspectFleetPlugin({ homeDirectory, pluginsDirectory });
+    expect(statuses.every((status) => status.state === "absent")).toBe(true);
+
+    await mkdir(join(homeDirectory, ".config", "opencode"), { recursive: true });
+    statuses = await inspectFleetPlugin({ homeDirectory, pluginsDirectory, providers: ["opencode"] });
+    expect(statuses[0]?.state).toBe("missing");
+
+    await installFleetPlugin({ homeDirectory, pluginsDirectory, providers: ["opencode"] });
+    statuses = await inspectFleetPlugin({ homeDirectory, pluginsDirectory, providers: ["opencode"] });
+    expect(statuses[0]?.state).toBe("current");
+
+    await Bun.write(openCodePlugin(homeDirectory), "drift");
+    statuses = await inspectFleetPlugin({ homeDirectory, pluginsDirectory, providers: ["opencode"] });
+    expect(statuses[0]?.state).toBe("stale");
   });
 });
