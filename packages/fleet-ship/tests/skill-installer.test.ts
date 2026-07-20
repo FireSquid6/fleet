@@ -55,6 +55,7 @@ describe("installFleetSkill", () => {
       join(homeDirectory, ".claude", "skills", "fleet-agent", "SKILL.md"),
       join(homeDirectory, ".config", "opencode", "skills", "fleet-agent", "SKILL.md"),
       join(homeDirectory, ".copilot", "skills", "fleet-agent", "SKILL.md"),
+      join(homeDirectory, ".codex", "skills", "fleet-agent", "SKILL.md"),
       join(homeDirectory, ".agents", "skills", "fleet-agent", "SKILL.md"),
     ];
 
@@ -62,6 +63,7 @@ describe("installFleetSkill", () => {
       { provider: "claude-code", status: "installed" },
       { provider: "opencode", status: "installed" },
       { provider: "copilot", status: "installed" },
+      { provider: "codex", status: "installed" },
       { provider: "codex", status: "installed" },
     ]);
     for (const destination of destinations) {
@@ -105,9 +107,16 @@ describe("installFleetSkill", () => {
     );
   });
 
-  test("requires the Codex config directory before using the shared skill path", async () => {
+  test("installs Codex skills to native and shared paths", async () => {
     const fixtureOptions = await fixture();
-    const destination = join(
+    const nativeDestination = join(
+      fixtureOptions.homeDirectory,
+      ".codex",
+      "skills",
+      "fleet-agent",
+      "SKILL.md",
+    );
+    const sharedDestination = join(
       fixtureOptions.homeDirectory,
       ".agents",
       "skills",
@@ -117,11 +126,14 @@ describe("installFleetSkill", () => {
     await mkdir(join(fixtureOptions.homeDirectory, ".agents"));
 
     expect(await installFleetSkill(fixtureOptions)).toEqual([]);
-    expect(await exists(destination)).toBe(false);
+    expect(await exists(nativeDestination)).toBe(false);
+    expect(await exists(sharedDestination)).toBe(false);
 
     await mkdir(join(fixtureOptions.homeDirectory, ".codex"));
-    expect((await installFleetSkill(fixtureOptions))[0]?.provider).toBe("codex");
-    expect(await exists(destination)).toBe(true);
+    const installations = await installFleetSkill(fixtureOptions);
+    expect(installations.map(({ provider }) => provider)).toEqual(["codex", "codex"]);
+    expect(await exists(nativeDestination)).toBe(true);
+    expect(await exists(sharedDestination)).toBe(true);
   });
 
   test("does not write through a symlinked skill file", async () => {

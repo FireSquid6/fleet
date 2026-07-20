@@ -30,7 +30,8 @@ function providerPaths(homeDirectory: string): ProviderPaths[] {
   const claudeSkills = join(homeDirectory, ".claude", "skills");
   const openCodeSkills = join(homeDirectory, ".config", "opencode", "skills");
   const copilotSkills = join(homeDirectory, ".copilot", "skills");
-  const codexSkills = join(homeDirectory, ".agents", "skills");
+  const codexSkills = join(homeDirectory, ".codex", "skills");
+  const sharedSkills = join(homeDirectory, ".agents", "skills");
 
   return [
     {
@@ -55,10 +56,16 @@ function providerPaths(homeDirectory: string): ProviderPaths[] {
       provider: "codex",
       configRoot: join(homeDirectory, ".codex"),
       destination: join(codexSkills, SKILL_NAME, "SKILL.md"),
+      directories: [codexSkills, join(codexSkills, SKILL_NAME)],
+    },
+    {
+      provider: "codex",
+      configRoot: join(homeDirectory, ".codex"),
+      destination: join(sharedSkills, SKILL_NAME, "SKILL.md"),
       directories: [
         join(homeDirectory, ".agents"),
-        codexSkills,
-        join(codexSkills, SKILL_NAME),
+        sharedSkills,
+        join(sharedSkills, SKILL_NAME),
       ],
     },
   ];
