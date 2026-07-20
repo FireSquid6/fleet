@@ -13,7 +13,7 @@ export function ReposRoute() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   return (
-    <div className="px-[30px] pb-[60px] pt-[28px]">
+    <div className="px-4 pb-16 pt-5 sm:px-[30px] sm:pb-[60px] sm:pt-[28px]">
       <Link to="/" className="font-mono text-[11px] font-medium text-dim transition-colors hover:text-text">
         ← bridge
       </Link>
@@ -36,7 +36,7 @@ export function ReposRoute() {
 
       <div className="overflow-hidden rounded-md border border-line bg-panel">
         <div
-          className="grid gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2"
+          className="hidden gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:grid"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>NAME</span>
@@ -54,17 +54,23 @@ export function ReposRoute() {
         {repos.map((r) => (
           <div
             key={r.name}
-            className="grid items-center gap-3 border-t border-line px-4 py-[13px] font-mono"
+            className="relative flex flex-col gap-1.5 border-t border-line px-4 py-[13px] font-mono md:grid md:items-center md:gap-3"
             style={{ gridTemplateColumns: COLS }}
           >
             <span className="text-[12px] font-semibold text-text">▣ {r.name}</span>
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-dim">{r.url}</span>
-            <span className="text-[10.5px] text-dim2">{r.provider}</span>
+            <span className="min-w-0 break-all text-[11px] text-dim md:overflow-hidden md:text-ellipsis md:whitespace-nowrap md:break-normal">
+              <RowLabel>URL</RowLabel>
+              {r.url}
+            </span>
+            <span className="text-[10.5px] text-dim2">
+              <RowLabel>PROVIDER</RowLabel>
+              {r.provider}
+            </span>
             <button
               type="button"
               onClick={() => setPendingDelete(r.name)}
               aria-label={`Delete ${r.name}`}
-              className="flex items-center justify-center rounded p-[5px] text-dim2 transition-colors hover:bg-panel2 hover:text-red-400"
+              className="absolute right-2 top-2 flex items-center justify-center rounded p-2 text-dim2 transition-colors hover:bg-panel2 hover:text-red-400 md:static md:p-[5px]"
             >
               <Trash2 className="size-[15px]" />
             </button>
@@ -187,6 +193,15 @@ export function ConfirmDeleteModal({
         </button>
       </div>
     </Modal>
+  );
+}
+
+/** Mobile-only inline field label for the stacked-card table rows (hidden at `md`). */
+export function RowLabel({ children }: { children: ReactNode }) {
+  return (
+    <span className="mr-2 font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:hidden">
+      {children}
+    </span>
   );
 }
 

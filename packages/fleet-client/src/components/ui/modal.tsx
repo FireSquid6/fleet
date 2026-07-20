@@ -32,14 +32,14 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     >
       <div
         className={cn(
-          "w-full max-w-[420px] rounded-md border border-line bg-panel shadow-xl",
+          "flex max-h-[calc(100dvh-2rem)] w-full max-w-[420px] flex-col overflow-hidden rounded-md border border-line bg-panel shadow-xl",
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-line px-5 py-[14px] font-mono text-[13px] font-semibold text-text">
+        <div className="flex-none border-b border-line px-5 py-[14px] font-mono text-[13px] font-semibold text-text">
           {title}
         </div>
-        <div className="px-5 py-[18px]">{children}</div>
+        <div className="overflow-y-auto px-5 py-[18px]">{children}</div>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
 import { CreateWorkspaceModal } from "@/components/CreateWorkspaceModal";
+import { RowLabel } from "./ReposRoute";
 
 const COLS = "150px 1.3fr 1fr 118px";
 
@@ -34,7 +35,7 @@ export function RepoRoute() {
   const shipCount = new Set(rows.map((w) => w.ship)).size;
 
   return (
-    <div className="px-[30px] pb-[60px] pt-[28px]">
+    <div className="px-4 pb-16 pt-5 sm:px-[30px] sm:pb-[60px] sm:pt-[28px]">
       <Link
         to="/"
         className="font-mono text-[11px] font-medium text-dim transition-colors hover:text-text"
@@ -56,18 +57,18 @@ export function RepoRoute() {
             + New Workspace
           </button>
         </div>
-        <div className="flex overflow-hidden rounded-md border border-line bg-panel">
+        <div className="flex w-full flex-col overflow-hidden rounded-md border border-line bg-panel sm:w-auto sm:flex-row">
           <Stat label="WORKSPACES" value={rows.length} />
-          <div className="w-px bg-line" />
+          <div className="h-px w-full bg-line sm:h-auto sm:w-px" />
           <Stat label="ACTIVE" value={activeCount} accent />
-          <div className="w-px bg-line" />
+          <div className="h-px w-full bg-line sm:h-auto sm:w-px" />
           <Stat label="SHIPS" value={shipCount} />
         </div>
       </div>
 
       <div className="overflow-hidden rounded-md border border-line bg-panel">
         <div
-          className="grid gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2"
+          className="hidden gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:grid"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>WORKSPACE</span>
@@ -81,20 +82,23 @@ export function RepoRoute() {
             key={w.name}
             to={`/repos/${w.repoName}/workspaces/${w.name}`}
             className={cn(
-              "grid items-center gap-3 border-t border-l-2 border-line px-4 py-[13px] font-mono transition-colors hover:bg-panel2",
+              "flex flex-col gap-1.5 border-t border-l-2 border-line px-4 py-[13px] font-mono transition-colors hover:bg-panel2 md:grid md:items-center md:gap-3",
               w.active ? "border-l-accent" : "border-l-transparent",
             )}
             style={{ gridTemplateColumns: COLS }}
           >
             <span className="text-[12px] font-semibold text-text">◇ {w.name}</span>
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-dim">
+            <span className="min-w-0 break-all text-[11px] text-dim md:overflow-hidden md:text-ellipsis md:whitespace-nowrap md:break-normal">
+              <RowLabel>BRANCH</RowLabel>
               ⎇ {w.branch}
             </span>
-            <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex min-w-0 items-baseline gap-2 md:flex-col md:items-start md:gap-0.5">
+              <RowLabel>SHIP</RowLabel>
               <span className="text-[11px] font-medium text-text">▦ {w.ship}</span>
               <span className="text-[9px] text-dim2">{shipSpec(w.ship)}</span>
             </span>
-            <span className="flex items-center justify-end gap-[7px] text-[10.5px] font-medium text-dim">
+            <span className="flex items-center gap-[7px] text-[10.5px] font-medium text-dim md:justify-end">
+              <RowLabel>STATUS</RowLabel>
               <span className={cn("h-1.5 w-1.5 flex-none rounded-full", w.active ? "bg-accent" : "bg-dim2")} />
               {w.active ? "active" : "inactive"}
             </span>

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
-import { ConfirmDeleteModal, Field, ModalActions } from "./ReposRoute";
+import { ConfirmDeleteModal, Field, ModalActions, RowLabel } from "./ReposRoute";
 
 const COLS = "1fr 1.6fr 110px 34px";
 
@@ -15,7 +15,7 @@ export function ShipsRoute() {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   return (
-    <div className="px-[30px] pb-[60px] pt-[28px]">
+    <div className="px-4 pb-16 pt-5 sm:px-[30px] sm:pb-[60px] sm:pt-[28px]">
       <Link to="/" className="font-mono text-[11px] font-medium text-dim transition-colors hover:text-text">
         ← bridge
       </Link>
@@ -38,7 +38,7 @@ export function ShipsRoute() {
 
       <div className="overflow-hidden rounded-md border border-line bg-panel">
         <div
-          className="grid gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2"
+          className="hidden gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:grid"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>NAME</span>
@@ -56,12 +56,16 @@ export function ShipsRoute() {
         {ships.map((s) => (
           <div
             key={s.name}
-            className="grid items-center gap-3 border-t border-line px-4 py-[13px] font-mono"
+            className="relative flex flex-col gap-1.5 border-t border-line px-4 py-[13px] font-mono md:grid md:items-center md:gap-3"
             style={{ gridTemplateColumns: COLS }}
           >
             <span className="text-[12px] font-semibold text-text">▦ {s.name}</span>
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-dim">{s.spec}</span>
-            <span className="flex items-center justify-end gap-[7px] text-[10.5px] font-medium text-dim">
+            <span className="min-w-0 break-all text-[11px] text-dim md:overflow-hidden md:text-ellipsis md:whitespace-nowrap md:break-normal">
+              <RowLabel>SPEC</RowLabel>
+              {s.spec}
+            </span>
+            <span className="flex items-center gap-[7px] text-[10.5px] font-medium text-dim md:justify-end">
+              <RowLabel>STATUS</RowLabel>
               <span
                 className={cn("h-1.5 w-1.5 flex-none rounded-full", s.status === "online" ? "bg-accent" : "bg-dim2")}
               />
@@ -71,7 +75,7 @@ export function ShipsRoute() {
               type="button"
               onClick={() => setPendingDelete(s.name)}
               aria-label={`Delete ${s.name}`}
-              className="flex items-center justify-center rounded p-[5px] text-dim2 transition-colors hover:bg-panel2 hover:text-red-400"
+              className="absolute right-2 top-2 flex items-center justify-center rounded p-2 text-dim2 transition-colors hover:bg-panel2 hover:text-red-400 md:static md:p-[5px]"
             >
               <Trash2 className="size-[15px]" />
             </button>

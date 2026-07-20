@@ -16,7 +16,7 @@ export function WorkspaceRoute() {
   const siblings = workspaces.filter((w) => w.repoName === repo);
 
   return (
-    <div className="flex h-full flex-col px-[30px] pb-6 pt-[24px]">
+    <div className="flex h-full flex-col px-4 pb-4 pt-5 sm:px-[30px] sm:pb-6 sm:pt-[24px]">
       <Link
         to={`/repos/${repo}`}
         className="self-start font-mono text-[11px] font-medium text-dim transition-colors hover:text-text"

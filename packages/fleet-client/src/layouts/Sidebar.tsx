@@ -12,17 +12,22 @@ function ActiveFill() {
 const navItemClass =
   "relative flex w-full items-center gap-[9px] rounded-[3px] px-[10px] py-[9px] text-left font-mono transition-colors hover:bg-panel2";
 
-export function Sidebar() {
+export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { repos, workspaces, liveCount } = useFleet();
 
   return (
-    <aside className="flex h-full w-[220px] flex-none flex-col border-r border-line bg-panel">
+    <aside
+      className={cn(
+        "fixed inset-y-0 left-0 z-40 flex h-full w-[220px] flex-none flex-col border-r border-line bg-panel transition-transform duration-200 md:static md:z-auto md:translate-x-0",
+        open ? "translate-x-0" : "-translate-x-full",
+      )}
+    >
       <div className="border-b border-line px-4 pb-[15px] pt-[17px]">
         <div className="font-mono text-[12.5px] font-bold tracking-[.16em] text-text">◤ ORCHESTRA</div>
         <div className="mt-1 font-mono text-[9.5px] tracking-[.14em] text-dim2">AGENT CONTROL</div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 overflow-auto px-2 py-[11px]">
+      <nav onClick={onClose} className="flex flex-1 flex-col gap-0.5 overflow-auto px-2 py-[11px]">
         <NavLink to="/" end className={navItemClass}>
           {({ isActive }) => (
             <>
