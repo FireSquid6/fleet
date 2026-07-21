@@ -50,6 +50,35 @@ export function workspacesPlugin(manager: WorkspaceManager) {
         return mapped.body;
       }
     })
+    .get(
+      "/workspaces/:repo/:name/diff",
+      async ({ params, query, set }) => {
+        try {
+          return await manager.diff(params.repo, params.name, {
+            staged: query.staged,
+            stat: query.stat,
+            nameOnly: query.nameOnly,
+            range: query.range,
+            paths: query.paths,
+            includeUntracked: query.includeUntracked,
+          });
+        } catch (err) {
+          const mapped = mapError(err);
+          set.status = mapped.status;
+          return mapped.body;
+        }
+      },
+      {
+        query: t.Object({
+          staged: t.Optional(t.Boolean()),
+          stat: t.Optional(t.Boolean()),
+          nameOnly: t.Optional(t.Boolean()),
+          range: t.Optional(t.String()),
+          paths: t.Optional(t.Array(t.String())),
+          includeUntracked: t.Optional(t.Boolean()),
+        }),
+      },
+    )
     .post(
       "/workspaces",
       async ({ body, set }) => {

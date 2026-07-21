@@ -94,6 +94,17 @@ export class EdenFleetBridge implements FleetBridge {
     return data;
   }
 
+  async getWorkspaceDiff(repo: string, name: string): Promise<string> {
+    // `HEAD` captures all staged+unstaged changes vs the last commit; the ship
+    // synthesizes add-file diffs for untracked files so brand-new files appear.
+    const { data, error } = await this.client
+      .workspaces({ repo })({ name })
+      .diff.get({ query: { range: "HEAD", includeUntracked: true } });
+    if (error) throw edenError(error);
+    if (typeof data !== "string") throw edenError({ value: data });
+    return data;
+  }
+
   async activateWorkspace(repo: string, name: string): Promise<void> {
     const { error } = await this.client.workspaces({ repo })({ name }).activate.post();
     if (error) throw edenError(error);

@@ -137,6 +137,11 @@ export interface DiffOptions {
   range?: string;
   /** Restrict the diff to these paths. */
   paths?: string[];
+  /**
+   * Append synthesized add-file diffs for untracked files (`ls-files --others`),
+   * which `git diff` never reports on its own. Intended for full-patch output.
+   */
+  includeUntracked?: boolean;
 }
 
 /** Options for {@link Git.show}. */

@@ -13,6 +13,7 @@
  */
 
 import type { FleetEvent, Repo, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
+import type { DiffOptions } from "git-bun";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import type { BridgeConfig } from "./config";
 import {
@@ -272,6 +273,14 @@ export class FleetManager {
       conn.client.workspaces({ repo })({ name }).get() as Promise<EdenResult<WorkspaceStatus>>,
     );
     return { ...status, ship: conn.name };
+  }
+
+  /** `GET /workspaces/:repo/:name/diff` — raw `git diff` text from the owning ship. */
+  async getWorkspaceDiff(repo: string, name: string, options: DiffOptions): Promise<string> {
+    const conn = this.routeFor(repo, name);
+    return this.call<string>(conn, () =>
+      conn.client.workspaces({ repo })({ name }).diff.get({ query: options }) as Promise<EdenResult<string>>,
+    );
   }
 
   /** `POST /workspaces {ship,repoName,name,branch}` — clones a registered repo. */

@@ -73,6 +73,7 @@
         "elysia": "latest",
         "fleet-protocol": "workspace:*",
         "fleet-ship": "workspace:*",
+        "git-bun": "workspace:*",
         "logestic": "^1.2.4",
         "yaml": "latest",
         "zod": "latest",

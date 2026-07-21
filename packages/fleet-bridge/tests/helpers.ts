@@ -147,6 +147,9 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
           if (s) s.workspaces = s.workspaces.filter((w) => w.repoName !== params.repo || w.name !== params2.name);
           return { ok: true };
         }),
+      diff: {
+        get: () => wrap(() => `diff for ${params.repo}/${params2.name}`),
+      },
     };
   };
   workspacesFn.get = () => wrap(() => [...(ship()?.workspaces ?? [])]);

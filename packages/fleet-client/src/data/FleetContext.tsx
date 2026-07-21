@@ -14,6 +14,8 @@ interface FleetValue {
   activate: (repo: string, name: string) => Promise<void>;
   deactivate: (repo: string, name: string) => Promise<void>;
   getWorkspace: (repo: string, name: string) => Promise<WorkspaceDetail>;
+  /** Raw `git diff` text (incl. untracked files) for a workspace. */
+  getWorkspaceDiff: (repo: string, name: string) => Promise<string>;
   /** Create a workspace, then refresh the workspace list. Rejects on failure. */
   createWorkspace: (input: { ship: string; repoName: string; name: string; branch: string }) => Promise<void>;
   /** Register a repo, then refresh the repo list. Rejects on failure. */
@@ -90,6 +92,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const getWorkspace = useCallback((repo: string, name: string) => bridge.getWorkspace(repo, name), []);
 
+  const getWorkspaceDiff = useCallback((repo: string, name: string) => bridge.getWorkspaceDiff(repo, name), []);
+
   // Repo/ship mutations rethrow so the calling modal can show the failure inline,
   // rather than swallowing it into the global banner like activate/deactivate.
   const refreshRepos = useCallback(async () => setRepos(await bridge.listRepos()), []);
@@ -145,6 +149,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     activate,
     deactivate,
     getWorkspace,
+    getWorkspaceDiff,
     createRepo,
     deleteRepo,
     createShip,

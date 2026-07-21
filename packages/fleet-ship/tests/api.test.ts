@@ -25,6 +25,15 @@ function makeApp(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Like `makeApp`, but returns the raw response text — for the text/plain diff route. */
+function makeTextApp(overrides: Record<string, unknown> = {}) {
+  const app = createApp(stubManager(overrides), stubConfig);
+  return async (path: string) => {
+    const res = await app.handle(new Request(`http://ship${path}`));
+    return { status: res.status, text: await res.text() };
+  };
+}
+
 describe("ship API", () => {
   test("GET /workspaces parses the active filter", async () => {
     // Stub reflects the filter it received back as the row's repoName.
@@ -46,6 +55,37 @@ describe("ship API", () => {
     const res = await call("GET", "/workspaces/r/n");
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: "workspace not found: r/n" });
+  });
+
+  test("GET /workspaces/:repo/:name/diff returns raw diff text, maps 404", async () => {
+    const ok = await makeTextApp()("/workspaces/r/n/diff");
+    expect(ok.status).toBe(200);
+    expect(ok.text).toBe("DIFF");
+
+    const missing = makeTextApp({
+      diff: async () => {
+        throw new WorkspaceError("workspace not found: r/n", 404);
+      },
+    });
+    const res = await missing("/workspaces/r/n/diff");
+    expect(res.status).toBe(404);
+    expect(JSON.parse(res.text)).toEqual({ error: "workspace not found: r/n" });
+  });
+
+  test("GET /workspaces/:repo/:name/diff coerces query into DiffOptions", async () => {
+    // Stub echoes the parsed options back so we can assert the coercion.
+    const call = makeTextApp({ diff: async (_r: string, _n: string, opts: unknown) => JSON.stringify(opts) });
+
+    expect(JSON.parse((await call("/workspaces/r/n/diff")).text)).toEqual({});
+    expect(
+      JSON.parse((await call("/workspaces/r/n/diff?staged=true&nameOnly=true&range=HEAD~1")).text),
+    ).toEqual({ staged: true, nameOnly: true, range: "HEAD~1" });
+    expect(JSON.parse((await call("/workspaces/r/n/diff?paths=a.ts&paths=b.ts")).text)).toEqual({
+      paths: ["a.ts", "b.ts"],
+    });
+    expect(JSON.parse((await call("/workspaces/r/n/diff?includeUntracked=true")).text)).toEqual({
+      includeUntracked: true,
+    });
   });
 
   test("POST /workspaces returns 201, maps 409, validates body (422)", async () => {

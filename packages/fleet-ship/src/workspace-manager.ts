@@ -9,7 +9,7 @@
 
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { Git } from "git-bun";
+import { Git, type DiffOptions } from "git-bun";
 import { Tmux } from "tmux-bun";
 import type {
   AgentStatus,
@@ -159,6 +159,19 @@ export class WorkspaceManager {
       mergeRequest: null,
       ship: this.config.name,
     };
+  }
+
+  /**
+   * Raw `git diff` text for the workspace, narrowed by {@link DiffOptions}. Works
+   * on the on-disk tree regardless of whether the workspace is active, so callers
+   * can inspect changes without an up tmux session.
+   */
+  async diff(repoName: string, name: string, options: DiffOptions = {}): Promise<string> {
+    if (!(await this.has(repoName, name))) {
+      throw new WorkspaceError(`workspace not found: ${repoName}/${name}`, 404);
+    }
+    const git = new Git({ cwd: this.workspaceDir(repoName, name) });
+    return git.diff(options);
   }
 
   /**

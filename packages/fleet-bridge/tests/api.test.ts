@@ -31,6 +31,12 @@ describe("bridge API", () => {
     return { status: res.status, body: text ? JSON.parse(text) : undefined };
   }
 
+  /** Read the raw response text — for the text/plain diff route. */
+  async function callText(path: string) {
+    const res = await app.handle(new Request(`http://bridge${path}`));
+    return { status: res.status, text: await res.text() };
+  }
+
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "fleet-bridge-api-"));
     FakeSocket.byBase.clear();
@@ -93,6 +99,14 @@ describe("bridge API", () => {
     expect(ok.status).toBe(200);
     expect(ok.body).toMatchObject({ repoName: "repo1", name: "one", ship: "ship-a" });
     expect((await call("GET", "/workspaces/nope/gone")).status).toBe(404);
+  });
+
+  test("GET /workspaces/:repo/:name/diff proxies raw diff text (200) or 404s", async () => {
+    const ok = await callText("/workspaces/repo1/one/diff");
+    expect(ok.status).toBe(200);
+    expect(ok.text).toBe("diff for repo1/one");
+
+    expect((await callText("/workspaces/nope/gone/diff")).status).toBe(404);
   });
 
   test("POST /workspaces: 201 create, 400 unknown ship/repo, 409 duplicate, 422 invalid", async () => {

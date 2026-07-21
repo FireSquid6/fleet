@@ -20,6 +20,7 @@
     "commander": "latest",
     "elysia": "latest",
     "fleet-protocol": "workspace:*",
+    "git-bun": "workspace:*",
     "fleet-ship": "workspace:*",
     "logestic": "^1.2.4",
     "yaml": "latest",

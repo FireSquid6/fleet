@@ -168,7 +168,19 @@ export class Git {
     if (options.nameOnly) args.push("--name-only");
     if (options.range !== undefined) args.push(options.range);
     if (options.paths !== undefined && options.paths.length > 0) args.push("--", ...options.paths);
-    return this.command.run(args);
+    let out = await this.command.run(args);
+
+    if (options.includeUntracked) {
+      const listed = await this.command.run(["ls-files", "--others", "--exclude-standard"]);
+      for (const file of listed.split("\n")) {
+        if (file.length === 0) continue;
+        // `diff --no-index /dev/null <file>` yields a proper `new file` patch block.
+        // It exits 1 when the files differ (always, here), so tryRun and take stdout.
+        const res = await this.command.tryRun(["diff", "--no-index", "/dev/null", file]);
+        out += res.stdout;
+      }
+    }
+    return out;
   }
 
   /** Raw output of `show` for a commit/object. */

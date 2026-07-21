@@ -181,6 +181,32 @@ suite("git-bun end-to-end", () => {
     expect(log[0]).toMatchObject({ sha, subject: "initial commit", authorName: "git-bun test" });
   });
 
+  test("diff includes untracked files as synthesized add-file patches", async () => {
+    const dir = join(root, "diff-untracked-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+
+    await Bun.write(join(dir, "tracked.txt"), "one\ntwo\n");
+    await repo.add(".");
+    await repo.commit("initial commit");
+
+    // Modify the tracked file (unstaged) and create a brand-new untracked file.
+    await Bun.write(join(dir, "tracked.txt"), "one\ntwo changed\n");
+    await Bun.write(join(dir, "brand-new.txt"), "fresh line\n");
+
+    // Plain `git diff HEAD` never reports the untracked file.
+    const plain = await repo.diff({ range: "HEAD" });
+    expect(plain).toContain("tracked.txt");
+    expect(plain).not.toContain("brand-new.txt");
+
+    // With includeUntracked it is appended as a `new file` add-diff.
+    const full = await repo.diff({ range: "HEAD", includeUntracked: true });
+    expect(full).toContain("tracked.txt");
+    expect(full).toContain("+two changed");
+    expect(full).toContain("brand-new.txt");
+    expect(full).toContain("+fresh line");
+    expect(full).toContain("new file");
+  });
+
   test("branches can be created, listed, switched, and deleted", async () => {
     const dir = join(root, "branch-repo");
     const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });

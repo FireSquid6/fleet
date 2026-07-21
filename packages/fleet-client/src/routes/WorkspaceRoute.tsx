@@ -1,7 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
-import { Terminal } from "@/components/Terminal";
+import { WorkspacePanel } from "@/components/WorkspacePanel";
 
 export function WorkspaceRoute() {
   const { repo = "", name = "" } = useParams();
@@ -77,7 +77,7 @@ export function WorkspaceRoute() {
         })}
       </div>
 
-      <Terminal
+      <WorkspacePanel
         repo={repo}
         name={name}
         ship={ws.ship}

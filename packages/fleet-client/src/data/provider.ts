@@ -34,6 +34,8 @@ export interface FleetBridge {
   createWorkspace(input: { ship: string; repoName: string; name: string; branch: string }): Promise<Workspace>;
   /** `GET /workspaces/:repo/:name` — detailed status (diff, ship, …). */
   getWorkspace(repo: string, name: string): Promise<WorkspaceDetail>;
+  /** `GET /workspaces/:repo/:name/diff` — raw `git diff` text (incl. untracked). */
+  getWorkspaceDiff(repo: string, name: string): Promise<string>;
   /** `POST /workspaces/:repo/:name/activate` — attach a session. */
   activateWorkspace(repo: string, name: string): Promise<void>;
   /** `POST /workspaces/:repo/:name/deactivate` — kill the session. */

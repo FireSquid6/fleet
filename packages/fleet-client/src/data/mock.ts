@@ -50,6 +50,43 @@ function mockDiff(name: string): WorkspaceDiff {
   return { added: 8 + (h % 40), removed: h % 15, commits: 1 + (h % 3) };
 }
 
+/** A canned raw `git diff` (modified + deleted + new file) for the Diff tab in mock mode. */
+const MOCK_DIFF = `diff --git a/src/server.ts b/src/server.ts
+index 3a1f2b4..9c4e1a0 100644
+--- a/src/server.ts
++++ b/src/server.ts
+@@ -12,7 +12,8 @@ export function createServer(config: Config) {
+   const app = new Elysia();
+
+-  app.get("/health", () => "ok");
++  app.get("/health", () => ({ status: "ok" }));
++  app.get("/version", () => ({ version: config.version }));
+
+   return app;
+ }
+diff --git a/src/legacy.ts b/src/legacy.ts
+deleted file mode 100644
+index 8b0a1c2..0000000
+--- a/src/legacy.ts
++++ /dev/null
+@@ -1,4 +0,0 @@
+-// Deprecated entry point, superseded by server.ts.
+-export function boot() {
+-  throw new Error("removed");
+-}
+diff --git a/src/routes/version.ts b/src/routes/version.ts
+new file mode 100644
+index 0000000..d4e5f6a
+--- /dev/null
++++ b/src/routes/version.ts
+@@ -0,0 +1,5 @@
++import { Elysia } from "elysia";
++
++export const versionRoute = new Elysia().get("/version", () => ({
++  version: process.env.APP_VERSION ?? "dev",
++}));
+`;
+
 /** Seed the repo registry from the distinct repo names in the seed workspaces. */
 function seedRepos(): Repo[] {
   const names: string[] = [];
@@ -157,6 +194,11 @@ export class MockFleetBridge implements FleetBridge {
       mergeRequest: null,
       ship: w.ship,
     };
+  }
+
+  async getWorkspaceDiff(repo: string, name: string): Promise<string> {
+    this.find(repo, name);
+    return MOCK_DIFF;
   }
 
   async activateWorkspace(repo: string, name: string): Promise<void> {

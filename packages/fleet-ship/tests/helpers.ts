@@ -10,6 +10,7 @@ export function stubManager(overrides: Record<string, unknown> = {}): WorkspaceM
   const base: Record<string, unknown> = {
     list: async () => [],
     get: async () => ({ state: "inactive", repoName: "r", name: "n", branch: "main" }),
+    diff: async () => "DIFF",
     create: async (b: { url: string; repoName: string; name: string; branch: string }) => ({
       repoName: b.repoName,
       name: b.name,
