@@ -18,17 +18,18 @@ export interface CommitInfo {
   subject: string;
 }
 
-/** One changed path in a {@link StatusInfo}, from `status --porcelain=v2`. */
+/** One changed, unmerged, or untracked path from `status --porcelain=v2`. */
 export interface FileStatus {
   /** Path relative to the repository root. For renames, the destination path. */
   path: string;
   /**
    * Two-character XY status code, e.g. `"M."` (staged-modified), `".M"`
-   * (unstaged-modified), `"A."` (staged-add), or `"??"` for untracked. `X` is
-   * the staged/index state, `Y` the worktree state.
+   * (unstaged-modified), `"A."` (staged-add), `"UU"` (unresolved), or `"??"`
+   * for untracked. For ordinary entries, `X` is the staged/index state and `Y`
+   * the worktree state; unresolved XY codes instead describe merge-stage states.
    */
   code: string;
-  /** Whether the change is staged (the `X` column is not `.`). */
+  /** Whether `X` denotes a staged change. Always `false` for unmerged records. */
   staged: boolean;
   /** For a rename/copy entry, the original path; otherwise `undefined`. */
   origPath?: string;
@@ -44,9 +45,9 @@ export interface StatusInfo {
   ahead: number;
   /** Commits behind the upstream. `0` when there is no upstream. */
   behind: number;
-  /** Whether the working tree is clean (no staged, unstaged, or untracked changes). */
+  /** Whether the working tree is clean (no staged, unstaged, unmerged, or untracked changes). */
   clean: boolean;
-  /** Every changed or untracked path. */
+  /** Every changed, unmerged, or untracked path. */
   files: FileStatus[];
 }
 

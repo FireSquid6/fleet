@@ -551,44 +551,71 @@ export class Screen {
    * pushed into scrollback so on-screen content near the top is preserved.
    */
   resize(cols: number, rows: number): void {
-    if (cols !== this.cols) {
-      for (const row of this.grid) this.#resizeRow(row, cols);
+    const colsChanged = cols !== this.cols;
+    const rowsChanged = rows !== this.rows;
+
+    if (colsChanged) {
       for (const row of this.scrollback) this.#resizeRow(row, cols);
-      this.tabStops = this.#defaultTabStops(cols);
-      this.cols = cols;
     }
 
-    if (rows !== this.rows) {
-      if (rows > this.rows) {
-        for (let i = this.rows; i < rows; i++) this.grid.push(makeRow(cols));
-      } else {
-        // Remove rows from the top (into scrollback) so recent output stays.
-        const remove = this.rows - rows;
-        for (let i = 0; i < remove; i++) {
-          const r = this.grid.shift()!;
-          if (!this.onAlt) this.#pushScrollback(r);
-        }
-        this.cursor.y = Math.max(0, this.cursor.y - remove);
-      }
-      this.rows = rows;
+    const activeRemoved = this.#resizeGrid(this.grid, cols, rows);
+    let primaryRemoved = activeRemoved;
+    if (this.onAlt) {
+      primaryRemoved = this.#resizeGrid(this.#primaryGrid!, cols, rows);
+    }
+    for (const row of primaryRemoved) this.#pushScrollback(row);
+
+    this.cursor.x = Math.min(this.cursor.x, cols - 1);
+    this.cursor.y = Math.min(Math.max(0, this.cursor.y - activeRemoved.length), rows - 1);
+    this.cursor.pendingWrap = false;
+
+    this.#resizeSavedCursor(this.#saved, cols, rows, activeRemoved.length);
+    this.#resizeSavedCursor(this.#savedForAlt, cols, rows, primaryRemoved.length);
+
+    this.cols = cols;
+    this.rows = rows;
+    if (rowsChanged) {
       this.scrollTop = 0;
       this.scrollBottom = rows - 1;
     }
+    if (colsChanged) this.tabStops = this.#defaultTabStops(cols);
+  }
 
-    this.cursor.x = Math.min(this.cursor.x, cols - 1);
-    this.cursor.y = Math.min(this.cursor.y, rows - 1);
-    this.cursor.pendingWrap = false;
+  #resizeSavedCursor(saved: SavedCursor | null, cols: number, rows: number, removedRows: number): void {
+    if (!saved) return;
+    saved.x = Math.min(saved.x, cols - 1);
+    saved.y = Math.min(Math.max(0, saved.y - removedRows), rows - 1);
+    saved.pendingWrap = false;
+  }
+
+  #resizeGrid(grid: Row[], cols: number, rows: number): Row[] {
+    if (cols !== this.cols) {
+      for (const row of grid) this.#resizeRow(row, cols);
+    }
+
+    if (rows > this.rows) {
+      for (let i = this.rows; i < rows; i++) grid.push(makeRow(cols));
+      return [];
+    }
+    if (rows < this.rows) return grid.splice(0, this.rows - rows);
+    return [];
   }
 
   #resizeRow(row: Row, cols: number): void {
     if (cols > row.length) {
-      while (row.length < cols) {
-        const c = new Pen();
-        this.#blank(c);
-        row.push(c);
-      }
+      while (row.length < cols) row.push(new Pen());
     } else if (cols < row.length) {
       row.length = cols;
+      const last = row[cols - 1];
+      if (!last) return;
+
+      if (last.wide === Wide.WIDE) last.reset();
+      const previous = row[cols - 2];
+      if (last.wide === Wide.SPACER_TAIL) {
+        if (!previous || previous.wide !== Wide.WIDE) last.reset();
+      } else if (previous?.wide === Wide.WIDE) {
+        previous.reset();
+      }
     }
   }
 }

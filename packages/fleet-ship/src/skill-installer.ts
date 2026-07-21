@@ -12,10 +12,11 @@ import { join } from "node:path";
 // @ts-expect-error Bun imports this Markdown file as a string.
 import embeddedSkill from "../skill/SKILL.md" with { type: "text" };
 import {
-  ensureManagedDirectory,
+  ensureSafeDirectory,
   inspectManagedFile,
   isDirectory,
-  syncManagedFile,
+  withManagedFiles,
+  type ManagedFileSession,
   type PresenceState,
   type WriteStatus,
 } from "./managed-fs";
@@ -41,6 +42,7 @@ export type InstallFleetSkillOptions = {
   sourcePath?: string;
   /** Restrict to these providers; omit to target all of them. */
   providers?: readonly string[];
+  force?: boolean;
 };
 
 export type InspectFleetSkillOptions = InstallFleetSkillOptions;
@@ -104,17 +106,25 @@ function selectedPaths(homeDirectory: string, providers?: readonly string[]): Pr
 }
 
 async function installForProvider(
+  homeDirectory: string,
   paths: ProviderPaths,
   source: string,
+  session: ManagedFileSession,
+  force: boolean,
 ): Promise<SkillInstallation | undefined> {
   if (!(await isDirectory(paths.configRoot))) return undefined;
 
-  for (const directory of paths.directories) await ensureManagedDirectory(directory);
+  for (const directory of paths.directories) await ensureSafeDirectory(homeDirectory, directory);
 
   return {
     provider: paths.provider,
     path: paths.destination,
-    status: await syncManagedFile(paths.destination, source),
+    status: await session.sync(paths.destination, source, {
+      provider: paths.provider,
+      kind: "skill",
+      force,
+      mode: 0o644,
+    }),
   };
 }
 
@@ -125,17 +135,32 @@ export async function installFleetSkill(
   const source = options.sourcePath ? await Bun.file(options.sourcePath).text() : embeddedSkill;
   const installations: SkillInstallation[] = [];
   const failures: Error[] = [];
+  const pathsToInstall = selectedPaths(homeDirectory, options.providers);
 
-  for (const paths of selectedPaths(homeDirectory, options.providers)) {
-    try {
-      const installation = await installForProvider(paths, source);
-      if (installation) installations.push(installation);
-    } catch (error) {
-      failures.push(
-        new Error(`Failed to install fleet skill for ${paths.provider}`, { cause: error }),
-      );
-    }
+  const available: ProviderPaths[] = [];
+  for (const paths of pathsToInstall) {
+    if (await isDirectory(paths.configRoot)) available.push(paths);
   }
+  if (available.length === 0) return [];
+
+  await withManagedFiles(homeDirectory, async (session) => {
+    for (const paths of available) {
+      try {
+        const installation = await installForProvider(
+          homeDirectory,
+          paths,
+          source,
+          session,
+          options.force ?? false,
+        );
+        if (installation) installations.push(installation);
+      } catch (error) {
+        failures.push(
+          new Error(`Failed to install fleet skill for ${paths.provider}`, { cause: error }),
+        );
+      }
+    }
+  });
 
   if (failures.length > 0) {
     throw new AggregateError(failures, "Failed to install fleet skill");
@@ -157,7 +182,7 @@ export async function inspectFleetSkill(
   const statuses: SkillStatus[] = [];
   for (const paths of selectedPaths(homeDirectory, options.providers)) {
     const state: PresenceState = (await isDirectory(paths.configRoot))
-      ? await inspectManagedFile(paths.destination, source)
+      ? await inspectManagedFile(homeDirectory, paths.destination, source, 0o644)
       : "absent";
     statuses.push({ provider: paths.provider, path: paths.destination, state });
   }

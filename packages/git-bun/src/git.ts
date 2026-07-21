@@ -127,9 +127,15 @@ export class Git {
 
   // --- inspect -------------------------------------------------------------
 
-  /** Working-tree and index status, parsed from `status --porcelain=v2 --branch`. */
+  /** Working-tree and index status, parsed from NUL-terminated porcelain v2. */
   async status(): Promise<StatusInfo> {
-    const out = await this.command.run(["status", "--porcelain=v2", "--branch"]);
+    const out = await this.command.run([
+      "status",
+      "--porcelain=v2",
+      "-z",
+      "--branch",
+      "--untracked-files=all",
+    ]);
     return parseStatus(out);
   }
 

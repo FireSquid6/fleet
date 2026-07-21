@@ -6,6 +6,7 @@
  * `fleetDirectory` to an absolute path.
  */
 
+import { mkdir, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parse } from "yaml";
 import { FleetShipConfigSchema, type FleetShipConfig } from "fleet-protocol";
@@ -29,4 +30,9 @@ export async function loadConfig(path: string): Promise<FleetShipConfig> {
   // workspace directory to an absolute path (relative to the current cwd).
   const config = FleetShipConfigSchema.parse(parsed);
   return { ...config, fleetDirectory: resolve(config.fleetDirectory) };
+}
+
+export async function canonicalizeFleetDirectory(config: FleetShipConfig): Promise<FleetShipConfig> {
+  await mkdir(config.fleetDirectory, { recursive: true });
+  return { ...config, fleetDirectory: await realpath(config.fleetDirectory) };
 }

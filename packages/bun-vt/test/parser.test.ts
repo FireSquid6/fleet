@@ -5,6 +5,9 @@
 import { test, expect, describe } from "bun:test";
 import { Parser, type CsiSequence, type EscSequence } from "../src/parser";
 
+const OSC_LIMIT = 4 * 1024;
+const INTERMEDIATE_LIMIT = 16;
+
 interface Recorder {
   events: string[];
   parser: Parser;
@@ -108,6 +111,19 @@ describe("CSI parsing", () => {
     r.feed("\x1b[" + Array(40).fill("1").join(";") + "m");
     expect(r.events).toEqual([]);
   });
+
+  test("exactly the intermediate limit dispatches", () => {
+    const r = recorder();
+    const intermediates = " ".repeat(INTERMEDIATE_LIMIT);
+    r.feed(`\x1b[${intermediates}m`);
+    expect(r.events).toEqual([`csi:|||${intermediates}|m`]);
+  });
+
+  test("excessive intermediates are ignored through the final", () => {
+    const r = recorder();
+    r.feed(`\x1b[${" ".repeat(INTERMEDIATE_LIMIT + 1)}mZ`);
+    expect(r.events).toEqual(["print:90"]);
+  });
 });
 
 describe("ESC dispatch", () => {
@@ -121,6 +137,19 @@ describe("ESC dispatch", () => {
     const r = recorder();
     r.feed("\x1b(B");
     expect(r.events).toEqual(["esc:(|B"]);
+  });
+
+  test("exactly the intermediate limit dispatches", () => {
+    const r = recorder();
+    const intermediates = " ".repeat(INTERMEDIATE_LIMIT);
+    r.feed(`\x1b${intermediates}A`);
+    expect(r.events).toEqual([`esc:${intermediates}|A`]);
+  });
+
+  test("excessive intermediates are ignored through the final", () => {
+    const r = recorder();
+    r.feed(`\x1b${" ".repeat(INTERMEDIATE_LIMIT + 1)}AZ`);
+    expect(r.events).toEqual(["print:90"]);
   });
 });
 
@@ -142,6 +171,70 @@ describe("OSC", () => {
     r.feed("\x1b]0;café\x07");
     expect(r.events).toEqual(["osc:0;café"]);
   });
+
+  test("exactly the byte limit dispatches", () => {
+    const r = recorder();
+    const data = "x".repeat(OSC_LIMIT);
+    r.feed(`\x1b]${data}\x07`);
+    expect(r.events).toEqual([`osc:${data}`]);
+  });
+
+  test("one byte over the limit is discarded without dispatch", () => {
+    const r = recorder();
+    r.feed(`\x1b]${"x".repeat(OSC_LIMIT + 1)}\x07Z`);
+    expect(r.events).toEqual(["print:90"]);
+  });
+
+  for (const [name, terminator] of [
+    ["BEL", [0x07]],
+    ["C1 ST", [0x9c]],
+    ["split ESC \\", [0x1b, 0x5c]],
+  ] as const) {
+    test(`${name} terminates overflow discard across writes`, () => {
+      const r = recorder();
+      r.feed(`\x1b]${"x".repeat(OSC_LIMIT + 1)}`);
+      for (const byte of terminator) r.feed([byte]);
+      r.feed("Z");
+      expect(r.events).toEqual(["print:90"]);
+    });
+  }
+
+  test("arbitrary ESC does not leave overflow discard", () => {
+    const r = recorder();
+    r.feed(`\x1b]${"x".repeat(OSC_LIMIT + 1)}`);
+    r.feed("\x1bMdiscarded");
+    r.feed("\x07Z");
+    expect(r.events).toEqual(["print:90"]);
+  });
+
+  for (const [name, cancel] of [
+    ["CAN", 0x18],
+    ["SUB", 0x1a],
+  ] as const) {
+    test(`${name} cancels overflow discard`, () => {
+      const r = recorder();
+      r.feed(`\x1b]${"x".repeat(OSC_LIMIT + 1)}`);
+      r.feed([cancel]);
+      r.feed("Z");
+      expect(r.events).toEqual(["print:90"]);
+    });
+  }
+
+  test("reset clears overflow discard and its pending ESC", () => {
+    const r = recorder();
+    r.feed(`\x1b]${"x".repeat(OSC_LIMIT + 1)}\x1b`);
+    r.parser.reset();
+    r.feed("Z\x1b]ok\x07");
+    expect(r.events).toEqual(["print:90", "osc:ok"]);
+  });
+
+  test("many chunks remain discarded until termination", () => {
+    const r = recorder();
+    r.feed("\x1b]");
+    for (let i = 0; i < OSC_LIMIT + 1000; i++) r.feed("x");
+    r.feed("\x07Z");
+    expect(r.events).toEqual(["print:90"]);
+  });
 });
 
 describe("DCS", () => {
@@ -157,6 +250,46 @@ describe("DCS", () => {
       "dcs_put:99",
       "dcs_unhook",
     ]);
+  });
+
+  test("exactly the intermediate limit hooks", () => {
+    const r = recorder();
+    const intermediates = " ".repeat(INTERMEDIATE_LIMIT);
+    r.feed(`\x1bP${intermediates}q`);
+    r.feed([0x9c]);
+    expect(r.events).toEqual([`dcs_hook:|${intermediates}|q`, "dcs_unhook"]);
+  });
+
+  test("excessive intermediates ignore the final and payload", () => {
+    const r = recorder();
+    r.feed(`\x1bP${" ".repeat(INTERMEDIATE_LIMIT + 1)}qpayload`);
+    r.feed([0x9c]);
+    r.feed("Z");
+    expect(r.events).toEqual(["print:90"]);
+  });
+
+  test("excessive parameters ignore the final and payload", () => {
+    const r = recorder();
+    r.feed("\x1bP" + Array(40).fill("1").join(";") + "qpayload");
+    r.feed([0x9c]);
+    r.feed("Z");
+    expect(r.events).toEqual(["print:90"]);
+  });
+
+  test("C1 ST immediately terminates parameter overflow discard", () => {
+    const r = recorder();
+    r.feed("\x1bP" + "1;".repeat(33));
+    r.feed([0x9c]);
+    r.feed("Z");
+    expect(r.events).toEqual(["print:90"]);
+  });
+
+  test("C1 ST terminates after a populated 33rd parameter", () => {
+    const r = recorder();
+    r.feed("\x1bP" + Array(33).fill("1").join(";"));
+    r.feed([0x9c]);
+    r.feed("Z");
+    expect(r.events).toEqual(["print:90"]);
   });
 });
 

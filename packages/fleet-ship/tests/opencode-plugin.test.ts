@@ -17,7 +17,12 @@ function shellResult(exitCode: number, stdout: string) {
 }
 
 describe("OpenCode fleet-agent plugin", () => {
-  test("does nothing when fleet-agent is unavailable or outside a workspace", async () => {
+  test("invokes the fleet agent namespace", () => {
+    expect(pluginSource).toContain("fleet agent in-workspace");
+    expect(pluginSource).not.toContain("fleet-agent in-workspace");
+  });
+
+  test("does nothing when fleet is unavailable or outside a workspace", async () => {
     expect(
       await FleetAgentActivation({ $: shellResult(127, ""), directory: "/workspace" }),
     ).toEqual({});

@@ -6,7 +6,8 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { Terminal, wcwidth } from "../src/index";
+import { Screen, Terminal, wcwidth } from "../src/index";
+import { Wide } from "../src/cell";
 
 const SHI = "世"; // 世 (CJK, wide)
 const ZHONG = "中"; // 中 (CJK, wide)
@@ -65,6 +66,51 @@ describe("wide characters in the grid", () => {
     expect(t.cell(0, 0).char).toBe("X");
     expect(t.cell(0, 1).char).toBe(""); // orphaned tail cleared
     expect(t.cell(0, 1).width).toBe("narrow");
+  });
+
+  test("shrink through a wide pair resets the retained head before growing", () => {
+    const t = new Terminal({ cols: 4, rows: 2 });
+    t.write("ab\x1b[41m" + SHI);
+
+    t.resize(3, 2);
+    expect(t.cell(0, 2)).toMatchObject({ char: "", width: "narrow", bg: { type: "default" } });
+    t.resize(4, 2);
+
+    expect(t.rowText(0)).toBe("ab");
+    expect(t.cell(0, 2)).toMatchObject({ char: "", width: "narrow" });
+    expect(t.cell(0, 3)).toMatchObject({ char: "", width: "narrow" });
+  });
+
+  test("shrink through wide pairs repairs hidden primary and scrollback rows", () => {
+    const screen = new Screen(4, 2, 10);
+    screen.print("a".charCodeAt(0));
+    screen.print("b".charCodeAt(0));
+    screen.print(SHI.codePointAt(0)!);
+    screen.scrollUp(1);
+
+    screen.setCursor(0, 0);
+    screen.print("c".charCodeAt(0));
+    screen.print("d".charCodeAt(0));
+    screen.print(SHI.codePointAt(0)!);
+    screen.enterAlt(true, true);
+    screen.resize(3, 2);
+    screen.resize(4, 2);
+    screen.leaveAlt(true);
+
+    for (const row of [screen.grid[0]!, screen.scrollback[0]!]) {
+      expect(row).toHaveLength(4);
+      expect(row[2]).toMatchObject({ cp: 0, wide: Wide.NARROW });
+      expect(row[3]).toMatchObject({ cp: 0, wide: Wide.NARROW });
+    }
+  });
+
+  test("row truncation resets an orphan tail at the retained boundary", () => {
+    const screen = new Screen(4, 1, 0);
+    screen.grid[0]![2]!.wide = Wide.SPACER_TAIL;
+
+    screen.resize(3, 1);
+
+    expect(screen.grid[0]![2]).toMatchObject({ cp: 0, wide: Wide.NARROW });
   });
 });
 

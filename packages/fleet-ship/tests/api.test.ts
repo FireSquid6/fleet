@@ -105,6 +105,19 @@ describe("ship API", () => {
     expect((await makeApp()("POST", "/workspaces", { repoName: "r" })).status).toBe(422);
   });
 
+  test("invalid identifiers from the manager are returned as 4xx errors", async () => {
+    const manager = new (await import("../src/workspace-manager")).WorkspaceManager(stubConfig);
+    const app = createApp(manager, stubConfig);
+    const create = await app.handle(
+      new Request("http://ship/workspaces", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: "url", repoName: "bad\\repo", name: "ws", branch: "main" }),
+      }),
+    );
+    expect(create.status).toBe(400);
+  });
+
   test("verb routes return { ok: true } and map errors", async () => {
     const call = makeApp();
     expect(await call("POST", "/workspaces/r/n/activate")).toEqual({ status: 200, body: { ok: true } });

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { GridMsg, ServerMsg } from "webterm/protocol";
+import {
+  BINARY_MESSAGE_CLOSE_CODE,
+  BINARY_MESSAGE_CLOSE_REASON,
+  clampTerminalSize,
+  decodeServerMessage,
+  INVALID_MESSAGE_CLOSE_CODE,
+  INVALID_MESSAGE_CLOSE_REASON,
+  splitInput,
+} from "webterm/protocol";
+import type { GridMsg } from "webterm/protocol";
 import { wsBridgeUrl } from "./client";
 
 export type WebtermStatus = "idle" | "connecting" | "open" | "closed" | "error";
@@ -9,6 +18,28 @@ interface UseWebtermOptions {
    *  paints imperatively so 60fps snapshots don't re-render the tree. */
   onGrid?: (grid: GridMsg) => void;
   onExit?: (code: number) => void;
+}
+
+export function handleServerFrame(
+  data: unknown,
+  opts: UseWebtermOptions,
+  close: (code: number, reason: string) => void,
+): void {
+  if (typeof data !== "string") {
+    close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+    return;
+  }
+  try {
+    const msg = decodeServerMessage(data);
+    if (msg.type === "grid") opts.onGrid?.(msg);
+    else opts.onExit?.(msg.code);
+  } catch {
+    close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
+  }
+}
+
+export function terminalPath(repo: string, name: string): string {
+  return `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
 }
 
 interface UseWebtermResult {
@@ -45,6 +76,7 @@ export function useWebterm(
 
   /** Send `init` the first time, `resize` thereafter. */
   const sendSize = useCallback((ws: WebSocket, cols: number, rows: number) => {
+    ({ cols, rows } = clampTerminalSize(cols, rows));
     const type = initializedRef.current ? "resize" : "init";
     initializedRef.current = true;
     ws.send(JSON.stringify({ type, cols, rows }));
@@ -59,7 +91,7 @@ export function useWebterm(
     pendingSizeRef.current = null;
     setStatus("connecting");
 
-    const ws = new WebSocket(wsBridgeUrl(`/workspaces/${repo}/${name}/terminal`));
+    const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name)));
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -68,9 +100,7 @@ export function useWebterm(
       if (pending) sendSize(ws, pending.cols, pending.rows);
     };
     ws.onmessage = (ev) => {
-      const msg: ServerMsg = JSON.parse(ev.data as string);
-      if (msg.type === "grid") optsRef.current.onGrid?.(msg);
-      else optsRef.current.onExit?.(msg.code);
+      handleServerFrame(ev.data, optsRef.current, (code, reason) => ws.close(code, reason));
     };
     ws.onclose = () => setStatus("closed");
     ws.onerror = () => setStatus("error");
@@ -83,11 +113,14 @@ export function useWebterm(
 
   const send = useCallback((data: string) => {
     const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "input", data }));
+    if (ws?.readyState === WebSocket.OPEN) {
+      for (const chunk of splitInput(data)) ws.send(JSON.stringify({ type: "input", data: chunk }));
+    }
   }, []);
 
   const resize = useCallback(
     (cols: number, rows: number) => {
+      ({ cols, rows } = clampTerminalSize(cols, rows));
       pendingSizeRef.current = { cols, rows };
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN) sendSize(ws, cols, rows);

@@ -13,11 +13,17 @@ import { workspacesPlugin } from "./workspaces";
 import { eventsPlugin } from "./events";
 import { systemResourcesPlugin } from "./system-resources";
 import { Logestic } from "logestic";
+import { MAX_CLIENT_FRAME_BYTES, type TerminalBridge } from "webterm";
 
-export function createApp(manager: WorkspaceManager, _config: FleetShipConfig) {
-  return new Elysia()
+export function createApp(
+  manager: WorkspaceManager,
+  _config: FleetShipConfig,
+  createTerminal?: (options: ConstructorParameters<typeof TerminalBridge>[0]) => Pick<TerminalBridge, "handle" | "stop">,
+  terminalInitTimeoutMs?: number,
+) {
+  return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES } })
     .use(Logestic.preset("commontz"))
-    .use(workspacesPlugin(manager))
+    .use(workspacesPlugin(manager, createTerminal, terminalInitTimeoutMs))
     .use(eventsPlugin(manager))
     .use(systemResourcesPlugin())
 

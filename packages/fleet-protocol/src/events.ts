@@ -10,11 +10,12 @@
  */
 
 import { z } from "zod";
+import { FleetIdentifierSchema } from "./identifier";
 import { WorkspaceSummarySchema } from "./workspace";
 
 const EventBase = z.object({
   /** Name of the ship (from its config) that emitted the event. */
-  ship: z.string(),
+  ship: FleetIdentifierSchema,
   /** ISO 8601 timestamp of when the event was emitted. */
   at: z.string(),
 });

@@ -65,7 +65,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         {repos.map((r) => (
           <NavLink
             key={r.name}
-            to={`/repos/${r.name}`}
+            to={`/repos/${encodeURIComponent(r.name)}`}
             className="relative flex w-full items-center gap-2 rounded-[3px] px-[10px] py-[7px] text-left font-mono transition-colors hover:bg-panel2"
           >
             {({ isActive }) => (

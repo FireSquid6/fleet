@@ -12,11 +12,13 @@ import { Command } from "commander";
 import {
   installFleetSkill,
   inspectFleetSkill,
+  type SkillInstallation,
   type SkillStatus,
 } from "./skill-installer";
 import {
   installFleetPlugin,
   inspectFleetPlugin,
+  type PluginInstallation,
   type PluginStatus,
 } from "./plugin-installer";
 import type { PresenceState } from "./managed-fs";
@@ -42,6 +44,53 @@ export type CliStatus = {
   path: string | null;
 };
 
+type InstallDependencies = {
+  skill: typeof installFleetSkill;
+  plugin: typeof installFleetPlugin;
+};
+
+type InstallOutput = {
+  log(message: string): void;
+  error(message: string): void;
+};
+
+export async function performPluginInstall(
+  provider: string,
+  force: boolean,
+  output: InstallOutput = console,
+  dependencies: InstallDependencies = { skill: installFleetSkill, plugin: installFleetPlugin },
+): Promise<{ skills: SkillInstallation[]; plugins: PluginInstallation[]; conflicts: number }> {
+  const providers = provider === "all" ? undefined : [provider];
+  const skills = await dependencies.skill({ providers, force });
+  const plugins = await dependencies.plugin({ providers, force });
+
+  for (const skill of skills) {
+    output.log(`skill   ${skill.provider.padEnd(12)} ${skill.status.padEnd(9)} ${skill.path}`);
+  }
+  for (const plugin of plugins) {
+    output.log(`plugin  ${plugin.provider.padEnd(12)} ${plugin.status.padEnd(9)} ${plugin.path}`);
+  }
+
+  const conflicts = [
+    ...skills
+      .filter((installation) => installation.status === "conflict")
+      .map((installation) => ({ provider: installation.provider, path: installation.path })),
+    ...plugins.flatMap((installation) =>
+      (installation.conflictPaths ?? []).map((path) => ({
+        provider: installation.provider,
+        path,
+      })),
+    ),
+  ];
+  for (const conflict of conflicts) {
+    output.error(
+      `Conflict: ${conflict.path} is user-managed or was modified; preserved. ` +
+        `Review it, then run fleet ship plugin install ${conflict.provider} --force to replace it.`,
+    );
+  }
+  return { skills, plugins, conflicts: conflicts.length };
+}
+
 /** Locate each provider's CLI on PATH. Impure (reads PATH); the formatter takes the result. */
 export function inspectProviderClis(): CliStatus[] {
   return PROVIDERS.map((provider) => {
@@ -52,7 +101,8 @@ export function inspectProviderClis(): CliStatus[] {
 
 const STATE_LABEL: Record<PresenceState, string> = {
   current: "✓ current",
-  stale: "~ stale",
+  "outdated-owned": "~ outdated-owned",
+  "conflict-unmanaged": "! conflict/unmanaged",
   missing: "✗ missing",
   absent: "- absent",
 };
@@ -118,26 +168,17 @@ pluginCommand
   .command("install")
   .description("install the fleet-agent skill and plugin for a provider")
   .argument("<provider>", `provider to install for, or "all" (${PROVIDERS.join(", ")})`)
-  .action(async (provider: string) => {
+  .option("--force", "replace conflicting regular files and claim them for Fleet")
+  .action(async (provider: string, options: { force?: boolean }) => {
     if (provider !== "all" && !(PROVIDERS as readonly string[]).includes(provider)) {
       console.error(`unknown provider "${provider}"; expected one of: ${PROVIDERS.join(", ")}, all`);
       process.exit(1);
     }
 
-    const providers = provider === "all" ? undefined : [provider];
-    // Sequential, not concurrent: the skill and plugin installers share config
-    // directories (e.g. ~/.claude/skills) and would race to create them.
-    const skills = await installFleetSkill({ providers });
-    const plugins = await installFleetPlugin({ providers });
+    const result = await performPluginInstall(provider, options.force ?? false);
+    if (result.conflicts > 0) process.exitCode = 1;
 
-    for (const skill of skills) {
-      console.log(`skill   ${skill.provider.padEnd(12)} ${skill.status.padEnd(9)} ${skill.path}`);
-    }
-    for (const plugin of plugins) {
-      console.log(`plugin  ${plugin.provider.padEnd(12)} ${plugin.status.padEnd(9)} ${plugin.path}`);
-    }
-
-    if (provider !== "all" && skills.length === 0 && plugins.length === 0) {
+    if (provider !== "all" && result.skills.length === 0 && result.plugins.length === 0) {
       console.log(`${provider}: not installed on this machine (config directory missing); nothing to do.`);
     }
   });

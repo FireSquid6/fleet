@@ -43,7 +43,7 @@ describe("parseLog", () => {
 
 describe("parseStatus", () => {
   test("reads branch, ahead/behind, and changed/untracked files", () => {
-    const stdout = [
+    const stdout = `${[
       "# branch.oid abcdef",
       "# branch.head main",
       "# branch.upstream origin/main",
@@ -51,7 +51,7 @@ describe("parseStatus", () => {
       "1 M. N... 100644 100644 100644 aaa bbb staged.txt",
       "1 .M N... 100644 100644 100644 ccc ddd dirty.txt",
       "? untracked.txt",
-    ].join("\n");
+    ].join("\0")}\0`;
     const status = parseStatus(stdout);
     expect(status.branch).toBe("main");
     expect(status.upstream).toBe("origin/main");
@@ -64,28 +64,112 @@ describe("parseStatus", () => {
     expect(status.files[2]).toMatchObject({ path: "untracked.txt", code: "??", staged: false });
   });
 
-  test("parses a rename entry's destination and original path", () => {
-    const stdout = [
+  test("consumes a rename's original pathname as a separate record", () => {
+    const stdout = `${[
       "# branch.head main",
-      "2 R. N... 100644 100644 100644 aaa bbb R100 new-name.txt\told-name.txt",
-    ].join("\n");
+      "2 R. N... 100644 100644 100644 aaa bbb R100 new\tname\n雪.txt",
+      "old\\name\t.txt",
+      "? after-rename.txt",
+    ].join("\0")}\0`;
     const status = parseStatus(stdout);
     expect(status.files[0]).toMatchObject({
-      path: "new-name.txt",
-      origPath: "old-name.txt",
+      path: "new\tname\n雪.txt",
+      origPath: "old\\name\t.txt",
       staged: true,
     });
+    expect(status.files[1]?.path).toBe("after-rename.txt");
+  });
+
+  test("preserves special characters and unmerged order among other records", () => {
+    const specialPath = "dir/tab\tline\nback\\slash-café.txt";
+    const stdout = `${[
+      "1 .M N... 100644 100644 100644 aaa bbb ordinary file.txt",
+      "u UU N... 100644 100644 100644 100644 aaa bbb ccc both changed file.txt",
+      `? ${specialPath}`,
+      "u AU N... 000000 100644 100644 100644 000 bbb ccc added by us.txt",
+      "u DU N... 100644 000000 100644 100644 aaa 000 ccc deleted by us.txt",
+    ].join("\0")}\0`;
+
+    const status = parseStatus(stdout);
+
+    expect(status.clean).toBe(false);
+    expect(status.files).toEqual([
+      { path: "ordinary file.txt", code: ".M", staged: false },
+      { path: "both changed file.txt", code: "UU", staged: false },
+      { path: specialPath, code: "??", staged: false },
+      { path: "added by us.txt", code: "AU", staged: false },
+      { path: "deleted by us.txt", code: "DU", staged: false },
+    ]);
+  });
+
+  test("accepts equal-width SHA-256 object IDs", () => {
+    const head = "a".repeat(64);
+    const index = "0".repeat(64);
+    const status = parseStatus(`1 M. N... 100644 100644 100644 ${head} ${index} sha256.txt\0`);
+    expect(status.files[0]).toEqual({ path: "sha256.txt", code: "M.", staged: true });
+  });
+
+  test("ignored-only status remains clean", () => {
+    const status = parseStatus("# branch.head main\0! ignored file.txt\0");
+    expect(status.clean).toBe(true);
+    expect(status.files).toEqual([]);
+  });
+
+  test("rejects malformed known records", () => {
+    expect(() => parseStatus("1 M. N... 100644\0")).toThrow(
+      'Malformed git status porcelain v2 "1" record: expected 8 metadata fields',
+    );
+    expect(() => parseStatus("1 M. N... 100644 100644 100644 aaa bbb \0")).toThrow(
+      'Malformed git status porcelain v2 "1" record: expected a nonempty path',
+    );
+    expect(() => parseStatus("2 R. N... 100644 100644 100644 aaa bbb R100 \0old.txt\0")).toThrow(
+      'Malformed git status porcelain v2 "2" record: expected a nonempty path',
+    );
+    expect(() => parseStatus("2 R. N... 100644 100644 100644 aaa bbb R100 renamed.txt\0")).toThrow(
+      'Malformed git status porcelain v2 "2" record: missing original path',
+    );
+    expect(() =>
+      parseStatus("u UU N... 100644 100644 100644 100644 aaa bbb ccc \0"),
+    ).toThrow('Malformed git status porcelain v2 "u" record: expected a nonempty path');
+    expect(() => parseStatus("? \0")).toThrow(
+      'Malformed git status porcelain v2 "?" record: expected a nonempty path',
+    );
+  });
+
+  test("rejects truncated framing and shifted or invalid metadata", () => {
+    expect(() => parseStatus("? truncated.txt")).toThrow(
+      "Malformed git status porcelain v2 output: missing trailing NUL",
+    );
+    expect(() => parseStatus("1 MX N... 100644 100644 100644 aaa bbb path.txt\0")).toThrow(
+      'invalid XY token "MX"',
+    );
+    expect(() => parseStatus("1 M. N..X 100644 100644 100644 aaa bbb path.txt\0")).toThrow(
+      'invalid SUB token "N..X"',
+    );
+    expect(() => parseStatus("1 M. N... 10064x 100644 100644 aaa bbb path.txt\0")).toThrow(
+      'invalid mode token "10064x"',
+    );
+    expect(() => parseStatus("1 M. N... 100644 100644 100644 aaa bbbb path.txt\0")).toThrow(
+      "object IDs must be equal-width hexadecimal tokens",
+    );
+    expect(() => parseStatus("2 R. N... 100644 100644 100644 aaa bbb R101 new.txt\0old.txt\0")).toThrow(
+      'invalid rename/copy score "R101"',
+    );
+    expect(() =>
+      parseStatus("u UU N... 100644 100644 100644 100644 aaa bbb conflicted file.txt\0"),
+    ).toThrow("object IDs must be equal-width hexadecimal tokens");
   });
 
   test("a clean tree reports clean=true and no files", () => {
-    const status = parseStatus("# branch.head main\n# branch.ab +0 -0\n");
+    expect(parseStatus("").clean).toBe(true);
+    const status = parseStatus("# branch.head main\0# branch.ab +0 -0\0");
     expect(status.clean).toBe(true);
     expect(status.files).toEqual([]);
     expect(status.ahead).toBe(0);
   });
 
   test("detached HEAD leaves branch undefined", () => {
-    const status = parseStatus("# branch.head (detached)\n");
+    const status = parseStatus("# branch.head (detached)\0");
     expect(status.branch).toBeUndefined();
   });
 });
@@ -205,6 +289,45 @@ suite("git-bun end-to-end", () => {
     expect(full).toContain("brand-new.txt");
     expect(full).toContain("+fresh line");
     expect(full).toContain("new file");
+  });
+
+  test("status reports a merge-conflicted path", async () => {
+    const dir = join(root, "conflict-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    const path = join(dir, "conflicted file.txt");
+
+    await Bun.write(path, "base\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.checkout("feature", { create: true });
+    await Bun.write(path, "feature\n");
+    await repo.commit("feature", { all: true });
+    await repo.switchBranch("main");
+    await Bun.write(path, "main\n");
+    await repo.commit("main", { all: true });
+
+    let mergeError: unknown;
+    try {
+      await repo.command.run(["merge", "feature"]);
+    } catch (error) {
+      mergeError = error;
+    }
+    expect(mergeError).toBeInstanceOf(GitError);
+
+    const status = await repo.status();
+    expect(status.clean).toBe(false);
+    expect(status.files).toContainEqual({ path: "conflicted file.txt", code: "UU", staged: false });
+  });
+
+  test("status overrides status.showUntrackedFiles=no", async () => {
+    const dir = join(root, "untracked-config-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await repo.setConfig("status.showUntrackedFiles", "no");
+    await Bun.write(join(dir, "still visible.txt"), "untracked\n");
+
+    const status = await repo.status();
+    expect(status.clean).toBe(false);
+    expect(status.files).toContainEqual({ path: "still visible.txt", code: "??", staged: false });
   });
 
   test("branches can be created, listed, switched, and deleted", async () => {

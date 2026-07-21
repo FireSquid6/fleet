@@ -15,6 +15,12 @@ import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 export interface FakeShip {
   name: string;
   workspaces: WorkspaceSummary[];
+  createResponse?: unknown;
+  createCalls?: number;
+  createGate?: { entered: () => void; wait: Promise<void> };
+  createThenThrows?: boolean;
+  statusResponse?: unknown;
+  workspaceSnapshot?: unknown;
   /** Socket opens but never sends a `sync` (for waitForSync timeout tests). */
   neverSync?: boolean;
   /** All Eden calls resolve to this error `{status, value:{error}}`. */
@@ -113,13 +119,15 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
     };
     return {
       get: () =>
-        wrap(() => ({
-          state: "inactive",
-          repoName: params.repo,
-          name: params2.name,
-          branch:
-            ship()?.workspaces.find((w) => w.repoName === params.repo && w.name === params2.name)?.branch ?? "main",
-        })),
+        wrap(() =>
+          ship()?.statusResponse ?? {
+            state: "inactive",
+            repoName: params.repo,
+            name: params2.name,
+            branch:
+              ship()?.workspaces.find((w) => w.repoName === params.repo && w.name === params2.name)?.branch ?? "main",
+          },
+        ),
       branch: {
         post: (body: { branch: string }) =>
           wrap(() => {
@@ -152,13 +160,23 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
       },
     };
   };
-  workspacesFn.get = () => wrap(() => [...(ship()?.workspaces ?? [])]);
-  workspacesFn.post = (body: { url: string; repoName: string; name: string; branch: string }) =>
-    wrap(() => {
+  workspacesFn.get = () => wrap(() => ship()?.workspaceSnapshot ?? [...(ship()?.workspaces ?? [])]);
+  workspacesFn.post = async (body: { url: string; repoName: string; name: string; branch: string }) => {
+    const s = ship();
+    if (s) s.createCalls = (s.createCalls ?? 0) + 1;
+    s?.createGate?.entered();
+    await s?.createGate?.wait;
+    if (s?.createThenThrows) {
+      s.workspaces.push({ repoName: body.repoName, name: body.name, branch: body.branch, active: false });
+      throw new Error("connection closed before response");
+    }
+    return wrap(() => {
       const workspace = { repoName: body.repoName, name: body.name, branch: body.branch, active: false };
       ship()?.workspaces.push(workspace);
-      return workspace;
+      const createResponse = ship()?.createResponse;
+      return createResponse !== undefined ? createResponse : workspace;
     });
+  };
 
   return {
     workspaces: workspacesFn,

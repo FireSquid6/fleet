@@ -77,10 +77,12 @@ export class ShipConnection {
   private reconnectAttempts = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private syncWaiters: Array<(event: SyncEvent) => void> = [];
+  private identity?: string;
 
   constructor(opts: { url: string; name?: string; deps?: Partial<ShipConnectionDeps> }) {
     this.url = opts.url;
     this.name = opts.name ?? opts.url;
+    this.identity = opts.name;
     this.deps = { ...defaultDeps, ...opts.deps };
     this.client = this.deps.createClient(opts.url);
   }
@@ -157,7 +159,13 @@ export class ShipConnection {
       return; // ignore anything that isn't a valid FleetEvent
     }
 
-    this.name = event.ship;
+    if (this.identity === undefined) {
+      if (event.type !== "sync") return;
+      this.identity = event.ship;
+      this.name = event.ship;
+    } else if (event.ship !== this.identity) {
+      return;
+    }
     this.applyToOwnMap(event);
 
     if (event.type === "sync") {

@@ -7,6 +7,7 @@
  */
 
 import { Elysia } from "elysia";
+import { MAX_CLIENT_FRAME_BYTES } from "webterm/protocol";
 import type { FleetManager } from "../fleet-manager";
 import type { BridgeConfig } from "../config";
 import { workspacesPlugin } from "./workspaces";
@@ -16,7 +17,7 @@ import { reposPlugin } from "./repos";
 import { Logestic } from "logestic";
 
 export function createApp(manager: FleetManager, _config: BridgeConfig) {
-  return new Elysia()
+  return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES } })
     .use(Logestic.preset("commontz"))
     .use(workspacesPlugin(manager))
     .use(shipsPlugin(manager))

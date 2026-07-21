@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Git } from "git-bun";
 import type { FleetEvent } from "fleet-protocol";
-import { WorkspaceError, WorkspaceManager } from "../src/workspace-manager";
+import { WorkspaceError, WorkspaceManager, type WorkspaceTmux } from "../src/workspace-manager";
+import { workspaceSessionName } from "../src/workspace-session";
 
 const config = { fleetDirectory: "/tmp/fleet-ship-test-fleet", port: 4700, name: "test-ship" };
 
@@ -12,15 +13,140 @@ const config = { fleetDirectory: "/tmp/fleet-ship-test-fleet", port: 4700, name:
 describe("WorkspaceManager pure helpers", () => {
   const manager = new WorkspaceManager(config);
 
-  test("sessionName sanitizes dots and colons and joins repo/name", () => {
-    expect(manager.sessionName("hello-world", "feature")).toBe("hello-world__feature");
-    expect(manager.sessionName("my.repo", "a:b")).toBe("my-repo__a-b");
+  test("sessionName uses the shared workspace target", () => {
+    expect(manager.sessionName("hello-world", "feature")).toBe(workspaceSessionName("hello-world", "feature"));
+    expect(manager.sessionName("my.repo", "a:b")).toBe(workspaceSessionName("my.repo", "a:b"));
   });
 
   test("workspaceDir lays out <fleetDirectory>/<repo>/<name>", () => {
     expect(manager.workspaceDir("hello-world", "feature")).toBe(
       join(config.fleetDirectory, "hello-world", "feature"),
     );
+  });
+
+  test.each([
+    ["..", "name"],
+    ["repo/escape", "name"],
+    ["repo", ".."],
+    ["repo", "bad\\name"],
+    ["repo", "bad\nname"],
+  ])("rejects invalid identifiers at direct manager boundaries", async (repoName, name) => {
+    expect(() => manager.workspaceDir(repoName, name)).toThrow(WorkspaceError);
+    await expect(manager.has(repoName, name)).rejects.toMatchObject({ status: 400 });
+  });
+});
+
+describe("WorkspaceManager tmux isolation", () => {
+  test("one workspace cannot observe or kill a formerly colliding workspace session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-session-isolation-"));
+    const sessions = new Set<string>();
+    const killed: string[] = [];
+    const tmux: WorkspaceTmux = {
+      hasSession: async (name) => sessions.has(name),
+      newSession: async ({ name }) => {
+        sessions.add(name);
+      },
+      session: (name) => ({
+        kill: async () => {
+          killed.push(name);
+          sessions.delete(name);
+        },
+      }),
+    };
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" }, tmux);
+
+    try {
+      for (const repo of ["a.b", "a-b"]) {
+        const dir = join(root, repo, "workspace");
+        await mkdir(dir, { recursive: true });
+        const git = await Git.init(dir, { initialBranch: "main" });
+        await Bun.write(join(dir, "README.md"), `${repo}\n`);
+        await git.add();
+        await git.setConfig("user.email", "test@example.com");
+        await git.setConfig("user.name", "Test");
+        await git.commit("initial");
+      }
+
+      await manager.activate("a.b", "workspace");
+      await manager.activate("a-b", "workspace");
+
+      const first = manager.sessionName("a.b", "workspace");
+      const second = manager.sessionName("a-b", "workspace");
+      expect(first).not.toBe(second);
+      expect(sessions).toEqual(new Set([first, second]));
+
+      await manager.deactivate("a.b", "workspace");
+      expect(killed).toEqual([first]);
+      expect(sessions).toEqual(new Set([second]));
+      expect((await manager.get("a-b", "workspace")).state).toBe("active");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("WorkspaceManager path containment", () => {
+  test("rejects symlinked components, non-directory parents, and existing clone destinations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-paths-"));
+    const outside = await mkdtemp(join(tmpdir(), "fleet-ship-outside-"));
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" });
+    try {
+      await mkdir(join(outside, "ws", ".git"), { recursive: true });
+      await symlink(outside, join(root, "linked-repo"));
+      await expect(manager.has("linked-repo", "ws")).rejects.toThrow(/symbolic links/);
+
+      await mkdir(join(root, "repo"));
+      await symlink(join(outside, "ws"), join(root, "repo", "linked-ws"));
+      await expect(manager.has("repo", "linked-ws")).rejects.toThrow(/symbolic links/);
+
+      await Bun.write(join(root, "not-a-directory"), "file");
+      await expect(
+        manager.create({ url: outside, repoName: "not-a-directory", name: "ws", branch: "main" }),
+      ).rejects.toThrow(/not a directory/);
+
+      await mkdir(join(root, "repo", "already-there"));
+      await expect(
+        manager.create({ url: outside, repoName: "repo", name: "already-there", branch: "main" }),
+      ).rejects.toMatchObject({ status: 409 });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("list ignores invalid and symlinked disk-derived components", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-list-"));
+    const outside = await mkdtemp(join(tmpdir(), "fleet-ship-list-outside-"));
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" });
+    try {
+      await mkdir(join(root, "bad\\repo", "ws", ".git"), { recursive: true });
+      await mkdir(join(outside, "ws", ".git"), { recursive: true });
+      await symlink(outside, join(root, "linked"));
+      expect(await manager.list()).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects gitfile metadata that can redirect outside the fleet root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-ship-gitfile-"));
+    const outside = await mkdtemp(join(tmpdir(), "fleet-ship-gitdir-"));
+    const manager = new WorkspaceManager({ fleetDirectory: root, port: 4700, name: "ship" });
+    try {
+      await mkdir(join(root, "repo", "ws"), { recursive: true });
+      await Bun.write(join(root, "repo", "ws", ".git"), `gitdir: ${outside}\n`);
+      await mkdir(join(root, "repo", "linked-git"), { recursive: true });
+      await symlink(outside, join(root, "repo", "linked-git", ".git"));
+
+      await expect(manager.has("repo", "ws")).rejects.toThrow(/not a directory/);
+      await expect(manager.get("repo", "ws")).rejects.toMatchObject({ status: 400 });
+      await expect(manager.has("repo", "linked-git")).rejects.toThrow(/not a directory/);
+      expect(await manager.list()).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
 

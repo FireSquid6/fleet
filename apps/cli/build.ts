@@ -13,10 +13,11 @@ const result = await Bun.build({
   plugins: [tailwindPlugin],
 });
 
-if (result.success) {
-  fs.renameSync("./out/src", "./out/fleet");
+if (!result.success) {
+  for (const log of result.logs) console.error(log);
+  process.exit(1);
 }
 
+fs.renameSync("./out/src", "./out/fleet");
 console.log(result);
-
 

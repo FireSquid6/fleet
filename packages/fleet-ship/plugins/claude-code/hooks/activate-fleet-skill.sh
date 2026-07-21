@@ -10,13 +10,13 @@
 # wording of the injected instruction in sync with it.
 set -u
 
-# No fleet-agent CLI on PATH → this isn't a fleet-managed environment; do nothing.
-command -v fleet-agent >/dev/null 2>&1 || exit 0
+# No fleet CLI on PATH → this isn't a fleet-managed environment; do nothing.
+command -v fleet >/dev/null 2>&1 || exit 0
 
-# `fleet-agent in-workspace` prints `repo/name` and exits 0 inside a workspace,
+# `fleet agent in-workspace` prints `repo/name` and exits 0 inside a workspace,
 # and exits non-zero otherwise (printing "no workspace"). Guard on the exit
 # status so that "no workspace" line never leaks into the model's context.
-workspace="$(fleet-agent in-workspace 2>/dev/null)" || exit 0
+workspace="$(fleet agent in-workspace 2>/dev/null)" || exit 0
 
 # Only inject context when output is exactly a single `repo/name`.
 workspace="${workspace%$'\r'}"

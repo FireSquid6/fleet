@@ -2,7 +2,7 @@
  * plugin-installer.ts — install the startup plugin/hook that tells an agent to
  * activate the `fleet-agent` skill when it boots inside a fleet workspace.
  *
- * Each supported provider's plugin runs the same logic — `fleet-agent
+ * Each supported provider's plugin runs the same logic — `fleet agent
  * in-workspace`, and on success inject an "activate the fleet-agent skill"
  * instruction — but the packaging differs per provider:
  *
@@ -22,7 +22,6 @@
  * Source plugins live under `packages/fleet-ship/plugins/`.
  */
 
-import { chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import claudeManifest from "../plugins/claude-code/.claude-plugin/plugin.json" with { type: "text" };
@@ -36,10 +35,11 @@ import copilotHookSource from "../plugins/copilot/session-start-hook.json" with 
 // @ts-expect-error Bun imports this module's source text rather than its exports.
 import openCodePluginSource from "../plugins/opencode.js" with { type: "text" };
 import {
-  ensureManagedDirectory,
+  ensureSafeDirectory,
   inspectManagedFile,
   isDirectory,
-  syncManagedFile,
+  withManagedFiles,
+  type ManagedFileSession,
   type PresenceState,
   type WriteStatus,
 } from "./managed-fs";
@@ -52,6 +52,7 @@ export type PluginInstallation = {
   provider: Provider;
   path: string;
   status: WriteStatus;
+  conflictPaths?: string[];
 };
 
 export type PluginStatus = {
@@ -65,6 +66,7 @@ export type InstallFleetPluginOptions = {
   pluginsDirectory?: string;
   /** Restrict to these providers; omit to target all of them. */
   providers?: readonly string[];
+  force?: boolean;
 };
 
 export type InspectFleetPluginOptions = InstallFleetPluginOptions;
@@ -72,7 +74,7 @@ export type InspectFleetPluginOptions = InstallFleetPluginOptions;
 type FileMapping = {
   contents: () => Promise<string>;
   destination: string;
-  executable: boolean;
+  mode: number;
 };
 
 type PluginSpec = {
@@ -92,7 +94,7 @@ async function treeFiles(sourceDir: string, destinationDir: string): Promise<Fil
       contents: () => Bun.file(join(sourceDir, relative)).text(),
       destination: join(destinationDir, relative),
       // The hook is executed directly by the harness, so it must stay runnable.
-      executable: relative.endsWith(".sh"),
+      mode: relative.endsWith(".sh") ? 0o755 : 0o644,
     });
   }
   return mappings.sort((a, b) => a.destination.localeCompare(b.destination));
@@ -115,17 +117,17 @@ function pluginSpecs(homeDirectory: string, pluginsDir?: string): PluginSpec[] {
               {
                 contents: async () => claudeManifest as unknown as string,
                 destination: join(claudeRoot, ".claude-plugin", "plugin.json"),
-                executable: false,
+                mode: 0o644,
               },
               {
                 contents: async () => claudeHooks as unknown as string,
                 destination: join(claudeRoot, "hooks", "hooks.json"),
-                executable: false,
+                mode: 0o644,
               },
               {
                 contents: async () => claudeActivationHook,
                 destination: join(claudeRoot, "hooks", "activate-fleet-skill.sh"),
-                executable: true,
+                mode: 0o755,
               },
             ]),
     },
@@ -139,7 +141,7 @@ function pluginSpecs(homeDirectory: string, pluginsDir?: string): PluginSpec[] {
             ? () => Bun.file(join(pluginsDir, "opencode.js")).text()
             : async () => openCodePluginSource,
           destination: openCodePlugin,
-          executable: false,
+          mode: 0o644,
         },
       ],
     },
@@ -153,7 +155,7 @@ function pluginSpecs(homeDirectory: string, pluginsDir?: string): PluginSpec[] {
             ? () => Bun.file(join(pluginsDir, "copilot", "session-start-hook.json")).text()
             : async () => copilotHookSource as unknown as string,
           destination: copilotHook,
-          executable: false,
+          mode: 0o644,
         },
       ],
     },
@@ -183,19 +185,28 @@ function directoriesWithin(configRoot: string, leaf: string): string[] {
 
 /** Roll per-file statuses up into one: unchanged unless something moved; installed only if all-new. */
 function overallStatus(statuses: WriteStatus[]): WriteStatus {
+  if (statuses.some((status) => status === "conflict")) return "conflict";
   if (statuses.every((status) => status === "unchanged")) return "unchanged";
   if (statuses.every((status) => status === "installed")) return "installed";
+  if (statuses.every((status) => status === "adopted")) return "adopted";
   return "updated";
 }
 
-/** Roll per-file presence up into one: current only if all match, missing only if all absent. */
+/** Surface the provider's most actionable per-file state in doctor output. */
 function overallPresence(states: Array<Exclude<PresenceState, "absent">>): PresenceState {
+  if (states.some((state) => state === "conflict-unmanaged")) return "conflict-unmanaged";
+  if (states.some((state) => state === "missing")) return "missing";
+  if (states.some((state) => state === "outdated-owned")) return "outdated-owned";
   if (states.every((state) => state === "current")) return "current";
-  if (states.every((state) => state === "missing")) return "missing";
-  return "stale";
+  return "outdated-owned";
 }
 
-async function installPlugin(spec: PluginSpec): Promise<PluginInstallation | undefined> {
+async function installPlugin(
+  homeDirectory: string,
+  spec: PluginSpec,
+  session: ManagedFileSession,
+  force: boolean,
+): Promise<PluginInstallation | undefined> {
   if (!(await isDirectory(spec.configRoot))) return undefined;
 
   const files = await spec.files();
@@ -207,17 +218,29 @@ async function installPlugin(spec: PluginSpec): Promise<PluginInstallation | und
     }
   }
   for (const dir of [...directories].sort((a, b) => a.length - b.length)) {
-    await ensureManagedDirectory(dir);
+    await ensureSafeDirectory(homeDirectory, dir);
   }
 
   const statuses: WriteStatus[] = [];
+  const conflictPaths: string[] = [];
   for (const file of files) {
     const source = await file.contents();
-    statuses.push(await syncManagedFile(file.destination, source));
-    if (file.executable) await chmod(file.destination, 0o755);
+    const status = await session.sync(file.destination, source, {
+      provider: spec.provider,
+      kind: "plugin",
+      force,
+      mode: file.mode,
+    });
+    statuses.push(status);
+    if (status === "conflict") conflictPaths.push(file.destination);
   }
 
-  return { provider: spec.provider, path: spec.path, status: overallStatus(statuses) };
+  return {
+    provider: spec.provider,
+    path: spec.path,
+    status: overallStatus(statuses),
+    ...(conflictPaths.length > 0 ? { conflictPaths } : {}),
+  };
 }
 
 export async function installFleetPlugin(
@@ -227,17 +250,31 @@ export async function installFleetPlugin(
   const pluginsDirectory = options.pluginsDirectory;
   const installations: PluginInstallation[] = [];
   const failures: Error[] = [];
+  const specs = selectedSpecs(homeDirectory, pluginsDirectory, options.providers);
+  const available: PluginSpec[] = [];
 
-  for (const spec of selectedSpecs(homeDirectory, pluginsDirectory, options.providers)) {
-    try {
-      const installation = await installPlugin(spec);
-      if (installation) installations.push(installation);
-    } catch (error) {
-      failures.push(
-        new Error(`Failed to install fleet plugin for ${spec.provider}`, { cause: error }),
-      );
-    }
+  for (const spec of specs) {
+    if (await isDirectory(spec.configRoot)) available.push(spec);
   }
+  if (available.length === 0) return [];
+
+  await withManagedFiles(homeDirectory, async (session) => {
+    for (const spec of available) {
+      try {
+        const installation = await installPlugin(
+          homeDirectory,
+          spec,
+          session,
+          options.force ?? false,
+        );
+        if (installation) installations.push(installation);
+      } catch (error) {
+        failures.push(
+          new Error(`Failed to install fleet plugin for ${spec.provider}`, { cause: error }),
+        );
+      }
+    }
+  });
 
   if (failures.length > 0) {
     throw new AggregateError(failures, "Failed to install fleet plugin");
@@ -266,7 +303,7 @@ export async function inspectFleetPlugin(
       const files = await spec.files();
       const fileStates = await Promise.all(
         files.map(async (file) =>
-          inspectManagedFile(file.destination, await file.contents()),
+          inspectManagedFile(homeDirectory, file.destination, await file.contents(), file.mode),
         ),
       );
       state = overallPresence(fileStates);

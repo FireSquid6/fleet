@@ -383,7 +383,7 @@ export class Terminal implements Handler {
       case 47:
       case 1047:
         if (set) s.enterAlt(false, mode === 1047);
-        else s.leaveAlt(mode === 1047);
+        else s.leaveAlt(false);
         break;
       case 1048:
         if (set) s.saveCursor();

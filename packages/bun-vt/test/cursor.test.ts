@@ -188,4 +188,27 @@ describe("save / restore cursor", () => {
     expect(t.cell(2, 3).char).toBe("A");
     expect(t.cell(2, 3).fg).toEqual({ type: "palette", index: 1 });
   });
+
+  test("resize adjusts a saved cursor for removed top rows", () => {
+    const t = grid(5, 4);
+    t.write("\x1b[4;5H\x1b[31m\x1b7");
+    t.resize(5, 2);
+    t.write("\x1b[H\x1b[0m\x1b8");
+
+    expect(t.cursor()).toMatchObject({ x: 4, y: 1, pendingWrap: false });
+    t.write("X");
+    expect(t.cell(1, 4).char).toBe("X");
+    expect(t.cell(1, 4).fg).toEqual({ type: "palette", index: 1 });
+  });
+
+  test("width growth clamps and clears pending wrap on a saved cursor", () => {
+    const t = grid(3, 2);
+    t.write("\x1b[31mabc\x1b7");
+    t.resize(5, 2);
+    t.write("\x1b[2;1H\x1b[0m\x1b8X");
+
+    expect(t.rowText(0)).toBe("abX");
+    expect(t.cursor()).toMatchObject({ x: 3, y: 0, pendingWrap: false });
+    expect(t.cell(0, 2).fg).toEqual({ type: "palette", index: 1 });
+  });
 });

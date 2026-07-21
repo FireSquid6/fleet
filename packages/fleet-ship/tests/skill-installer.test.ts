@@ -77,7 +77,13 @@ describe("installFleetSkill", () => {
 
     const [installation] = await installFleetSkill({ homeDirectory, providers: ["claude-code"] });
 
-    expect(await Bun.file(installation!.path).text()).toContain("name: fleet-agent");
+    const skill = await Bun.file(installation!.path).text();
+    expect(skill).toContain("name: fleet-agent");
+    expect(skill).toContain("`fleet agent ...` is the only Fleet CLI namespace you may use");
+    expect(skill).toContain("fleet agent init");
+    expect(skill).toContain("fleet agent status");
+    expect(skill).toContain("fleet agent in-workspace");
+    expect(skill).not.toMatch(/fleet-agent (?:init|status|in-workspace)/);
     expect(await inspectFleetSkill({ homeDirectory, providers: ["claude-code"] })).toEqual([
       { provider: "claude-code", path: installation!.path, state: "current" },
     ]);
@@ -97,7 +103,7 @@ describe("installFleetSkill", () => {
     expect(await exists(join(homeDirectory, ".agents"))).toBe(false);
   });
 
-  test("updates stale skills and leaves current skills untouched", async () => {
+  test("preserves unowned skills until forced, then leaves owned skills untouched", async () => {
     const fixtureOptions = await fixture();
     const destination = join(
       fixtureOptions.homeDirectory,
@@ -109,9 +115,12 @@ describe("installFleetSkill", () => {
     await mkdir(join(destination, ".."), { recursive: true });
     await Bun.write(destination, "stale");
 
-    const updated = await installFleetSkill(fixtureOptions);
+    const conflict = await installFleetSkill(fixtureOptions);
+    expect(await Bun.file(destination).text()).toBe("stale");
+    const updated = await installFleetSkill({ ...fixtureOptions, force: true });
     const unchanged = await installFleetSkill(fixtureOptions);
 
+    expect(conflict[0]?.status).toBe("conflict");
     expect(updated[0]?.status).toBe("updated");
     expect(unchanged[0]?.status).toBe("unchanged");
     expect(await Bun.file(destination).text()).toBe(
@@ -183,7 +192,7 @@ describe("installFleetSkill", () => {
     ).toBe(false);
   });
 
-  test("inspectFleetSkill reports absent / missing / stale / current", async () => {
+  test("inspectFleetSkill reports absent / missing / conflict-unmanaged / current", async () => {
     const fixtureOptions = await fixture();
     const { homeDirectory, sourcePath } = fixtureOptions;
     const source = await Bun.file(sourcePath).text();
@@ -202,9 +211,9 @@ describe("installFleetSkill", () => {
     statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
     expect(statuses[0]?.state).toBe("current");
 
-    // drift the installed file → stale.
+    // A user edit no longer matches Fleet's recorded ownership hash.
     await Bun.write(statuses[0]!.path, `${source}drift`);
     statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
-    expect(statuses[0]?.state).toBe("stale");
+    expect(statuses[0]?.state).toBe("conflict-unmanaged");
   });
 });

@@ -1,12 +1,8 @@
-/**
- * workspace.test.ts — verifies workspace discovery by walking up to `atlas.json`.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findWorkspace } from "../src/workspace";
+import { findWorkspace } from "../src/agent-workspace";
 
 describe("findWorkspace", () => {
   const roots: string[] = [];
@@ -27,33 +23,50 @@ describe("findWorkspace", () => {
     const deep = join(dir, "my-repo", "ws1", "src", "nested");
     await mkdir(deep, { recursive: true });
 
-    const location = await findWorkspace(deep);
-    expect(location).toEqual({ repo: "my-repo", name: "ws1", baseUrl: "http://localhost:4700" });
+    expect(await findWorkspace(deep)).toEqual({
+      repo: "my-repo",
+      name: "ws1",
+      baseUrl: "http://localhost:4700",
+    });
   });
 
   test("resolves when cwd is the workspace root itself", async () => {
     const dir = await dataDir(5000);
-    const ws = join(dir, "repo", "ws");
-    await mkdir(ws, { recursive: true });
+    const workspace = join(dir, "repo", "ws");
+    await mkdir(workspace, { recursive: true });
 
-    expect(await findWorkspace(ws)).toMatchObject({ repo: "repo", name: "ws", baseUrl: "http://localhost:5000" });
+    expect(await findWorkspace(workspace)).toMatchObject({
+      repo: "repo",
+      name: "ws",
+      baseUrl: "http://localhost:5000",
+    });
   });
 
-  test("returns null at the data-directory root (not in a workspace)", async () => {
+  test("returns null at the data-directory root", async () => {
     const dir = await dataDir(4700);
     expect(await findWorkspace(dir)).toBeNull();
   });
 
-  test("returns null in a repo dir with no workspace name", async () => {
+  test("returns null in a repo directory", async () => {
     const dir = await dataDir(4700);
     const repoDir = join(dir, "repo");
     await mkdir(repoDir, { recursive: true });
     expect(await findWorkspace(repoDir)).toBeNull();
   });
 
-  test("returns null when there is no atlas.json above", async () => {
+  test("returns null when there is no atlas above", async () => {
     const orphan = await mkdtemp(join(tmpdir(), "fleet-agent-orphan-"));
     roots.push(orphan);
     expect(await findWorkspace(orphan)).toBeNull();
   });
+
+  test.each(["bad\\repo", "a".repeat(129), "bad\nrepo"])(
+    "rejects an invalid disk-derived repo component %p",
+    async (repo) => {
+      const dir = await dataDir(4700);
+      const workspace = join(dir, repo, "ws");
+      await mkdir(workspace, { recursive: true });
+      expect(await findWorkspace(workspace)).toBeNull();
+    },
+  );
 });

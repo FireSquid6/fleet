@@ -13,6 +13,14 @@ import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe("bridge API", () => {
   let dir: string;
   let manager: FleetManager;
@@ -139,6 +147,24 @@ describe("bridge API", () => {
     expect((await call("POST", "/workspaces", { repoName: "repo3", name: "n", branch: "main" })).status).toBe(422);
   });
 
+  test("POST /workspaces rejects a concurrent duplicate before a second ship call", async () => {
+    await call("POST", "/repos", { name: "repo3", url: "git@fake/repo3.git" });
+    const entered = deferred();
+    const release = deferred();
+    const ship = ships.get("http://ship-a")!;
+    ship.createGate = { entered: entered.resolve, wait: release.promise };
+    const body = { ship: "ship-a", repoName: "repo3", name: "three", branch: "main" };
+
+    const first = call("POST", "/workspaces", body);
+    await entered.promise;
+    const second = await call("POST", "/workspaces", body);
+
+    expect(second.status).toBe(409);
+    expect(ship.createCalls).toBe(1);
+    release.resolve();
+    expect((await first).status).toBe(201);
+  });
+
   test("verb routes return { ok: true }", async () => {
     expect(await call("POST", "/workspaces/repo1/one/deactivate")).toEqual({ status: 200, body: { ok: true } });
     expect(await call("POST", "/workspaces/repo1/one/branch", { branch: "dev" })).toEqual({
@@ -179,5 +205,26 @@ describe("bridge API", () => {
 
     expect((await call("DELETE", "/repos/repo1")).status).toBe(200);
     expect((await call("DELETE", "/repos/repo1")).status).toBe(404);
+  });
+
+  test("invalid repo and workspace identifiers return 400", async () => {
+    expect((await call("POST", "/repos", { name: "bad\\repo", url: "url" })).status).toBe(400);
+    expect(
+      (await call("POST", "/workspaces", { ship: "ship-a", repoName: "repo1", name: "..", branch: "main" }))
+        .status,
+    ).toBe(400);
+  });
+
+  test("malformed upstream workspace summaries return 502", async () => {
+    await call("POST", "/repos", { name: "repo3", url: "git@fake/repo3.git" });
+    ships.get("http://ship-a")!.createResponse = { repoName: "wrong", name: "ws", branch: "main", active: false };
+
+    const response = await call("POST", "/workspaces", {
+      ship: "ship-a",
+      repoName: "repo3",
+      name: "ws",
+      branch: "main",
+    });
+    expect(response.status).toBe(502);
   });
 });

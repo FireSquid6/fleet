@@ -56,12 +56,12 @@ export function unwrap<T>(result: EdenResult<T>): T {
         : typeof value === "string"
           ? value
           : JSON.stringify(value);
-    console.error(`fleet-cli: request failed (${status}): ${message}`);
+    console.error(`fleet: request failed (${status}): ${message}`);
     process.exit(1);
   }
 
   if (result.data === null) {
-    console.error("fleet-cli: request succeeded but returned no data");
+    console.error("fleet: request succeeded but returned no data");
     process.exit(1);
   }
 

@@ -32,7 +32,7 @@ export function BridgeRoute() {
           {repos.map((r) => (
             <div key={r.name} className="overflow-hidden rounded-md border border-line bg-panel">
               <Link
-                to={`/repos/${r.name}`}
+                to={`/repos/${encodeURIComponent(r.name)}`}
                 className="flex items-center justify-between gap-2 border-b border-line px-4 py-[13px] transition-colors hover:bg-panel2"
               >
                 <span className="font-mono text-[13px] font-semibold text-text">{r.name}</span>
@@ -80,7 +80,7 @@ export function BridgeRoute() {
           {repos.map((r) => (
             <Fragment key={r.name}>
               <Link
-                to={`/repos/${r.name}`}
+                to={`/repos/${encodeURIComponent(r.name)}`}
                 className="flex flex-col gap-1 border-b border-r border-line bg-panel px-[13px] py-[12px] text-left transition-colors hover:bg-panel2"
               >
                 <span className="font-mono text-[12.5px] font-semibold text-text">{r.name}</span>

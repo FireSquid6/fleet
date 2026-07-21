@@ -59,6 +59,7 @@ const enum S {
   GROUND,
   ESCAPE,
   ESCAPE_INTERMEDIATE,
+  ESCAPE_IGNORE,
   CSI_ENTRY,
   CSI_PARAM,
   CSI_INTERMEDIATE,
@@ -69,10 +70,14 @@ const enum S {
   DCS_PASSTHROUGH,
   DCS_IGNORE,
   OSC_STRING,
+  OSC_DISCARD,
+  OSC_DISCARD_ESC,
   SOS_PM_APC_STRING,
 }
 
 const MAX_PARAMS = 32;
+const MAX_OSC_BYTES = 4 * 1024;
+const MAX_INTERMEDIATE_BYTES = 16;
 const REPLACEMENT = 0xfffd;
 
 /** A C0 control that is "executed" without leaving the current state. */
@@ -108,7 +113,6 @@ export class Parser {
   reset(): void {
     this.#state = S.GROUND;
     this.#clear();
-    this.#osc.length = 0;
     this.#utf8Remaining = 0;
     this.#utf8Cp = 0;
   }
@@ -140,6 +144,20 @@ export class Parser {
       this.#clear();
       return;
     }
+    if (
+      b === 0x9c &&
+      (this.#state === S.DCS_ENTRY ||
+        this.#state === S.DCS_PARAM ||
+        this.#state === S.DCS_INTERMEDIATE ||
+        this.#state === S.DCS_IGNORE)
+    ) {
+      this.#state = S.GROUND;
+      this.#clear();
+      return;
+    }
+    if (this.#state === S.OSC_DISCARD || this.#state === S.OSC_DISCARD_ESC) {
+      return this.#oscDiscard(b);
+    }
     if (b === 0x1b) {
       if (this.#state === S.DCS_PASSTHROUGH) this.h.dcsUnhook?.();
       if (this.#state === S.OSC_STRING) this.#oscEnd();
@@ -155,6 +173,8 @@ export class Parser {
         return this.#escape(b);
       case S.ESCAPE_INTERMEDIATE:
         return this.#escapeIntermediate(b);
+      case S.ESCAPE_IGNORE:
+        return this.#escapeIgnore(b);
       case S.CSI_ENTRY:
         return this.#csiEntry(b);
       case S.CSI_PARAM:
@@ -223,7 +243,7 @@ export class Parser {
     if (isExecutable(b)) return this.h.execute(b);
     if (b === 0x7f) return;
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
+      this.#appendIntermediate(b);
       this.#state = S.ESCAPE_INTERMEDIATE;
       return;
     }
@@ -263,7 +283,7 @@ export class Parser {
     if (isExecutable(b)) return this.h.execute(b);
     if (b === 0x7f) return;
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
+      if (!this.#appendIntermediate(b)) this.#state = S.ESCAPE_IGNORE;
       return;
     }
     if (b >= 0x30 && b <= 0x7e) {
@@ -271,6 +291,14 @@ export class Parser {
     }
     this.#state = S.GROUND;
     this.#clear();
+  }
+
+  #escapeIgnore(b: number): void {
+    if (isExecutable(b)) return this.h.execute(b);
+    if (b >= 0x30 && b <= 0x7e) {
+      this.#state = S.GROUND;
+      this.#clear();
+    }
   }
 
   // --- CSI ----------------------------------------------------------------
@@ -301,8 +329,7 @@ export class Parser {
       return;
     }
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
-      this.#state = S.CSI_INTERMEDIATE;
+      this.#state = this.#appendIntermediate(b) ? S.CSI_INTERMEDIATE : S.CSI_IGNORE;
       return;
     }
     this.#state = S.CSI_IGNORE;
@@ -317,8 +344,7 @@ export class Parser {
     if (b >= 0x40 && b <= 0x7e) return this.#csiDispatch(b);
     if (b >= 0x20 && b <= 0x2f) {
       // Trailing param stays pending in #curParam; it is finalized at dispatch.
-      this.#intermediates += String.fromCharCode(b);
-      this.#state = S.CSI_INTERMEDIATE;
+      this.#state = this.#appendIntermediate(b) ? S.CSI_INTERMEDIATE : S.CSI_IGNORE;
       return;
     }
     // 0x3C–0x3F here is illegal.
@@ -329,7 +355,7 @@ export class Parser {
     if (isExecutable(b)) return this.h.execute(b);
     if (b === 0x7f) return;
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
+      if (!this.#appendIntermediate(b)) this.#state = S.CSI_IGNORE;
       return;
     }
     if (b >= 0x40 && b <= 0x7e) return this.#csiDispatch(b);
@@ -385,8 +411,7 @@ export class Parser {
       return;
     }
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
-      this.#state = S.DCS_INTERMEDIATE;
+      this.#state = this.#appendIntermediate(b) ? S.DCS_INTERMEDIATE : S.DCS_IGNORE;
       return;
     }
     this.#state = S.DCS_IGNORE;
@@ -395,12 +420,19 @@ export class Parser {
   #dcsParam(b: number): void {
     if (b === 0x7f) return;
     if (b >= 0x30 && b <= 0x39) return this.#pushDigit(b);
-    if (b === 0x3a) return this.#nextParam(true);
-    if (b === 0x3b) return this.#nextParam(false);
+    if (b === 0x3a) {
+      this.#nextParam(true);
+      if (this.#overflow) this.#state = S.DCS_IGNORE;
+      return;
+    }
+    if (b === 0x3b) {
+      this.#nextParam(false);
+      if (this.#overflow) this.#state = S.DCS_IGNORE;
+      return;
+    }
     if (b >= 0x40 && b <= 0x7e) return this.#dcsHook(b);
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
-      this.#state = S.DCS_INTERMEDIATE;
+      this.#state = this.#appendIntermediate(b) ? S.DCS_INTERMEDIATE : S.DCS_IGNORE;
       return;
     }
     this.#state = S.DCS_IGNORE;
@@ -409,7 +441,7 @@ export class Parser {
   #dcsIntermediate(b: number): void {
     if (b === 0x7f) return;
     if (b >= 0x20 && b <= 0x2f) {
-      this.#intermediates += String.fromCharCode(b);
+      if (!this.#appendIntermediate(b)) this.#state = S.DCS_IGNORE;
       return;
     }
     if (b >= 0x40 && b <= 0x7e) return this.#dcsHook(b);
@@ -418,6 +450,10 @@ export class Parser {
 
   #dcsHook(final: number): void {
     this.#commitParam();
+    if (this.#overflow) {
+      this.#state = S.DCS_IGNORE;
+      return;
+    }
     this.h.dcsHook?.({
       params: this.#params.slice(),
       colon: this.#colon.slice(),
@@ -462,7 +498,22 @@ export class Parser {
       return;
     }
     if (b < 0x20 && b !== 0x08) return; // ignore most controls inside OSC
+    if (this.#osc.length === MAX_OSC_BYTES) {
+      this.#osc.length = 0;
+      this.#state = S.OSC_DISCARD;
+      return;
+    }
     this.#osc.push(b);
+  }
+
+  #oscDiscard(b: number): void {
+    if (b === 0x07 || b === 0x9c || (this.#state === S.OSC_DISCARD_ESC && b === 0x5c)) {
+      this.#state = S.GROUND;
+      this.#clear();
+      return;
+    }
+    if (b === 0x1b) this.#state = S.OSC_DISCARD_ESC;
+    else this.#state = S.OSC_DISCARD;
   }
 
   #oscEnd(): void {
@@ -522,6 +573,12 @@ export class Parser {
     }
   }
 
+  #appendIntermediate(b: number): boolean {
+    if (this.#intermediates.length >= MAX_INTERMEDIATE_BYTES) return false;
+    this.#intermediates += String.fromCharCode(b);
+    return true;
+  }
+
   #clear(): void {
     this.#params = [];
     this.#colon = [];
@@ -531,5 +588,6 @@ export class Parser {
     this.#intermediates = "";
     this.#prefix = "";
     this.#overflow = false;
+    this.#osc.length = 0;
   }
 }

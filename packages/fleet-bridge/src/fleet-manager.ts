@@ -12,7 +12,19 @@
  * routing and duplicate detection.
  */
 
-import type { FleetEvent, Repo, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
+import {
+  CreateRepoInputSchema,
+  FleetIdentifierSchema,
+  ShipSchema,
+  WorkspaceSummarySchema,
+  WorkspaceStatusSchema,
+  type CreateRepoInput,
+  type FleetEvent,
+  type Repo,
+  type SystemResources,
+  type WorkspaceStatus,
+  type WorkspaceSummary,
+} from "fleet-protocol";
 import type { DiffOptions } from "git-bun";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import type { BridgeConfig } from "./config";
@@ -23,13 +35,14 @@ import {
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
-import { Store } from "./store/store";
+import { RepoAlreadyExistsError, Store } from "./store/store";
 
 /** A typed error carrying the HTTP status the API layer should map it to. */
 export class BridgeError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly ambiguousOutcome = false,
   ) {
     super(message);
     this.name = "BridgeError";
@@ -49,11 +62,18 @@ export interface CreateWorkspaceInput {
 
 type EdenResult<T> = { data: T | null; error: unknown };
 
+interface CreateReservation {
+  readonly shipName: string;
+  state: "pending" | "indeterminate";
+}
+
 export class FleetManager {
   /** Fleet members, keyed by discovered ship name. */
   private readonly connections = new Map<string, ShipConnection>();
   /** Fleet-wide ownership: `<repo>/<name>` → owning ship name. */
   private readonly index = new Map<string, string>();
+  /** In-flight and transport-ambiguous creates stay separate from confirmed routing ownership. */
+  private readonly createReservations = new Map<string, CreateReservation>();
   private readonly deps?: Partial<ShipConnectionDeps>;
   /** How long to wait for a ship's first `sync` (overridable in tests). */
   private readonly syncTimeoutMs: number;
@@ -137,7 +157,9 @@ export class FleetManager {
     let name: string;
     try {
       const sync = await probe.waitForSync(this.syncTimeoutMs);
-      name = sync.ship;
+      const parsed = ShipSchema.safeParse({ name: sync.ship, url });
+      if (!parsed.success) throw new Error("invalid ship identity");
+      name = parsed.data.name;
     } catch (err) {
       probe.close();
       throw new BridgeError(`ship at ${url} did not respond: ${(err as Error).message}`, 502);
@@ -148,7 +170,9 @@ export class FleetManager {
       throw new BridgeError(`ship already registered: ${name}`, 409);
     }
 
-    const conflicts = [...probe.workspaces.keys()].filter((key) => this.index.has(key));
+    const conflicts = [...probe.workspaces.keys()].filter(
+      (key) => this.index.has(key) || this.createReservations.has(key),
+    );
     if (conflicts.length > 0) {
       probe.close();
       throw new BridgeError(
@@ -167,13 +191,17 @@ export class FleetManager {
 
   /** `DELETE /ships/:name`. */
   async removeShip(name: string): Promise<void> {
+    this.identifier(name, "ship");
     const conn = this.connections.get(name);
     if (!conn) throw new BridgeError(`ship not found: ${name}`, 404);
 
     conn.close();
     this.connections.delete(name);
     for (const [key, owner] of this.index) {
-      if (owner === name) this.index.delete(key);
+      if (owner === name) this.releaseOwnership(key, name);
+    }
+    for (const [key, reservation] of this.createReservations) {
+      if (reservation.shipName === name) this.createReservations.delete(key);
     }
     await this.persist();
   }
@@ -225,15 +253,25 @@ export class FleetManager {
   }
 
   /** `POST /repos` — register a repo. `provider` defaults to `"custom"`. */
-  async addRepo(input: { name: string; url: string; provider?: string }): Promise<Repo> {
-    if (await this.store.getRepo(input.name)) {
-      throw new BridgeError(`repo already registered: ${input.name}`, 409);
+  async addRepo(input: CreateRepoInput): Promise<Repo> {
+    const parsed = this.parseInput(CreateRepoInputSchema, input, "repo");
+    try {
+      return await this.store.createRepo({
+        name: parsed.name,
+        url: parsed.url,
+        provider: parsed.provider ?? "custom",
+      });
+    } catch (error) {
+      if (error instanceof RepoAlreadyExistsError) {
+        throw new BridgeError(`repo already registered: ${parsed.name}`, 409);
+      }
+      throw error;
     }
-    return this.store.createRepo({ name: input.name, url: input.url, provider: input.provider ?? "custom" });
   }
 
   /** `DELETE /repos/:name`. */
   async removeRepo(name: string): Promise<void> {
+    this.identifier(name, "repo");
     const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
   }
@@ -269,9 +307,15 @@ export class FleetManager {
   /** `GET /workspaces/:repo/:name` — proxied live to the owning ship for fresh diff. */
   async getWorkspace(repo: string, name: string): Promise<BridgeWorkspaceStatus> {
     const conn = this.routeFor(repo, name);
-    const status = await this.call<WorkspaceStatus>(conn, () =>
+    const response = await this.call<WorkspaceStatus>(conn, () =>
       conn.client.workspaces({ repo })({ name }).get() as Promise<EdenResult<WorkspaceStatus>>,
     );
+    const parsed = WorkspaceStatusSchema.safeParse(response);
+    if (!parsed.success) throw new BridgeError(`ship "${conn.name}" returned an invalid workspace status`, 502);
+    const status = parsed.data;
+    if (status.repoName !== repo || status.name !== name) {
+      throw new BridgeError(`ship "${conn.name}" returned a workspace identity that was not requested`, 502);
+    }
     return { ...status, ship: conn.name };
   }
 
@@ -285,34 +329,91 @@ export class FleetManager {
 
   /** `POST /workspaces {ship,repoName,name,branch}` — clones a registered repo. */
   async createWorkspace(input: CreateWorkspaceInput): Promise<BridgeWorkspaceSummary> {
+    this.identifier(input.repoName, "repo");
+    this.identifier(input.name, "workspace");
     const conn = this.connections.get(input.ship);
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
-    if (conn.status !== "online") throw new BridgeError(`ship "${input.ship}" is offline`, 503);
 
     const repo = await this.store.getRepo(input.repoName);
     if (!repo) throw new BridgeError(`unknown repo: ${input.repoName}`, 400);
+    if (this.connections.get(input.ship) !== conn) {
+      throw new BridgeError(`ship "${input.ship}" was removed while validating the create request`, 409);
+    }
+    if (conn.status !== "online") throw new BridgeError(`ship "${input.ship}" is offline`, 503);
 
     const key = workspaceKey(input.repoName, input.name);
     if (this.index.has(key)) {
       throw new BridgeError(`workspace already exists: ${key}`, 409);
     }
+    const existingReservation = this.createReservations.get(key);
+    if (existingReservation) {
+      const detail =
+        existingReservation.state === "indeterminate"
+          ? `workspace creation outcome is unknown: ${key} on ship "${existingReservation.shipName}"; ` +
+            `wait for confirmation or remove that ship to clear the reservation`
+          : `workspace creation already in progress: ${key} on ship "${existingReservation.shipName}"`;
+      throw new BridgeError(detail, 409);
+    }
+    const reservation: CreateReservation = { shipName: conn.name, state: "pending" };
+    this.createReservations.set(key, reservation);
+    let retainReservation = false;
 
-    const summary = await this.call<WorkspaceSummary>(conn, () =>
-      conn.client.workspaces.post({
-        url: repo.url,
-        repoName: input.repoName,
-        name: input.name,
-        branch: input.branch,
-      }) as Promise<EdenResult<WorkspaceSummary>>,
-    );
+    try {
+      const response = await this.call<WorkspaceSummary>(conn, () =>
+        conn.client.workspaces.post({
+          url: repo.url,
+          repoName: input.repoName,
+          name: input.name,
+          branch: input.branch,
+        }) as Promise<EdenResult<WorkspaceSummary>>,
+        { ambiguousEmptyResponse: true },
+      );
+      const parsedSummary = WorkspaceSummarySchema.safeParse(response);
+      if (!parsedSummary.success) {
+        throw new BridgeError(`ship "${conn.name}" returned an invalid workspace summary`, 502, true);
+      }
+      const summary = parsedSummary.data;
+      if (summary.repoName !== input.repoName || summary.name !== input.name) {
+        throw new BridgeError(
+          `ship "${conn.name}" returned a workspace identity that was not requested`,
+          502,
+          true,
+        );
+      }
+      if (this.connections.get(conn.name) !== conn) {
+        throw new BridgeError(`ship "${conn.name}" was removed while creating ${key}`, 409);
+      }
 
-    // Optimistic insert so a GET right after create doesn't race the /events WS;
-    // the eventual `workspace.created` event overwrites with identical data.
-    const createdKey = workspaceKey(summary.repoName, summary.name);
-    conn.workspaces.set(createdKey, summary);
-    this.claim(createdKey, conn.name);
+      // Optimistic insert so a GET right after create doesn't race the /events WS;
+      // the eventual `workspace.created` event overwrites with identical data.
+      conn.workspaces.set(key, summary);
+      this.claim(key, conn.name);
 
-    return { ...summary, ship: conn.name };
+      const confirmedOwner = this.index.get(key);
+      if (confirmedOwner !== conn.name) {
+        const owner = confirmedOwner ?? "another ship";
+        throw new BridgeError(
+          `workspace ${key} was confirmed on ship "${owner}" while creation targeted "${conn.name}"`,
+          409,
+        );
+      }
+
+      return { ...summary, ship: conn.name };
+    } catch (err) {
+      if (
+        err instanceof BridgeError &&
+        err.ambiguousOutcome &&
+        this.index.get(key) !== conn.name
+      ) {
+        reservation.state = "indeterminate";
+        retainReservation = true;
+      }
+      throw err;
+    } finally {
+      if (!retainReservation && this.createReservations.get(key) === reservation) {
+        this.createReservations.delete(key);
+      }
+    }
   }
 
   /** `POST /workspaces/:repo/:name/branch`. */
@@ -350,7 +451,10 @@ export class FleetManager {
   /** Resolve the ws:// terminal endpoint on the ship that owns `(repo, name)`. */
   terminalTarget(repo: string, name: string): string {
     const conn = this.routeFor(repo, name);
-    return toWsUrl(conn.url, `/workspaces/${repo}/${name}/terminal`);
+    return toWsUrl(
+      conn.url,
+      `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`,
+    );
   }
 
   // --- internals ------------------------------------------------------------
@@ -376,14 +480,15 @@ export class FleetManager {
       case "sync": {
         // Full replace of this ship's contribution: drop stale keys, (re)claim present.
         for (const [key, owner] of this.index) {
-          if (owner === shipName && !conn.workspaces.has(key)) this.index.delete(key);
+          if (owner === shipName && !conn.workspaces.has(key)) this.releaseOwnership(key, shipName);
         }
         for (const key of conn.workspaces.keys()) this.claim(key, shipName);
         break;
       }
       case "workspace.removed": {
         const key = workspaceKey(event.workspace.repoName, event.workspace.name);
-        if (this.index.get(key) === shipName) this.index.delete(key);
+        conn.workspaces.delete(key);
+        this.releaseOwnership(key, shipName);
         break;
       }
       default: {
@@ -394,11 +499,14 @@ export class FleetManager {
   }
 
   private applyWorkspaceSnapshot(conn: ShipConnection, workspaces: WorkspaceSummary[]): void {
+    const parsed = WorkspaceSummarySchema.array().safeParse(workspaces);
+    if (!parsed.success) throw new BridgeError(`ship "${conn.name}" returned an invalid workspace snapshot`, 502);
+    workspaces = parsed.data;
     const keys = new Set(workspaces.map((workspace) => workspaceKey(workspace.repoName, workspace.name)));
     for (const key of conn.workspaces.keys()) {
       if (keys.has(key)) continue;
       conn.workspaces.delete(key);
-      if (this.index.get(key) === conn.name) this.index.delete(key);
+      this.releaseOwnership(key, conn.name);
     }
     for (const workspace of workspaces) {
       const key = workspaceKey(workspace.repoName, workspace.name);
@@ -409,6 +517,8 @@ export class FleetManager {
 
   /** Claim ownership of a key for a ship — first-writer-wins on a runtime collision. */
   private claim(key: string, shipName: string): void {
+    const reservation = this.createReservations.get(key);
+
     const owner = this.index.get(key);
     if (owner === undefined) {
       this.index.set(key, shipName);
@@ -418,6 +528,22 @@ export class FleetManager {
           `already owned by "${owner}" — ignoring the newcomer`,
       );
     }
+
+    if (reservation?.state === "indeterminate" && reservation.shipName === shipName) {
+      this.createReservations.delete(key);
+    }
+  }
+
+  private releaseOwnership(key: string, shipName: string): void {
+    if (this.index.get(key) !== shipName) return;
+    const successor = [...this.connections.values()]
+      .filter((conn) => conn.name !== shipName && conn.workspaces.has(key))
+      .sort(
+        (a, b) =>
+          Number(b.status === "online") - Number(a.status === "online") || a.name.localeCompare(b.name),
+      )[0];
+    if (successor) this.index.set(key, successor.name);
+    else this.index.delete(key);
   }
 
   /** Keys hosted by more than one *online* ship (used for the startup fatal check). */
@@ -448,6 +574,8 @@ export class FleetManager {
   }
 
   private routeFor(repo: string, name: string): ShipConnection {
+    this.identifier(repo, "repo");
+    this.identifier(name, "workspace");
     const key = workspaceKey(repo, name);
     const shipName = this.index.get(key);
     if (!shipName) throw new BridgeError(`workspace not found: ${key}`, 404);
@@ -462,13 +590,25 @@ export class FleetManager {
    * Run an Eden call: unwrap `{data,error}`, map a ship-side error to a
    * `BridgeError`, and flip the ship offline on a network-level failure.
    */
-  private async call<T>(conn: ShipConnection, fn: () => Promise<EdenResult<T>>): Promise<T> {
-    let result: EdenResult<T>;
+  private async call<T>(
+    conn: ShipConnection,
+    fn: () => Promise<EdenResult<T>>,
+    opts?: { ambiguousEmptyResponse?: boolean },
+  ): Promise<T> {
+    let request: Promise<EdenResult<T>>;
     try {
-      result = await fn();
+      request = fn();
     } catch (err) {
       conn.markOffline();
       throw new BridgeError(`ship "${conn.name}" unreachable: ${(err as Error).message}`, 503);
+    }
+
+    let result: EdenResult<T>;
+    try {
+      result = await request;
+    } catch (err) {
+      conn.markOffline();
+      throw new BridgeError(`ship "${conn.name}" unreachable: ${(err as Error).message}`, 503, true);
     }
 
     if (result.error) {
@@ -485,8 +625,20 @@ export class FleetManager {
     }
 
     if (result.data === null) {
-      throw new BridgeError(`ship "${conn.name}" returned no data`, 502);
+      throw new BridgeError(`ship "${conn.name}" returned no data`, 502, opts?.ambiguousEmptyResponse);
     }
+    return result.data;
+  }
+
+  private identifier(value: string, label: string): void {
+    if (!FleetIdentifierSchema.safeParse(value).success) {
+      throw new BridgeError(`invalid ${label} identifier`, 400);
+    }
+  }
+
+  private parseInput<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, value: unknown, label: string): T {
+    const result = schema.safeParse(value);
+    if (!result.success) throw new BridgeError(`invalid ${label}`, 400);
     return result.data;
   }
 

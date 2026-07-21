@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config";
+import { canonicalizeFleetDirectory, loadConfig } from "../src/config";
 
 describe("loadConfig", () => {
   test("parses a valid config file into a FleetShipConfig", async () => {
@@ -54,6 +54,21 @@ describe("loadConfig", () => {
       const notAMapping = join(dir, "not-a-mapping.yaml");
       await Bun.write(notAMapping, `- one\n- two\n`);
       await expect(loadConfig(notAMapping)).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("creates and canonicalizes the fleet directory once before startup", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-ship-config-"));
+    try {
+      const target = join(dir, "target", "fleet");
+      const link = join(dir, "fleet-link");
+      await canonicalizeFleetDirectory({ fleetDirectory: target, port: 4700, name: "ship" });
+      await symlink(target, link);
+
+      const config = await canonicalizeFleetDirectory({ fleetDirectory: link, port: 4700, name: "ship" });
+      expect(config.fleetDirectory).toBe(await realpath(target));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

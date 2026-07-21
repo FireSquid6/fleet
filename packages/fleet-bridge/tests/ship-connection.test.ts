@@ -94,6 +94,36 @@ describe("ShipConnection", () => {
     expect([...c.workspaces.keys()]).toEqual(["r/two"]);
   });
 
+  test("pins identity on initial sync and ignores mismatched subsequent events", () => {
+    const c = connect();
+    const events: string[] = [];
+    c.setHandlers({ onEvent: (_connection, event) => events.push(event.ship), onStatusChange: () => {} });
+    c.connect();
+
+    socket.onmessage?.({ data: JSON.stringify(change("workspace.created", "ship-a", "r", "before-sync")) });
+    expect(c.workspaces.size).toBe(0);
+
+    socket.onmessage?.({ data: JSON.stringify(sync("ship-a", [{ repoName: "r", name: "one" }])) });
+    socket.onmessage?.({ data: JSON.stringify(change("workspace.created", "ship-b", "r", "two")) });
+    socket.onmessage?.({ data: JSON.stringify(sync("ship-b", [{ repoName: "other", name: "ws" }])) });
+
+    expect(c.name).toBe("ship-a");
+    expect([...c.workspaces.keys()]).toEqual(["r/one"]);
+    expect(events).toEqual(["ship-a"]);
+    expect(socket.closed).toBe(false);
+  });
+
+  test("a configured identity rejects a mismatched initial sync", async () => {
+    const c = connect("ship-a");
+    c.connect();
+    const waiting = c.waitForSync(20);
+    socket.onmessage?.({ data: JSON.stringify(sync("ship-b", [{ repoName: "r", name: "one" }])) });
+
+    await expect(waiting).rejects.toThrow(/timed out/);
+    expect(c.name).toBe("ship-a");
+    expect(c.workspaces.size).toBe(0);
+  });
+
   test("status flips online on open and offline on close, notifying handlers", async () => {
     const c = connect();
     const seen: ShipStatus[] = [];

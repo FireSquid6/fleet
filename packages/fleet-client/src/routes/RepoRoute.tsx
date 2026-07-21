@@ -80,7 +80,7 @@ export function RepoRoute() {
         {rows.map((w) => (
           <Link
             key={w.name}
-            to={`/repos/${w.repoName}/workspaces/${w.name}`}
+            to={`/repos/${encodeURIComponent(w.repoName)}/workspaces/${encodeURIComponent(w.name)}`}
             className={cn(
               "flex flex-col gap-1.5 border-t border-l-2 border-line px-4 py-[13px] font-mono transition-colors hover:bg-panel2 md:grid md:items-center md:gap-3",
               w.active ? "border-l-accent" : "border-l-transparent",

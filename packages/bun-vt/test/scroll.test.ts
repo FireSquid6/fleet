@@ -3,7 +3,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { Terminal } from "../src/index";
+import { Screen, Terminal } from "../src/index";
 
 function fill(t: Terminal, rows: string[]): void {
   t.write(rows.join("\r\n"));
@@ -78,5 +78,27 @@ describe("scrollback", () => {
     expect(t.rowText(0)).toBe("c");
     expect(t.rowText(1)).toBe("d");
     expect(t.rowText(2)).toBe("e");
+  });
+
+  test("resize pads active rows and scrollback with default cells", () => {
+    const screen = new Screen(2, 2, 10);
+    screen.print("A".charCodeAt(0));
+    screen.scrollUp(1);
+    screen.cursor.pen.bg = { type: "palette", index: 1 };
+    screen.cursor.pen.bold = true;
+
+    screen.resize(4, 3);
+
+    for (const row of screen.grid) {
+      expect(row).toHaveLength(4);
+      for (const cell of row.slice(2)) {
+        expect(cell.bg).toEqual({ type: "default" });
+        expect(cell.bold).toBe(false);
+      }
+    }
+    expect(screen.grid[2]!.every((cell) => cell.bg.type === "default" && !cell.bold)).toBe(true);
+    expect(screen.scrollback[0]).toHaveLength(4);
+    expect(screen.scrollback[0]![2]!.bg).toEqual({ type: "default" });
+    expect(screen.scrollback[0]![2]!.bold).toBe(false);
   });
 });

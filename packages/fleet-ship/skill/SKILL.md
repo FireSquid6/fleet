@@ -24,13 +24,18 @@ make it, verify it, and land it. Nobody cleans up after you.
 
 ## Report your status
 
-Use the `fleet-agent` CLI to keep the fleet dashboard current. This is how
+Use `fleet agent` to keep the fleet dashboard current. This is how
 humans watching the fleet know what you're doing.
+
+`fleet agent ...` is the only Fleet CLI namespace you may use. Never invoke
+`fleet` by itself or any other Fleet command, including `fleet client ...`,
+`fleet ship ...`, or `fleet bridge ...`. Those commands are for the process or
+human managing the fleet, not workspace agents.
 
 1. **At the start of a session, run `init` once:**
 
    ```bash
-   fleet-agent init --model <model> --provider <provider> --harness <harness>
+   fleet agent init --model <model> --provider <provider> --harness <harness>
    ```
 
    This registers the session and sets your status to `idle`.
@@ -38,7 +43,7 @@ humans watching the fleet know what you're doing.
 2. **Whenever you change phase, update your status:**
 
    ```bash
-   fleet-agent status <state> -d "<what you're doing right now>"
+   fleet agent status <state> -d "<what you're doing right now>"
    ```
 
    The description should be a short (100–200 character) human-readable summary
@@ -63,5 +68,5 @@ tests, to `awaiting` the moment you're blocked or need review, and back to
 If you're unsure whether you're inside a fleet workspace, run:
 
 ```bash
-fleet-agent in-workspace
+fleet agent in-workspace
 ```

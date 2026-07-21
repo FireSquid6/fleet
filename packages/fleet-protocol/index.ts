@@ -4,6 +4,11 @@
  */
 
 export {
+  FleetIdentifierSchema,
+  parseFleetIdentifier,
+  type FleetIdentifier,
+} from "./src/identifier";
+export {
   DEFAULT_PORT,
   ATLAS_FILENAME,
   FleetShipConfigSchema,
@@ -11,7 +16,15 @@ export {
   AtlasSchema,
   type Atlas,
 } from "./src/config";
-export { WorkspaceSummarySchema, AGENT_STATES, type WorkspaceSummary } from "./src/workspace";
+export {
+  WorkspaceSummarySchema,
+  WorkspaceStatusSchema,
+  WorkspaceDiffSchema,
+  AgentStatusSchema,
+  CreateWorkspaceRequestSchema,
+  AGENT_STATES,
+  type WorkspaceSummary,
+} from "./src/workspace";
 export type {
   WorkspaceDiff,
   WorkspaceStatus,
@@ -22,7 +35,8 @@ export type {
   SwitchBranchRequest,
 } from "./src/workspace";
 export type { SystemResources } from "./src/system";
-export type { Repo } from "./src/repo";
+export { RepoSchema, CreateRepoInputSchema, type Repo, type CreateRepoInput } from "./src/repo";
+export { ShipSchema, type Ship } from "./src/ship";
 
 export {
   SyncEventSchema,

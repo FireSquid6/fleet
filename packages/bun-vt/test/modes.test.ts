@@ -4,7 +4,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { Terminal } from "../src/index";
+import { Screen, Terminal } from "../src/index";
 
 describe("autowrap (DECAWM, mode 7)", () => {
   test("printing past the last column wraps to the next row", () => {
@@ -121,6 +121,97 @@ describe("alternate screen (mode 1049)", () => {
     t.write("\x1b[?1049l");
     expect(t.rowText(0)).toBe("primary"); // primary content preserved
     expect(t.cursor().x).toBe(7); // cursor restored to end of "primary"
+  });
+
+  test("growing while active resizes and restores the primary grid", () => {
+    const t = new Terminal({ cols: 4, rows: 2 });
+    t.write("one\x1b[2;4H");
+    t.write("\x1b[?1049h\x1b[41malt");
+
+    t.resize(7, 4);
+    expect(t.rowText(0)).toBe("alt");
+    expect(t.cursor()).toMatchObject({ x: 3, y: 0, pendingWrap: false });
+    expect(t.cell(0, 6).bg).toEqual({ type: "default" });
+    expect(t.cell(3, 6).bg).toEqual({ type: "default" });
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 7; col++) expect(() => t.cell(row, col)).not.toThrow();
+    }
+
+    t.write("\x1b[?1049l");
+    expect(t.rowText(0)).toBe("one");
+    expect(t.cursor()).toMatchObject({ x: 3, y: 1, pendingWrap: false });
+    expect(t.cell(0, 6).bg).toEqual({ type: "default" });
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 7; col++) expect(() => t.cell(row, col)).not.toThrow();
+    }
+  });
+
+  test("shrinking removes primary rows into scrollback and clamps both cursors", () => {
+    const screen = new Screen(5, 4, 10);
+    for (let row = 0; row < 4; row++) {
+      screen.setCursor(0, row);
+      screen.print("A".charCodeAt(0) + row);
+    }
+    screen.setCursor(4, 3);
+    screen.print("P".charCodeAt(0));
+    screen.enterAlt(true, true);
+    for (let row = 0; row < 4; row++) {
+      screen.setCursor(0, row);
+      screen.print("w".charCodeAt(0) + row);
+    }
+    screen.setCursor(4, 3);
+    screen.print("Z".charCodeAt(0));
+
+    screen.resize(3, 2);
+    expect(screen.grid.map((row) => row.length)).toEqual([3, 3]);
+    expect(screen.grid.map((row) => row[0]!.cp)).toEqual(["y".charCodeAt(0), "z".charCodeAt(0)]);
+    expect(screen.cursor).toMatchObject({ x: 2, y: 1, pendingWrap: false });
+    expect(screen.scrollback.map((row) => row.length)).toEqual([3, 3]);
+    expect(screen.scrollback.map((row) => row[0]!.cp)).toEqual(["A".charCodeAt(0), "B".charCodeAt(0)]);
+
+    screen.leaveAlt(true);
+    expect(screen.grid.map((row) => row.length)).toEqual([3, 3]);
+    expect(screen.grid.map((row) => row[0]!.cp)).toEqual(["C".charCodeAt(0), "D".charCodeAt(0)]);
+    expect(screen.cursor).toMatchObject({ x: 2, y: 1, pendingWrap: false });
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 3; col++) expect(screen.cellAt(row, col)).not.toBeNull();
+    }
+  });
+
+  for (const mode of [47, 1047]) {
+    test(`mode ${mode} restores a fully resized primary grid`, () => {
+      const t = new Terminal({ cols: 3, rows: 2 });
+      t.write("pri");
+      t.write(`\x1b[?${mode}h\x1b[Halt`);
+      t.resize(5, 3);
+      expect(t.rowText(0)).toBe("alt");
+      t.write(`\x1b[?${mode}l`);
+      expect(t.rowText(0)).toBe("pri");
+      for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 5; col++) expect(() => t.cell(row, col)).not.toThrow();
+      }
+    });
+  }
+
+  test("mode 1047 keeps its unsaved cursor state when leaving", () => {
+    const t = new Terminal({ cols: 4, rows: 2 });
+    t.write("pri\x1b[2;4H\x1b[31mX");
+    expect(t.cursor()).toMatchObject({ x: 3, y: 1, pendingWrap: true });
+
+    t.write("\x1b[?1047h");
+    expect(t.cursor()).toMatchObject({ x: 3, y: 1, pendingWrap: false });
+    t.resize(6, 3);
+    expect(t.cursor()).toMatchObject({ x: 3, y: 1, pendingWrap: false });
+    t.write("\x1b[2;6HZ");
+    expect(t.cursor()).toMatchObject({ x: 5, y: 1, pendingWrap: true });
+    expect(t.cell(1, 5).fg).toEqual({ type: "palette", index: 1 });
+
+    t.write("\x1b[?1047l");
+    expect(t.rowText(0)).toBe("pri");
+    expect(t.cursor()).toMatchObject({ x: 5, y: 1, pendingWrap: true });
+    t.write("Q");
+    expect(t.cursor()).toMatchObject({ x: 1, y: 2, pendingWrap: false });
+    expect(t.cell(2, 0).fg).toEqual({ type: "palette", index: 1 });
   });
 });
 

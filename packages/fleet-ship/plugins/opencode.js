@@ -1,5 +1,5 @@
 export const FleetAgentActivation = async ({ $, directory }) => {
-  const result = await $`fleet-agent in-workspace`.cwd(directory).quiet().nothrow();
+  const result = await $`fleet agent in-workspace`.cwd(directory).quiet().nothrow();
   if (result.exitCode !== 0) return {};
 
   const workspace = result.text().trim();

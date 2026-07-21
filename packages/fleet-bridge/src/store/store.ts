@@ -1,135 +1,207 @@
-/**
- * store.ts — the bridge's JSON-file persistence.
- *
- * Replaces the former drizzle + `bun:sqlite` stack. The bridge only owns two tiny,
- * flat, `name`-keyed collections — the ship roster and the repo registry — so they
- * live as in-memory `Map`s persisted to `ships.json` / `repos.json` under the
- * configured `dataDirectory`. Every mutation rewrites the whole file; single-process,
- * single-instance use makes a full-file `Bun.write` atomic enough (no transactions).
- */
+/** The bridge's serialized, atomic JSON-file persistence. */
 
-import { join } from "node:path";
-import type { Repo } from "fleet-protocol";
+import { lstat, open, rename, unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { FleetIdentifierSchema, RepoSchema, ShipSchema, type Repo, type Ship } from "fleet-protocol";
 
-/** A registered fleet member: its name and the endpoint the bridge connects to. */
-export interface Ship {
-  name: string;
-  url: string;
+type Persist = (target: string, contents: string) => Promise<void>;
+
+export class RepoAlreadyExistsError extends Error {
+  constructor(readonly repoName: string) {
+    super(`repo already registered: ${repoName}`);
+    this.name = "RepoAlreadyExistsError";
+  }
 }
 
 export class Store {
   private ships = new Map<string, Ship>();
   private repos = new Map<string, Repo>();
   private loaded = false;
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly persist: Persist;
 
-  constructor(private readonly dataDirectory: string) {}
+  constructor(
+    private readonly dataDirectory: string,
+    deps?: { persist?: Persist },
+  ) {
+    this.persist = deps?.persist ?? atomicWrite;
+  }
 
-  /**
-   * Read `ships.json` / `repos.json` into memory. Idempotent: a no-op once loaded, so
-   * callers that seed in-memory before `FleetManager.init()` runs aren't clobbered by
-   * init's own `load()`.
-   */
+  private serialized<T>(operation: () => Promise<T> | T): Promise<T> {
+    const result = this.queue.then(operation, operation);
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
   async load(): Promise<void> {
-    if (this.loaded) return;
-    for (const ship of await this.readFile<Ship>("ships.json")) this.ships.set(ship.name, ship);
-    for (const repo of await this.readFile<Repo>("repos.json")) this.repos.set(repo.name, repo);
-    this.loaded = true;
+    return this.serialized(async () => {
+      if (this.loaded) return;
+      const ships = ShipSchema.array().parse(await this.readFile<unknown>("ships.json"));
+      const repos = RepoSchema.array().parse(await this.readFile<unknown>("repos.json"));
+      this.ships = new Map(ships.map((ship) => [ship.name, ship]));
+      this.repos = new Map(repos.map((repo) => [repo.name, repo]));
+      this.loaded = true;
+    });
   }
 
   private async readFile<T>(name: string): Promise<T[]> {
-    const file = Bun.file(join(this.dataDirectory, name));
-    if (!(await file.exists())) return [];
-    return (await file.json()) as T[];
+    const target = join(this.dataDirectory, name);
+    try {
+      const info = await lstat(target);
+      if (!info.isFile()) throw new Error(`refusing to read non-file store path: ${target}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    return (await Bun.file(target).json()) as T[];
   }
 
-  private persistShips(): Promise<number> {
-    return Bun.write(join(this.dataDirectory, "ships.json"), stringify([...this.ships.values()]));
+  private persistShips(ships: Map<string, Ship>): Promise<void> {
+    return this.persist(join(this.dataDirectory, "ships.json"), stringify([...ships.values()]));
   }
 
-  private persistRepos(): Promise<number> {
-    return Bun.write(join(this.dataDirectory, "repos.json"), stringify([...this.repos.values()]));
+  private persistRepos(repos: Map<string, Repo>): Promise<void> {
+    return this.persist(join(this.dataDirectory, "repos.json"), stringify([...repos.values()]));
   }
-
-  // --- ships ----------------------------------------------------------------
 
   async getAllShips(): Promise<Ship[]> {
-    return [...this.ships.values()];
+    return this.serialized(() => [...this.ships.values()]);
   }
 
   async getShip(name: string): Promise<Ship | undefined> {
-    return this.ships.get(name);
+    return this.serialized(() => this.ships.get(name));
   }
 
   async createShip(ship: Ship): Promise<Ship> {
-    this.ships.set(ship.name, ship);
-    await this.persistShips();
-    return ship;
+    ship = ShipSchema.parse(ship);
+    return this.serialized(async () => {
+      const ships = new Map(this.ships).set(ship.name, ship);
+      await this.persistShips(ships);
+      this.ships = ships;
+      return ship;
+    });
   }
 
-  /** Insert a ship, or overwrite its `url` if the name already exists. */
   async upsertShip(ship: Ship): Promise<Ship> {
     return this.createShip(ship);
   }
 
   async updateShip(name: string, values: Partial<Omit<Ship, "name">>): Promise<Ship | undefined> {
-    const existing = this.ships.get(name);
-    if (!existing) return undefined;
-    const updated = { ...existing, ...values };
-    this.ships.set(name, updated);
-    await this.persistShips();
-    return updated;
+    FleetIdentifierSchema.parse(name);
+    return this.serialized(async () => {
+      const existing = this.ships.get(name);
+      if (!existing) return undefined;
+      const updated = ShipSchema.parse({ ...existing, ...values, name });
+      const ships = new Map(this.ships).set(name, updated);
+      await this.persistShips(ships);
+      this.ships = ships;
+      return updated;
+    });
   }
 
   async deleteShip(name: string): Promise<Ship | undefined> {
-    const existing = this.ships.get(name);
-    if (!existing) return undefined;
-    this.ships.delete(name);
-    await this.persistShips();
-    return existing;
+    FleetIdentifierSchema.parse(name);
+    return this.serialized(async () => {
+      const existing = this.ships.get(name);
+      if (!existing) return undefined;
+      const ships = new Map(this.ships);
+      ships.delete(name);
+      await this.persistShips(ships);
+      this.ships = ships;
+      return existing;
+    });
   }
 
-  /** Overwrite the entire ship roster (clear, then set all) in a single rewrite. */
   async replaceAllShips(ships: Ship[]): Promise<void> {
-    this.ships = new Map(ships.map((ship) => [ship.name, ship]));
-    await this.persistShips();
+    ships = ShipSchema.array().parse(ships);
+    return this.serialized(async () => {
+      const replacement = new Map(ships.map((ship) => [ship.name, ship]));
+      await this.persistShips(replacement);
+      this.ships = replacement;
+    });
   }
-
-  // --- repos ----------------------------------------------------------------
 
   async getAllRepos(): Promise<Repo[]> {
-    return [...this.repos.values()];
+    return this.serialized(() => [...this.repos.values()]);
   }
 
   async getRepo(name: string): Promise<Repo | undefined> {
-    return this.repos.get(name);
+    return this.serialized(() => this.repos.get(name));
   }
 
   async createRepo(repo: Repo): Promise<Repo> {
-    this.repos.set(repo.name, repo);
-    await this.persistRepos();
-    return repo;
+    repo = RepoSchema.parse(repo);
+    return this.serialized(async () => {
+      if (this.repos.has(repo.name)) throw new RepoAlreadyExistsError(repo.name);
+      const repos = new Map(this.repos).set(repo.name, repo);
+      await this.persistRepos(repos);
+      this.repos = repos;
+      return repo;
+    });
   }
 
-  /** Insert a repo, or overwrite its `url`/`provider` if the name already exists. */
   async upsertRepo(repo: Repo): Promise<Repo> {
-    return this.createRepo(repo);
+    repo = RepoSchema.parse(repo);
+    return this.serialized(async () => {
+      const repos = new Map(this.repos).set(repo.name, repo);
+      await this.persistRepos(repos);
+      this.repos = repos;
+      return repo;
+    });
   }
 
   async updateRepo(name: string, values: Partial<Omit<Repo, "name">>): Promise<Repo | undefined> {
-    const existing = this.repos.get(name);
-    if (!existing) return undefined;
-    const updated = { ...existing, ...values };
-    this.repos.set(name, updated);
-    await this.persistRepos();
-    return updated;
+    FleetIdentifierSchema.parse(name);
+    return this.serialized(async () => {
+      const existing = this.repos.get(name);
+      if (!existing) return undefined;
+      const updated = RepoSchema.parse({ ...existing, ...values, name });
+      const repos = new Map(this.repos).set(name, updated);
+      await this.persistRepos(repos);
+      this.repos = repos;
+      return updated;
+    });
   }
 
   async deleteRepo(name: string): Promise<Repo | undefined> {
-    const existing = this.repos.get(name);
-    if (!existing) return undefined;
-    this.repos.delete(name);
-    await this.persistRepos();
-    return existing;
+    FleetIdentifierSchema.parse(name);
+    return this.serialized(async () => {
+      const existing = this.repos.get(name);
+      if (!existing) return undefined;
+      const repos = new Map(this.repos);
+      repos.delete(name);
+      await this.persistRepos(repos);
+      this.repos = repos;
+      return existing;
+    });
+  }
+}
+
+async function atomicWrite(target: string, contents: string): Promise<void> {
+  try {
+    const info = await lstat(target);
+    if (!info.isFile()) throw new Error(`refusing to replace non-file store path: ${target}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  const temporary = join(dirname(target), `.${basename(target)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, "wx", 0o600);
+    await handle.writeFile(contents);
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    await rename(temporary, target);
+  } finally {
+    await handle?.close().catch(() => {});
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
   }
 }
 

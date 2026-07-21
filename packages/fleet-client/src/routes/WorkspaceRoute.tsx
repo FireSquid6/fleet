@@ -18,7 +18,7 @@ export function WorkspaceRoute() {
   return (
     <div className="flex h-full flex-col px-4 pb-4 pt-5 sm:px-[30px] sm:pb-6 sm:pt-[24px]">
       <Link
-        to={`/repos/${repo}`}
+        to={`/repos/${encodeURIComponent(repo)}`}
         className="self-start font-mono text-[11px] font-medium text-dim transition-colors hover:text-text"
       >
         ← {repo}
@@ -63,7 +63,7 @@ export function WorkspaceRoute() {
           return (
             <Link
               key={s.name}
-              to={`/repos/${repo}/workspaces/${s.name}`}
+              to={`/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(s.name)}`}
               className={cn(
                 "flex flex-none items-center gap-2 whitespace-nowrap rounded-[4px] border px-3 py-[7px] font-mono text-text transition-[filter] hover:brightness-[1.13]",
                 current ? "border-accent bg-accent-soft" : "border-line bg-transparent",

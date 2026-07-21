@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installFleetPlugin, inspectFleetPlugin } from "../src/plugin-installer";
@@ -59,7 +59,7 @@ describe("installFleetPlugin", () => {
 
     expect(await installFleetPlugin({ homeDirectory, pluginsDirectory })).toEqual([]);
     expect(await exists(join(homeDirectory, ".claude"))).toBe(false);
-    expect(await exists(join(homeDirectory, ".config"))).toBe(false);
+    expect(await exists(join(homeDirectory, ".config", "opencode"))).toBe(false);
     expect(await exists(join(homeDirectory, ".copilot"))).toBe(false);
   });
 
@@ -101,14 +101,68 @@ describe("installFleetPlugin", () => {
     expect(await Bun.file(join(claudeRoot(homeDirectory), "hooks", "hooks.json")).text()).toContain(
       "SessionStart",
     );
-    expect(
-      await Bun.file(join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh")).text(),
-    ).toContain("fleet-agent in-workspace");
-    expect(await Bun.file(openCodePlugin(homeDirectory)).text()).toContain("FleetAgentActivation");
-    expect(await Bun.file(copilotHook(homeDirectory)).json()).toMatchObject({ version: 1 });
+    const claudeHook = await Bun.file(
+      join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh"),
+    ).text();
+    const openCodeHook = await Bun.file(openCodePlugin(homeDirectory)).text();
+    const copilotHookSource = await Bun.file(copilotHook(homeDirectory)).text();
+    expect(claudeHook).toContain("fleet agent in-workspace");
+    expect(openCodeHook).toContain("FleetAgentActivation");
+    expect(openCodeHook).toContain("fleet agent in-workspace");
+    expect(copilotHookSource).toContain("fleet agent in-workspace");
+    expect([claudeHook, openCodeHook, copilotHookSource].join("\n")).not.toContain("fleet-agent in-workspace");
+    expect(JSON.parse(copilotHookSource)).toMatchObject({ version: 1 });
     expect((await inspectFleetPlugin({ homeDirectory })).every(({ state }) => state === "current")).toBe(
       true,
     );
+  });
+
+  test("installed shell hooks invoke fleet agent in-workspace", async () => {
+    const { homeDirectory } = await fixture();
+    const binDirectory = join(homeDirectory, "bin");
+    await Promise.all([
+      mkdir(join(homeDirectory, ".claude")),
+      mkdir(join(homeDirectory, ".copilot")),
+      mkdir(binDirectory),
+    ]);
+    const fakeFleet = join(binDirectory, "fleet");
+    await Bun.write(
+      fakeFleet,
+      '#!/usr/bin/env bash\n[[ "$1" == "agent" && "$2" == "in-workspace" ]] || exit 64\nprintf "autosmith/worker-1\\n"\n',
+    );
+    await chmod(fakeFleet, 0o755);
+    await installFleetPlugin({ homeDirectory });
+
+    const env = { PATH: `${binDirectory}:${Bun.env.PATH ?? ""}` };
+    const claude = Bun.spawn([
+      join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh"),
+    ], { env, stdout: "pipe", stderr: "pipe" });
+    const [claudeExit, claudeOutput, claudeError] = await Promise.all([
+      claude.exited,
+      new Response(claude.stdout).text(),
+      new Response(claude.stderr).text(),
+    ]);
+    expect(claudeExit).toBe(0);
+    expect(claudeError).toBe("");
+    expect(claudeOutput).toContain("You are running inside fleet workspace autosmith/worker-1.");
+
+    const copilotSource = await Bun.file(copilotHook(homeDirectory)).json();
+    const copilot = Bun.spawn(["bash", "-c", copilotSource.hooks.sessionStart[0].bash], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [copilotExit, copilotOutput, copilotError] = await Promise.all([
+      copilot.exited,
+      new Response(copilot.stdout).text(),
+      new Response(copilot.stderr).text(),
+    ]);
+    expect(copilotExit).toBe(0);
+    expect(copilotError).toBe("");
+    expect(JSON.parse(copilotOutput)).toEqual({
+      additionalContext:
+        "You are running inside fleet workspace autosmith/worker-1. Before doing any work, use the skill tool to activate the fleet-agent skill and follow its instructions for this session.",
+    });
   });
 
   test("installs only for the providers that are present", async () => {
@@ -120,7 +174,7 @@ describe("installFleetPlugin", () => {
     expect(installations).toHaveLength(1);
     expect(installations[0]?.provider).toBe("copilot");
     expect(await exists(join(homeDirectory, ".claude"))).toBe(false);
-    expect(await exists(join(homeDirectory, ".config"))).toBe(false);
+    expect(await exists(join(homeDirectory, ".config", "opencode"))).toBe(false);
   });
 
   test("marks the Claude Code hook script executable", async () => {
@@ -133,7 +187,23 @@ describe("installFleetPlugin", () => {
     expect((await stat(script)).mode & 0o111).not.toBe(0);
   });
 
-  test("is idempotent and updates only stale files", async () => {
+  test("doctor inspection reports executable mode drift as a conflict", async () => {
+    const { homeDirectory, pluginsDirectory } = await fixture();
+    await mkdir(join(homeDirectory, ".claude"));
+    await installFleetPlugin({ homeDirectory, pluginsDirectory });
+    const script = join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh");
+    await chmod(script, 0o644);
+
+    const [status] = await inspectFleetPlugin({
+      homeDirectory,
+      pluginsDirectory,
+      providers: ["claude-code"],
+    });
+
+    expect(status?.state).toBe("conflict-unmanaged");
+  });
+
+  test("is idempotent and preserves user edits until forced", async () => {
     const { homeDirectory, pluginsDirectory } = await fixture();
     await mkdir(join(homeDirectory, ".config", "opencode"), { recursive: true });
 
@@ -144,7 +214,10 @@ describe("installFleetPlugin", () => {
 
     await Bun.write(openCodePlugin(homeDirectory), "stale");
     const third = await installFleetPlugin({ homeDirectory, pluginsDirectory });
-    expect(third[0]?.status).toBe("updated");
+    expect(third[0]?.status).toBe("conflict");
+    expect(await Bun.file(openCodePlugin(homeDirectory)).text()).toBe("stale");
+    const forced = await installFleetPlugin({ homeDirectory, pluginsDirectory, force: true });
+    expect(forced[0]?.status).toBe("updated");
     expect(await Bun.file(openCodePlugin(homeDirectory)).text()).toBe(
       await Bun.file(join(pluginsDirectory, "opencode.js")).text(),
     );
@@ -164,6 +237,45 @@ describe("installFleetPlugin", () => {
     expect(await Bun.file(target).text()).toBe("user managed");
   });
 
+  test("tracks Claude files independently and completes safe files around a conflict", async () => {
+    const { homeDirectory, pluginsDirectory } = await fixture();
+    const conflicting = join(claudeRoot(homeDirectory), "hooks", "hooks.json");
+    await mkdir(join(conflicting, ".."), { recursive: true });
+    await Bun.write(conflicting, "user hooks");
+
+    const [installation] = await installFleetPlugin({ homeDirectory, pluginsDirectory });
+
+    expect(installation?.status).toBe("conflict");
+    expect(installation?.conflictPaths).toEqual([conflicting]);
+    expect(await Bun.file(conflicting).text()).toBe("user hooks");
+    expect(
+      await exists(join(claudeRoot(homeDirectory), ".claude-plugin", "plugin.json")),
+    ).toBe(true);
+    const executable = join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh");
+    expect((await stat(executable)).mode & 0o111).not.toBe(0);
+
+    const forced = await installFleetPlugin({ homeDirectory, pluginsDirectory, force: true });
+    expect(forced[0]?.status).toBe("updated");
+    expect(await Bun.file(conflicting).text()).toBe(
+      await Bun.file(join(pluginsDirectory, "claude-code", "hooks", "hooks.json")).text(),
+    );
+  });
+
+  test("does not chmod a conflicting executable hook", async () => {
+    const { homeDirectory, pluginsDirectory } = await fixture();
+    const script = join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh");
+    await mkdir(join(script, ".."), { recursive: true });
+    await Bun.write(script, "user script");
+    await chmod(script, 0o644);
+
+    const [installation] = await installFleetPlugin({ homeDirectory, pluginsDirectory });
+
+    expect(installation?.status).toBe("conflict");
+    expect(installation?.conflictPaths).toContain(script);
+    expect((await stat(script)).mode & 0o111).toBe(0);
+    expect(await Bun.file(script).text()).toBe("user script");
+  });
+
   test("installs only the requested providers", async () => {
     const { homeDirectory, pluginsDirectory } = await fixture();
     await Promise.all([
@@ -181,7 +293,7 @@ describe("installFleetPlugin", () => {
     expect(await exists(claudeRoot(homeDirectory))).toBe(false);
   });
 
-  test("inspectFleetPlugin reports absent / missing / stale / current", async () => {
+  test("inspectFleetPlugin reports absent / missing / conflict-unmanaged / current", async () => {
     const { homeDirectory, pluginsDirectory } = await fixture();
 
     let statuses = await inspectFleetPlugin({ homeDirectory, pluginsDirectory });
@@ -197,6 +309,6 @@ describe("installFleetPlugin", () => {
 
     await Bun.write(openCodePlugin(homeDirectory), "drift");
     statuses = await inspectFleetPlugin({ homeDirectory, pluginsDirectory, providers: ["opencode"] });
-    expect(statuses[0]?.state).toBe("stale");
+    expect(statuses[0]?.state).toBe("conflict-unmanaged");
   });
 });

@@ -14,6 +14,7 @@ import { formatWorkspaceTable } from "./format";
 import { ship } from "fleet-ship";
 import { bridge } from "fleet-bridge";
 import { startClientServer } from "fleet-client";
+import { agentCommand } from "./agent-command";
 
 
 const clientCommand = new Command()
@@ -33,7 +34,7 @@ clientCommand
   .option("--inactive", "only show inactive workspaces")
   .action(async (options: { active?: boolean; inactive?: boolean }) => {
     if (options.active && options.inactive) {
-      console.error("fleet-cli: --active and --inactive are mutually exclusive");
+      console.error("fleet: --active and --inactive are mutually exclusive");
       process.exit(1);
     }
 
@@ -150,10 +151,11 @@ clientCommand
   })
 
 
-const mainCommand = new Command();
+const mainCommand = new Command().name("fleet");
 
 mainCommand.addCommand(clientCommand);
 mainCommand.addCommand(ship);
 mainCommand.addCommand(bridge);
+mainCommand.addCommand(agentCommand);
 
 mainCommand.parseAsync(process.argv);

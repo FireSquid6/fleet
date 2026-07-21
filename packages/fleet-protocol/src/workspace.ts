@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { FleetIdentifierSchema } from "./identifier";
 
 /**
  * Summary row returned by `GET /workspaces` (list view). It is also embedded in
@@ -16,9 +17,9 @@ import { z } from "zod";
  */
 export const WorkspaceSummarySchema = z.object({
   /** Unique name of the repo the workspace belongs to (also its ship directory). */
-  repoName: z.string(),
+  repoName: FleetIdentifierSchema,
   /** Workspace name, unique within its repo. */
-  name: z.string(),
+  name: FleetIdentifierSchema,
   /** Currently checked-out branch. */
   branch: z.string(),
   /** Whether a tmux session is currently up for this workspace. */
@@ -28,50 +29,55 @@ export const WorkspaceSummarySchema = z.object({
 export type WorkspaceSummary = z.infer<typeof WorkspaceSummarySchema>;
 
 /** Git diff summary for an active workspace. */
-export interface WorkspaceDiff {
+export const WorkspaceDiffSchema = z.object({
   /** Lines added across the working tree. */
-  readonly added: number;
+  added: z.number(),
   /** Lines removed across the working tree. */
-  readonly removed: number;
+  removed: z.number(),
   /** Number of commits ahead of the upstream branch (0 if no upstream). */
-  readonly commits: number;
-}
+  commits: z.number(),
+});
 
-/** Detailed status returned by `GET /workspaces/:repo/:name`. */
-export type WorkspaceStatus =
-  | {
-      readonly state: "inactive";
-      readonly repoName: string;
-      readonly name: string;
-      readonly branch: string;
-    }
-  | {
-      readonly state: "active";
-      readonly repoName: string;
-      readonly name: string;
-      readonly branch: string;
-      readonly diff: WorkspaceDiff;
-      readonly agent: AgentStatus | null;
-      // The fields below are placeholders for later features; always null for now.
-      readonly issue: null;
-      readonly mergeRequest: null;
-      /** Name of the ship (host) this workspace lives on, from the ship config. */
-      readonly ship: string;
-    };
+export type WorkspaceDiff = z.infer<typeof WorkspaceDiffSchema>;
 
 /** The lifecycle phases an agent reports as it works a task. */
 export const AGENT_STATES = ["idle", "planning", "building", "verifying", "awaiting"] as const;
 
 export type AgentState = (typeof AGENT_STATES)[number];
 
+export const AgentStatusSchema = z.object({
+  state: z.enum(AGENT_STATES),
+  description: z.string(),
+  model: z.string(),
+  provider: z.string(),
+  harness: z.string(),
+});
+
+/** Detailed status returned by `GET /workspaces/:repo/:name`. */
+export const WorkspaceStatusSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("inactive"),
+    repoName: FleetIdentifierSchema,
+    name: FleetIdentifierSchema,
+    branch: z.string(),
+  }),
+  z.object({
+    state: z.literal("active"),
+    repoName: FleetIdentifierSchema,
+    name: FleetIdentifierSchema,
+    branch: z.string(),
+    diff: WorkspaceDiffSchema,
+    agent: AgentStatusSchema.nullable(),
+    issue: z.null(),
+    mergeRequest: z.null(),
+    ship: FleetIdentifierSchema,
+  }),
+]);
+
+export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>;
+
 /** Status of the coding agent attached to an active workspace's session. */
-export type AgentStatus = {
-  readonly state: AgentState;
-  readonly description: string;
-  readonly model: string;
-  readonly provider: string;
-  readonly harness: string;
-};
+export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
 /** Body of `POST /workspaces/:repo/:name/agent/status` — update the live status. */
 export interface UpdateAgentStatusRequest {
@@ -80,14 +86,16 @@ export interface UpdateAgentStatusRequest {
 }
 
 /** Body of `POST /workspaces` — create a workspace by cloning `url` into `repoName`. */
-export interface CreateWorkspaceRequest {
+export const CreateWorkspaceRequestSchema = z.object({
   /** Git clone URL. */
-  readonly url: string;
+  url: z.string(),
   /** Unique repo name; the directory the clone lands under on the ship. */
-  readonly repoName: string;
-  readonly name: string;
-  readonly branch: string;
-}
+  repoName: FleetIdentifierSchema,
+  name: FleetIdentifierSchema,
+  branch: z.string(),
+});
+
+export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequestSchema>;
 
 /** Body of `POST /workspaces/:repo/:name/branch` — switch to (and create) a branch. */
 export interface SwitchBranchRequest {

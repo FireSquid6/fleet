@@ -4,7 +4,7 @@
     "sessionStart": [
       {
         "type": "command",
-        "bash": "command -v fleet-agent >/dev/null 2>&1 || exit 0; workspace=$(fleet-agent in-workspace 2>/dev/null) || exit 0; workspace=$(printf \"%s\" \"$workspace\" | tr -d \"\\r\\n\"); printf \"%s\" \"$workspace\" | grep -Eq \"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$\" || exit 0; printf '{\"additionalContext\":\"You are running inside fleet workspace %s. Before doing any work, use the skill tool to activate the fleet-agent skill and follow its instructions for this session.\"}' \"$workspace\"",
+        "bash": "command -v fleet >/dev/null 2>&1 || exit 0; workspace=$(fleet agent in-workspace 2>/dev/null) || exit 0; workspace=$(printf \"%s\" \"$workspace\" | tr -d \"\\r\\n\"); printf \"%s\" \"$workspace\" | grep -Eq \"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$\" || exit 0; printf '{\"additionalContext\":\"You are running inside fleet workspace %s. Before doing any work, use the skill tool to activate the fleet-agent skill and follow its instructions for this session.\"}' \"$workspace\"",
         "timeoutSec": 5
       }
     ]
