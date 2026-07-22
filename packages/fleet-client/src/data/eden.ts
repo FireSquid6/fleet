@@ -5,6 +5,10 @@ import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
 
 /** Turn an Eden `{ error }` value into a thrown Error. */
 function edenError(error: { status?: unknown; value?: unknown }): Error {
+  // A 401 mid-session means the cookie expired or was revoked — bounce to login.
+  if (error.status === 401 && typeof window !== "undefined") {
+    window.location.assign("/login");
+  }
   const detail = error.value === undefined ? error : error.value;
   return new Error(`fleet-bridge request failed: ${JSON.stringify(detail)}`);
 }

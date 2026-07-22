@@ -2,9 +2,11 @@ import "./index.css";
 
 import { useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider, RequireAuth } from "./data/AuthContext";
 import { FleetProvider } from "./data/FleetContext";
 import { Shell } from "./layouts/Shell";
 import { BridgeRoute } from "./routes/BridgeRoute";
+import { LoginRoute } from "./routes/LoginRoute";
 import { ReposRoute } from "./routes/ReposRoute";
 import { RepoRoute } from "./routes/RepoRoute";
 import { ShipsRoute } from "./routes/ShipsRoute";
@@ -17,10 +19,20 @@ export function App() {
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
   return (
-    <FleetProvider>
+    <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route element={<Shell theme={theme} onToggleTheme={toggleTheme} />}>
+          <Route path="/login" element={<LoginRoute />} />
+          {/* Fleet data only loads once authenticated, so FleetProvider sits inside RequireAuth. */}
+          <Route
+            element={
+              <RequireAuth>
+                <FleetProvider>
+                  <Shell theme={theme} onToggleTheme={toggleTheme} />
+                </FleetProvider>
+              </RequireAuth>
+            }
+          >
             <Route index element={<BridgeRoute />} />
             <Route path="repos" element={<ReposRoute />} />
             <Route path="ships" element={<ShipsRoute />} />
@@ -29,7 +41,7 @@ export function App() {
           </Route>
         </Routes>
       </BrowserRouter>
-    </FleetProvider>
+    </AuthProvider>
   );
 }
 

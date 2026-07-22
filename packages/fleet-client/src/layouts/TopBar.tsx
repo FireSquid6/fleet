@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
-import { Menu } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import type { Theme } from "@/App";
+import { useAuth } from "@/data/AuthContext";
 
 /** `bridge` / `bridge / {repo}` / `bridge / {repo} / {name}` from the URL. */
 function breadcrumb(pathname: string): string {
@@ -22,6 +23,7 @@ export function TopBar({
   onOpenSidebar: () => void;
 }) {
   const { pathname } = useLocation();
+  const { authRequired, user, logout } = useAuth();
 
   return (
     <header className="flex h-[53px] flex-none items-center gap-2 border-b border-line bg-panel px-4 md:justify-between md:px-[22px]">
@@ -36,14 +38,28 @@ export function TopBar({
       <div className="min-w-0 flex-1 truncate font-mono text-[12px] font-medium tracking-[.02em] text-dim md:flex-none">
         {breadcrumb(pathname)}
       </div>
-      <button
-        type="button"
-        onClick={onToggleTheme}
-        className="flex items-center gap-1.5 rounded-[3px] border border-line px-[11px] py-1.5 font-mono text-[10.5px] font-medium text-text transition-colors hover:bg-panel2"
-      >
-        <span>◐</span>
-        <span>{theme}</span>
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          className="flex items-center gap-1.5 rounded-[3px] border border-line px-[11px] py-1.5 font-mono text-[10.5px] font-medium text-text transition-colors hover:bg-panel2"
+        >
+          <span>◐</span>
+          <span>{theme}</span>
+        </button>
+        {authRequired && user && (
+          <button
+            type="button"
+            onClick={() => void logout()}
+            title={`Sign out ${user.username}`}
+            aria-label="Sign out"
+            className="flex items-center gap-1.5 rounded-[3px] border border-line px-[11px] py-1.5 font-mono text-[10.5px] font-medium text-text transition-colors hover:bg-panel2"
+          >
+            <LogOut className="size-[13px]" />
+            <span className="hidden sm:inline">{user.username}</span>
+          </button>
+        )}
+      </div>
     </header>
   );
 }

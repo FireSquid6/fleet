@@ -20,6 +20,7 @@ import {
 import type { ServerMsg } from "webterm/protocol";
 import type { FleetManager } from "../fleet-manager";
 import type { AuthService } from "../auth-service";
+import { openWebSocket } from "../ws";
 import { mapError } from "./http";
 
 export interface WorkspacesPluginOptions {
@@ -179,7 +180,7 @@ export function workspacesPlugin(manager: FleetManager, options: WorkspacesPlugi
         // Dumb bidirectional pipe to the owning ship. Buffer client frames until
         // the upstream socket is open so the browser's first `init` isn't lost.
         // Present the service token so the ship accepts this server-opened socket.
-        const upstream = new WebSocket(target, upstreamHeaders ? { headers: upstreamHeaders } : undefined);
+        const upstream = openWebSocket(target, upstreamHeaders ? { headers: upstreamHeaders } : undefined);
         const buffer: string[] = [];
         const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
         data.upstream = upstream;

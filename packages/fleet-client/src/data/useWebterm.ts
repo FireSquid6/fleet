@@ -10,6 +10,8 @@ import {
 } from "webterm/protocol";
 import type { GridMsg } from "webterm/protocol";
 import { wsBridgeUrl } from "./client";
+import { useAuth } from "./AuthContext";
+import { fetchWsTicket } from "./auth";
 
 export type WebtermStatus = "idle" | "connecting" | "open" | "closed" | "error";
 
@@ -65,6 +67,7 @@ export function useWebterm(
   active: boolean,
   opts: UseWebtermOptions,
 ): UseWebtermResult {
+  const { authRequired } = useAuth();
   const [status, setStatus] = useState<WebtermStatus>("idle");
   const wsRef = useRef<WebSocket | null>(null);
   const initializedRef = useRef(false);
@@ -91,25 +94,45 @@ export function useWebterm(
     pendingSizeRef.current = null;
     setStatus("connecting");
 
-    const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name)));
-    wsRef.current = ws;
+    let ws: WebSocket | null = null;
+    let cancelled = false;
 
-    ws.onopen = () => {
-      setStatus("open");
-      const pending = pendingSizeRef.current;
-      if (pending) sendSize(ws, pending.cols, pending.rows);
-    };
-    ws.onmessage = (ev) => {
-      handleServerFrame(ev.data, optsRef.current, (code, reason) => ws.close(code, reason));
-    };
-    ws.onclose = () => setStatus("closed");
-    ws.onerror = () => setStatus("error");
+    void (async () => {
+      // When the bridge enforces auth, the terminal WS carries a one-time ticket
+      // (browsers can't set a header/cookie on a proxied WebSocket).
+      let path = terminalPath(repo, name);
+      if (authRequired) {
+        try {
+          const ticket = await fetchWsTicket();
+          path += `?ticket=${encodeURIComponent(ticket)}`;
+        } catch {
+          if (!cancelled) setStatus("error");
+          return;
+        }
+      }
+      if (cancelled) return;
+
+      ws = new WebSocket(wsBridgeUrl(path));
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setStatus("open");
+        const pending = pendingSizeRef.current;
+        if (pending && ws) sendSize(ws, pending.cols, pending.rows);
+      };
+      ws.onmessage = (ev) => {
+        handleServerFrame(ev.data, optsRef.current, (code, reason) => ws?.close(code, reason));
+      };
+      ws.onclose = () => setStatus("closed");
+      ws.onerror = () => setStatus("error");
+    })();
 
     return () => {
+      cancelled = true;
       wsRef.current = null;
-      ws.close();
+      ws?.close();
     };
-  }, [repo, name, active, sendSize]);
+  }, [repo, name, active, authRequired, sendSize]);
 
   const send = useCallback((data: string) => {
     const ws = wsRef.current;

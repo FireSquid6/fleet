@@ -17,7 +17,9 @@ export function bridgeBaseUrl(): string {
 }
 
 export function makeBridgeClient(url: string = bridgeBaseUrl()): BridgeClient {
-  return treaty<App>(url);
+  // `credentials: "include"` sends the httpOnly session cookie (same-origin via
+  // the /bridge proxy) on every request.
+  return treaty<App>(url, { fetch: { credentials: "include" } });
 }
 
 /**

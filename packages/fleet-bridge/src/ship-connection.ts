@@ -17,6 +17,7 @@ import { treaty } from "@elysiajs/eden";
 import type { App as ShipApp } from "fleet-ship/api";
 import { decodeFleetEvent, type FleetEvent, type SyncEvent, type WorkspaceSummary } from "fleet-protocol";
 import { workspaceKey, type ShipStatus } from "./types";
+import { openWebSocket } from "./ws";
 
 /** The Eden Treaty client the bridge uses to drive a ship. */
 export type ShipClient = ReturnType<typeof treaty<ShipApp>>;
@@ -50,8 +51,7 @@ export interface ShipConnectionHandlers {
 function defaultDeps(serviceToken?: string): ShipConnectionDeps {
   const headers = serviceToken ? { authorization: `Bearer ${serviceToken}` } : undefined;
   return {
-    createSocket: (url) =>
-      new WebSocket(url, headers ? { headers } : undefined) as unknown as SocketLike,
+    createSocket: (url) => openWebSocket(url, headers ? { headers } : undefined) as unknown as SocketLike,
     createClient: (url) => treaty<ShipApp>(url, headers ? { headers } : undefined),
   };
 }
