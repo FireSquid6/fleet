@@ -9,6 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FleetManager } from "../src/fleet-manager";
+import { AuthService } from "../src/auth-service";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
@@ -59,8 +60,9 @@ describe("bridge API", () => {
     await store.createShip({ name: "ship-a", url: "http://ship-a" });
     await store.createShip({ name: "ship-b", url: "http://ship-b" });
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
+    const auth = new AuthService(store, { sessionTtlMs: 60_000 });
     await manager.init();
-    app = createApp(manager, config);
+    app = createApp(manager, config, auth);
   });
   afterEach(async () => {
     manager.shutdown();

@@ -3,6 +3,7 @@
 import { lstat, open, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { FleetIdentifierSchema, RepoSchema, ShipSchema, type Repo, type Ship } from "fleet-protocol";
+import { SessionRecordSchema, UserRecordSchema, type SessionRecord, type UserRecord } from "./auth-records";
 
 type Persist = (target: string, contents: string) => Promise<void>;
 
@@ -13,9 +14,20 @@ export class RepoAlreadyExistsError extends Error {
   }
 }
 
+export class UserAlreadyExistsError extends Error {
+  constructor(readonly username: string) {
+    super(`user already registered: ${username}`);
+    this.name = "UserAlreadyExistsError";
+  }
+}
+
 export class Store {
   private ships = new Map<string, Ship>();
   private repos = new Map<string, Repo>();
+  /** Local accounts, keyed by username. */
+  private users = new Map<string, UserRecord>();
+  /** Active sessions, keyed by opaque token. */
+  private sessions = new Map<string, SessionRecord>();
   private loaded = false;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly persist: Persist;
@@ -41,8 +53,12 @@ export class Store {
       if (this.loaded) return;
       const ships = ShipSchema.array().parse(await this.readFile<unknown>("ships.json"));
       const repos = RepoSchema.array().parse(await this.readFile<unknown>("repos.json"));
+      const users = UserRecordSchema.array().parse(await this.readFile<unknown>("users.json"));
+      const sessions = SessionRecordSchema.array().parse(await this.readFile<unknown>("sessions.json"));
       this.ships = new Map(ships.map((ship) => [ship.name, ship]));
       this.repos = new Map(repos.map((repo) => [repo.name, repo]));
+      this.users = new Map(users.map((user) => [user.username, user]));
+      this.sessions = new Map(sessions.map((session) => [session.token, session]));
       this.loaded = true;
     });
   }
@@ -65,6 +81,14 @@ export class Store {
 
   private persistRepos(repos: Map<string, Repo>): Promise<void> {
     return this.persist(join(this.dataDirectory, "repos.json"), stringify([...repos.values()]));
+  }
+
+  private persistUsers(users: Map<string, UserRecord>): Promise<void> {
+    return this.persist(join(this.dataDirectory, "users.json"), stringify([...users.values()]));
+  }
+
+  private persistSessions(sessions: Map<string, SessionRecord>): Promise<void> {
+    return this.persist(join(this.dataDirectory, "sessions.json"), stringify([...sessions.values()]));
   }
 
   async getAllShips(): Promise<Ship[]> {
@@ -176,6 +200,69 @@ export class Store {
       await this.persistRepos(repos);
       this.repos = repos;
       return existing;
+    });
+  }
+
+  // --- users ----------------------------------------------------------------
+
+  async getUserByUsername(username: string): Promise<UserRecord | undefined> {
+    return this.serialized(() => this.users.get(username));
+  }
+
+  async getUserById(id: string): Promise<UserRecord | undefined> {
+    return this.serialized(() => [...this.users.values()].find((user) => user.id === id));
+  }
+
+  async countUsers(): Promise<number> {
+    return this.serialized(() => this.users.size);
+  }
+
+  async createUser(user: UserRecord): Promise<UserRecord> {
+    user = UserRecordSchema.parse(user);
+    return this.serialized(async () => {
+      if (this.users.has(user.username)) throw new UserAlreadyExistsError(user.username);
+      const users = new Map(this.users).set(user.username, user);
+      await this.persistUsers(users);
+      this.users = users;
+      return user;
+    });
+  }
+
+  // --- sessions -------------------------------------------------------------
+
+  async getSession(token: string): Promise<SessionRecord | undefined> {
+    return this.serialized(() => this.sessions.get(token));
+  }
+
+  async createSession(session: SessionRecord): Promise<SessionRecord> {
+    session = SessionRecordSchema.parse(session);
+    return this.serialized(async () => {
+      const sessions = new Map(this.sessions).set(session.token, session);
+      await this.persistSessions(sessions);
+      this.sessions = sessions;
+      return session;
+    });
+  }
+
+  async deleteSession(token: string): Promise<SessionRecord | undefined> {
+    return this.serialized(async () => {
+      const existing = this.sessions.get(token);
+      if (!existing) return undefined;
+      const sessions = new Map(this.sessions);
+      sessions.delete(token);
+      await this.persistSessions(sessions);
+      this.sessions = sessions;
+      return existing;
+    });
+  }
+
+  /** Drop every session whose `expiresAt` is at or before `now`. No-op (no write) if none expired. */
+  async deleteExpiredSessions(now: number): Promise<void> {
+    return this.serialized(async () => {
+      const kept = new Map([...this.sessions].filter(([, session]) => session.expiresAt > now));
+      if (kept.size === this.sessions.size) return;
+      await this.persistSessions(kept);
+      this.sessions = kept;
     });
   }
 }

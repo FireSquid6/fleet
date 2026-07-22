@@ -11,6 +11,9 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 
+/** Default session lifetime (7 days) when the config omits `sessionTtlMs`. */
+export const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** Runtime validator for a parsed `fleet-bridge-config.yaml`. */
 export const BridgeConfigSchema = z.object({
   /** Directory the bridge persists its ship roster (`ships.json`) to. */
@@ -19,6 +22,14 @@ export const BridgeConfigSchema = z.object({
   port: z.number().int(),
   /** Human-facing name of this bridge. */
   name: z.string().min(1),
+  /** Session lifetime in ms. Optional; defaults to {@link DEFAULT_SESSION_TTL_MS}. */
+  sessionTtlMs: z.number().int().positive().optional(),
+  /**
+   * Shared secret the bridge presents to ships (and accepts from the CLI/agent as
+   * a machine principal). Usually supplied via `FLEET_SERVICE_TOKEN` rather than YAML;
+   * `loadConfig` fills it from the env when the file omits it.
+   */
+  serviceToken: z.string().min(1).optional(),
 });
 
 /** The parsed `fleet-bridge-config.yaml`, inferred from the schema. */
@@ -40,5 +51,9 @@ export async function loadConfig(path: string): Promise<BridgeConfig> {
   }
 
   const config = BridgeConfigSchema.parse(parsed);
-  return { ...config, dataDirectory: resolve(config.dataDirectory) };
+  return {
+    ...config,
+    dataDirectory: resolve(config.dataDirectory),
+    serviceToken: config.serviceToken ?? process.env.FLEET_SERVICE_TOKEN,
+  };
 }

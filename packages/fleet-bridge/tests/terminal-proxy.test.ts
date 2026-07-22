@@ -21,6 +21,7 @@ import {
   MAX_CLIENT_FRAME_BYTES,
 } from "webterm/protocol";
 import { FleetManager } from "../src/fleet-manager";
+import { AuthService } from "../src/auth-service";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
 import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
@@ -83,9 +84,10 @@ describe("bridge terminal proxy", () => {
     await store.load();
     await store.createShip({ name: "ship-a", url: `http://localhost:${upstream.port}` });
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
+    const auth = new AuthService(store, { sessionTtlMs: 60_000 });
     await manager.init();
 
-    bridge = createApp(manager, config);
+    bridge = createApp(manager, config, auth);
     bridge.listen(0);
     bridgeUrl = `ws://localhost:${bridge.server?.port}`;
   });
