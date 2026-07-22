@@ -82,6 +82,9 @@ describe("installFleetSkill", () => {
     expect(skill).toContain("`fleet agent ...` is the only Fleet CLI namespace you may use");
     expect(skill).toContain("fleet agent init");
     expect(skill).toContain("fleet agent status");
+    expect(skill).toContain("Before presenting any question or plan to the user");
+    expect(skill).toContain('fleet agent status awaiting -d "Awaiting user input on');
+    expect(skill).toContain("must finish before you present the question or plan");
     expect(skill).toContain("fleet agent in-workspace");
     expect(skill).not.toMatch(/fleet-agent (?:init|status|in-workspace)/);
     expect(await inspectFleetSkill({ homeDirectory, providers: ["claude-code"] })).toEqual([

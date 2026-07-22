@@ -37,7 +37,7 @@ function makeTextApp(overrides: Record<string, unknown> = {}) {
 describe("ship API", () => {
   test("GET /workspaces parses the active filter", async () => {
     // Stub reflects the filter it received back as the row's repoName.
-    const call = makeApp({ list: async (f: unknown) => [{ repoName: String(f), name: "x", branch: "main", active: false }] });
+    const call = makeApp({ list: async (f: unknown) => [{ repoName: String(f), name: "x", branch: "main", active: false, agent: null }] });
     expect((await call("GET", "/workspaces")).body[0].repoName).toBe("undefined");
     expect((await call("GET", "/workspaces?active=true")).body[0].repoName).toBe("active");
     expect((await call("GET", "/workspaces?active=false")).body[0].repoName).toBe("inactive");

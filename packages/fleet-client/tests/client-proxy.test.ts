@@ -15,6 +15,8 @@ const opened = (socket: WebSocket) =>
   });
 const closed = (socket: WebSocket) =>
   new Promise<CloseEvent>((resolve) => socket.addEventListener("close", (event) => resolve(event), { once: true }));
+const nextMessage = (socket: WebSocket) =>
+  new Promise<string>((resolve) => socket.addEventListener("message", (event) => resolve(String(event.data)), { once: true }));
 
 describe("client terminal proxy", () => {
   test("closes and detaches an upstream socket when the browser upgrade fails", () => {
@@ -41,7 +43,7 @@ describe("client terminal proxy", () => {
     expect(upstream.onerror).toBeNull();
   });
 
-  let upstream: Server<undefined>;
+  let upstream: Server<string>;
   let client: ReturnType<typeof startClientServer>;
   let url: string;
 
@@ -49,10 +51,13 @@ describe("client terminal proxy", () => {
     upstream = Bun.serve({
       port: 0,
       fetch(request, server) {
-        if (server.upgrade(request)) return undefined;
+        if (server.upgrade(request, { data: new URL(request.url).pathname })) return undefined;
         return new Response(null, { status: 400 });
       },
       websocket: {
+        open(socket) {
+          if (socket.data === "/events") socket.send('{"type":"sync"}');
+        },
         message(socket, message) {
           const data = JSON.parse(String(message)).data;
           if (data === "bye") socket.close(4321, "bridge closed");
@@ -75,6 +80,14 @@ describe("client terminal proxy", () => {
     const close = closed(socket);
     socket.send('{"type":"input","data":"bye"}');
     expect(await close).toMatchObject({ code: 4321, reason: "bridge closed" });
+  });
+
+  test("forwards a sync sent before the downstream socket opens", async () => {
+    const socket = new WebSocket(`ws://localhost:${client.port}/bridge/events`);
+    const message = nextMessage(socket);
+    await opened(socket);
+    expect(await message).toBe('{"type":"sync"}');
+    socket.close();
   });
 
   test("rejects malformed and binary browser frames", async () => {

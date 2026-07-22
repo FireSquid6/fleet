@@ -44,6 +44,7 @@ export {
   WorkspaceBranchChangedEventSchema,
   WorkspaceActivatedEventSchema,
   WorkspaceDeactivatedEventSchema,
+  WorkspaceAgentStatusChangedEventSchema,
   WorkspaceRemovedEventSchema,
   FleetEventSchema,
   decodeFleetEvent,

@@ -14,6 +14,7 @@ import { workspacesPlugin } from "./workspaces";
 import { shipsPlugin } from "./ships";
 import { systemResourcesPlugin } from "./system-resources";
 import { reposPlugin } from "./repos";
+import { eventsPlugin } from "./events";
 import { Logestic } from "logestic";
 
 export function createApp(manager: FleetManager, _config: BridgeConfig) {
@@ -22,7 +23,8 @@ export function createApp(manager: FleetManager, _config: BridgeConfig) {
     .use(workspacesPlugin(manager))
     .use(shipsPlugin(manager))
     .use(systemResourcesPlugin(manager))
-    .use(reposPlugin(manager));
+    .use(reposPlugin(manager))
+    .use(eventsPlugin(manager));
 }
 
 export type App = ReturnType<typeof createApp>;

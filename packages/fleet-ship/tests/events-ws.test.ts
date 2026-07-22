@@ -56,7 +56,7 @@ describe("ship /events WebSocket", () => {
     type: "workspace.created",
     ship: "ship-a",
     at: "t",
-    workspace: { repoName: "r", name, branch: "main", active: false },
+    workspace: { repoName: "r", name, branch: "main", active: false, agent: null },
   });
 
   test("sends a sync snapshot on connect, then broadcasts changes", async () => {
@@ -95,5 +95,53 @@ describe("ship /events WebSocket", () => {
     expect(await bSecond).toMatchObject({ type: "workspace.created", workspace: { name: "two" } });
 
     b.close();
+  });
+
+  test("replays changes emitted while an initial snapshot is being built", async () => {
+    app.server?.stop(true);
+    let releaseSnapshot!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    const listeners = new Set<(event: FleetEvent) => void>();
+    const delayedManager = {
+      subscribe(listener: (event: FleetEvent) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      async snapshotEvent() {
+        await snapshotGate;
+        return { type: "sync", ship: "ship-a", at: "t", workspaces: [] };
+      },
+    } as unknown as WorkspaceManager;
+    app = createApp(delayedManager, stubConfig);
+    app.listen(0);
+    const client = new WebSocket(`ws://localhost:${app.server?.port}/events`);
+    await opened(client);
+
+    const change: FleetEvent = {
+      type: "workspace.agent_status_changed",
+      ship: "ship-a",
+      at: "t2",
+      workspace: {
+        repoName: "repo",
+        name: "one",
+        branch: "main",
+        active: true,
+        agent: {
+          state: "building",
+          description: "Working during sync",
+          model: "sonnet",
+          provider: "anthropic",
+          harness: "opencode",
+        },
+      },
+    };
+    for (const listener of listeners) listener(change);
+    const snapshot = nextMessage(client);
+    releaseSnapshot();
+    expect((await snapshot).type).toBe("sync");
+    expect(await nextMessage(client)).toEqual(change);
+    client.close();
   });
 });

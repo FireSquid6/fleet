@@ -30,6 +30,7 @@ import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connect
 import type { BridgeConfig } from "./config";
 import {
   workspaceKey,
+  type BridgeWorkspaceEvent,
   type BridgeWorkspaceStatus,
   type BridgeWorkspaceSummary,
   type ShipInfo,
@@ -74,6 +75,7 @@ export class FleetManager {
   private readonly index = new Map<string, string>();
   /** In-flight and transport-ambiguous creates stay separate from confirmed routing ownership. */
   private readonly createReservations = new Map<string, CreateReservation>();
+  private readonly eventListeners = new Set<(event: BridgeWorkspaceEvent) => void>();
   private readonly deps?: Partial<ShipConnectionDeps>;
   /** How long to wait for a ship's first `sync` (overridable in tests). */
   private readonly syncTimeoutMs: number;
@@ -134,6 +136,28 @@ export class FleetManager {
     for (const conn of this.connections.values()) conn.close();
   }
 
+  subscribe(listener: (event: BridgeWorkspaceEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  workspaceSnapshot(): BridgeWorkspaceSummary[] {
+    const workspaces: BridgeWorkspaceSummary[] = [];
+    for (const [key, ship] of this.index) {
+      const workspace = this.connections.get(ship)?.workspaces.get(key);
+      if (workspace) workspaces.push({ ...workspace, ship });
+    }
+    return workspaces;
+  }
+
+  private publish(event: BridgeWorkspaceEvent): void {
+    for (const listener of this.eventListeners) listener(event);
+  }
+
+  private publishSnapshot(): void {
+    this.publish({ type: "sync", at: new Date().toISOString(), workspaces: this.workspaceSnapshot() });
+  }
+
   // --- ship management ------------------------------------------------------
 
   /** `GET /ships`. */
@@ -185,6 +209,7 @@ export class FleetManager {
     this.connections.set(name, probe);
     for (const key of probe.workspaces.keys()) this.claim(key, name);
     await this.persist();
+    this.publishSnapshot();
 
     return { name, url, status: probe.status };
   }
@@ -204,6 +229,7 @@ export class FleetManager {
       if (reservation.shipName === name) this.createReservations.delete(key);
     }
     await this.persist();
+    this.publishSnapshot();
   }
 
   // --- system resources -----------------------------------------------------
@@ -472,6 +498,18 @@ export class FleetManager {
   private onEvent(conn: ShipConnection, event: FleetEvent): void {
     if (!conn.member) return;
     this.applyToIndex(conn, event);
+    if (event.type === "sync" || event.type === "workspace.removed") {
+      this.publishSnapshot();
+      return;
+    }
+
+    const key = workspaceKey(event.workspace.repoName, event.workspace.name);
+    if (this.index.get(key) !== conn.name) return;
+    this.publish({
+      type: event.type,
+      at: event.at,
+      workspace: { ...event.workspace, ship: conn.name },
+    });
   }
 
   private applyToIndex(conn: ShipConnection, event: FleetEvent): void {

@@ -1,7 +1,38 @@
-import type { SystemResources } from "fleet-protocol";
-import { makeBridgeClient, type BridgeClient } from "./client";
+import { WorkspaceSummarySchema, type SystemResources } from "fleet-protocol";
+import { makeBridgeClient, wsBridgeUrl, type BridgeClient } from "./client";
 import type { FleetBridge } from "./provider";
-import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
+
+const CHANGE_TYPES = new Set([
+  "workspace.created",
+  "workspace.branch_changed",
+  "workspace.activated",
+  "workspace.deactivated",
+  "workspace.agent_status_changed",
+  "workspace.removed",
+]);
+
+function isWorkspace(value: unknown): value is Workspace {
+  if (!value || typeof value !== "object" || !("ship" in value) || typeof value.ship !== "string") return false;
+  return WorkspaceSummarySchema.safeParse(value).success;
+}
+
+function parseWorkspaceEvent(data: string): WorkspaceEvent | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || !("type" in value) || !("at" in value)) return null;
+  if (typeof value.type !== "string" || typeof value.at !== "string") return null;
+  if (value.type === "sync") {
+    if (!("workspaces" in value) || !Array.isArray(value.workspaces) || !value.workspaces.every(isWorkspace)) return null;
+    return value as WorkspaceEvent;
+  }
+  if (!CHANGE_TYPES.has(value.type) || !("workspace" in value) || !isWorkspace(value.workspace)) return null;
+  return value as WorkspaceEvent;
+}
 
 /** Turn an Eden `{ error }` value into a thrown Error. */
 function edenError(error: { status?: unknown; value?: unknown }): Error {
@@ -22,14 +53,21 @@ function deriveSpec(r: SystemResources | null): string {
  * component (see `useWebterm`), not through this request/response surface.
  */
 export class EdenFleetBridge implements FleetBridge {
-  constructor(private readonly client: BridgeClient = makeBridgeClient()) {}
+  constructor(
+    private readonly client: BridgeClient = makeBridgeClient(),
+    private readonly createSocket: (url: string) => WebSocket = (url) => new WebSocket(url),
+  ) {}
 
   async listShips(): Promise<Ship[]> {
     // The ship roster + spec come from the aggregate resources endpoint, which
     // lists every ship (online with resources, offline with null).
     const { data, error } = await this.client["system-resources"].get();
     if (error) throw edenError(error);
-    return data.map((s) => ({ name: s.ship, spec: deriveSpec(s.resources), status: s.status }));
+    return data.map((s: { ship: string; resources: SystemResources | null; status: Ship["status"] }) => ({
+      name: s.ship,
+      spec: deriveSpec(s.resources),
+      status: s.status,
+    }));
   }
 
   async listRepos(): Promise<Repo[]> {
@@ -73,6 +111,43 @@ export class EdenFleetBridge implements FleetBridge {
     // The handler can also surface an in-band `{ error }` body on a 200.
     if (!Array.isArray(data)) throw edenError({ value: data });
     return data;
+  }
+
+  subscribeWorkspaces(
+    listener: (event: WorkspaceEvent) => void,
+    onError?: (error: Error) => void,
+  ): () => void {
+    let stopped = false;
+    let attempts = 0;
+    let socket: WebSocket | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = () => {
+      if (stopped) return;
+      socket = this.createSocket(wsBridgeUrl("/events"));
+      socket.onopen = () => {
+        attempts = 0;
+      };
+      socket.onmessage = (message) => {
+        if (typeof message.data !== "string") return;
+        const event = parseWorkspaceEvent(message.data);
+        if (event) listener(event);
+      };
+      socket.onerror = () => onError?.(new Error("fleet-bridge event stream disconnected"));
+      socket.onclose = () => {
+        socket = undefined;
+        if (stopped) return;
+        const delay = Math.min(30_000, 1000 * 2 ** attempts++);
+        reconnectTimer = setTimeout(connect, delay);
+      };
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      socket?.close();
+    };
   }
 
   async createWorkspace(input: {

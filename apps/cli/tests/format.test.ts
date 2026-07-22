@@ -9,8 +9,8 @@ describe("formatWorkspaceTable", () => {
 
   test("aligns columns to the widest cell", () => {
     const out = formatWorkspaceTable([
-      { repoName: "Hello-World", name: "ws1", branch: "master", active: true },
-      { repoName: "x", name: "y", branch: "main", active: false },
+      { repoName: "Hello-World", name: "ws1", branch: "master", active: true, agent: null },
+      { repoName: "x", name: "y", branch: "main", active: false, agent: null },
     ]);
 
     const lines = out.split("\n");

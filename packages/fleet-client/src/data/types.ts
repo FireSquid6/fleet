@@ -27,5 +27,19 @@ export interface Ship {
 /** List row: a `WorkspaceSummary` annotated with its hosting ship. */
 export type Workspace = WorkspaceSummary & { readonly ship: string };
 
+export type WorkspaceEvent =
+  | { readonly type: "sync"; readonly at: string; readonly workspaces: Workspace[] }
+  | {
+      readonly type:
+        | "workspace.created"
+        | "workspace.branch_changed"
+        | "workspace.activated"
+        | "workspace.deactivated"
+        | "workspace.agent_status_changed"
+        | "workspace.removed";
+      readonly at: string;
+      readonly workspace: Workspace;
+    };
+
 /** Detail: `WorkspaceStatus` with `ship` guaranteed on both variants. */
 export type WorkspaceDetail = WorkspaceStatus & { readonly ship: string };

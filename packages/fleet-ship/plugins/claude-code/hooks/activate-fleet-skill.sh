@@ -24,7 +24,7 @@ workspace="${workspace%$'\n'}"
 [[ "$workspace" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || exit 0
 
 cat <<EOF
-You are running inside fleet workspace ${workspace}. Before doing any work, use the skill tool to activate the fleet-agent skill and follow its instructions for this session.
+MANDATORY: You are an agent working in a fleet workspace (${workspace}). Your first action MUST be to use the skill tool to activate the fleet-agent skill. Do not inspect files, run commands, plan, answer the user, or take any other action before activating it. After activation, follow every fleet-agent instruction for the entire session.
 EOF
 
 exit 0

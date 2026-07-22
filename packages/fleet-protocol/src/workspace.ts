@@ -10,6 +10,22 @@
 import { z } from "zod";
 import { FleetIdentifierSchema } from "./identifier";
 
+/** The lifecycle phases an agent reports as it works a task. */
+export const AGENT_STATES = ["idle", "planning", "building", "verifying", "awaiting"] as const;
+
+export type AgentState = (typeof AGENT_STATES)[number];
+
+export const AgentStatusSchema = z.object({
+  state: z.enum(AGENT_STATES),
+  description: z.string(),
+  model: z.string(),
+  provider: z.string(),
+  harness: z.string(),
+});
+
+/** Status of the coding agent attached to an active workspace's session. */
+export type AgentStatus = z.infer<typeof AgentStatusSchema>;
+
 /**
  * Summary row returned by `GET /workspaces` (list view). It is also embedded in
  * the `/events` stream, so it is a zod schema (with the type inferred from it) —
@@ -24,6 +40,8 @@ export const WorkspaceSummarySchema = z.object({
   branch: z.string(),
   /** Whether a tmux session is currently up for this workspace. */
   active: z.boolean(),
+  /** Live agent status, or `null` when no agent is attached. */
+  agent: AgentStatusSchema.nullable().default(null),
 });
 
 export type WorkspaceSummary = z.infer<typeof WorkspaceSummarySchema>;
@@ -39,19 +57,6 @@ export const WorkspaceDiffSchema = z.object({
 });
 
 export type WorkspaceDiff = z.infer<typeof WorkspaceDiffSchema>;
-
-/** The lifecycle phases an agent reports as it works a task. */
-export const AGENT_STATES = ["idle", "planning", "building", "verifying", "awaiting"] as const;
-
-export type AgentState = (typeof AGENT_STATES)[number];
-
-export const AgentStatusSchema = z.object({
-  state: z.enum(AGENT_STATES),
-  description: z.string(),
-  model: z.string(),
-  provider: z.string(),
-  harness: z.string(),
-});
 
 /** Detailed status returned by `GET /workspaces/:repo/:name`. */
 export const WorkspaceStatusSchema = z.discriminatedUnion("state", [
@@ -75,9 +80,6 @@ export const WorkspaceStatusSchema = z.discriminatedUnion("state", [
 ]);
 
 export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>;
-
-/** Status of the coding agent attached to an active workspace's session. */
-export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
 /** Body of `POST /workspaces/:repo/:name/agent/status` — update the live status. */
 export interface UpdateAgentStatusRequest {

@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
 import { WorkspacePanel } from "@/components/WorkspacePanel";
+import { agentStateColor } from "@/lib/agent-status";
 
 export function WorkspaceRoute() {
   const { repo = "", name = "" } = useParams();
@@ -13,6 +14,8 @@ export function WorkspaceRoute() {
   }
 
   const active = ws.active;
+  const agent = ws.agent;
+  const statusColor = agent ? agentStateColor(agent.state) : "var(--dim2)";
   const siblings = workspaces.filter((w) => w.repoName === repo);
 
   return (
@@ -25,11 +28,20 @@ export function WorkspaceRoute() {
       </Link>
 
       <div className="mb-[14px] mt-[13px] flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-baseline gap-[15px]">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-[15px] gap-y-2">
           <h1 className="font-mono text-[20px] font-bold text-text">◇ {name}</h1>
           <span className="font-mono text-[11.5px] text-dim">{repo}</span>
           <span className="font-mono text-[11.5px] text-dim">⎇ {ws.branch}</span>
           <span className="font-mono text-[11.5px] text-dim">▦ {ws.ship}</span>
+          <span className="font-mono text-[11px] font-semibold uppercase" style={{ color: statusColor }}>
+            {agent?.state ?? "no agent"}
+          </span>
+          <span className="max-w-xl font-mono text-[11px] text-dim" title={agent?.description}>
+            {agent?.description ?? "—"}
+          </span>
+          <span className="font-mono text-[10.5px] text-dim2">model {agent?.model ?? "—"}</span>
+          <span className="font-mono text-[10.5px] text-dim2">provider {agent?.provider ?? "—"}</span>
+          <span className="font-mono text-[10.5px] text-dim2">harness {agent?.harness ?? "—"}</span>
         </div>
         <div className="flex items-center gap-[10px]">
           <span className="flex items-center gap-[7px] rounded-[4px] border border-line px-[11px] py-[5px] font-mono text-[10px] font-semibold tracking-[.11em] text-dim">

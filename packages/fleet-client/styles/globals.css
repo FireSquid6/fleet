@@ -139,6 +139,11 @@
      we override --accent to the design's locked green in :root / .dark. */
   --color-accent-soft: var(--accent-soft);
   --color-accent-line: var(--accent-line);
+  --color-status-idle: var(--status-idle);
+  --color-status-planning: var(--status-planning);
+  --color-status-building: var(--status-building);
+  --color-status-verifying: var(--status-verifying);
+  --color-status-awaiting: var(--status-awaiting);
 
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-prose: "IBM Plex Sans", system-ui, sans-serif;
@@ -167,12 +172,15 @@
   --accent: oklch(0.56 0.14 150);
   --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
   --accent-line: color-mix(in oklab, var(--accent) 30%, var(--line));
+  --status-idle: #68717c;
+  --status-planning: #7c3fc4;
+  --status-building: #1769aa;
+  --status-verifying: #27834b;
+  --status-awaiting: #9a6500;
 
   /* Workspace node (outline style) — resolved from --accent/--line, so shared. */
   --node-bg: transparent;
-  --node-bg-active: color-mix(in oklab, var(--accent) 9%, transparent);
   --node-border: 1px solid var(--line);
-  --node-border-active: 1px solid var(--accent);
   --node-radius: 4px;
 }
 
@@ -186,4 +194,9 @@
   --dim: #818994;
   --dim2: #59606a;
   --accent: oklch(0.8 0.15 150);
+  --status-idle: #818994;
+  --status-planning: #c58cff;
+  --status-building: #58a6ff;
+  --status-verifying: #3fb950;
+  --status-awaiting: #d9a322;
 }

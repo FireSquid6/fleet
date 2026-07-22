@@ -48,7 +48,7 @@ describe("FleetIdentifierSchema", () => {
   });
 
   test("is reused by workspace, event, and repo schemas", () => {
-    const summary = { repoName: "../repo", name: "ws", branch: "main", active: false };
+    const summary = { repoName: "../repo", name: "ws", branch: "main", active: false, agent: null };
     expect(WorkspaceSummarySchema.safeParse(summary).success).toBe(false);
     expect(
       FleetEventSchema.safeParse({ type: "workspace.created", ship: "ship", at: "now", workspace: summary }).success,

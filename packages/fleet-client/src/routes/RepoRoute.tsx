@@ -4,8 +4,9 @@ import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
 import { CreateWorkspaceModal } from "@/components/CreateWorkspaceModal";
 import { RowLabel } from "./ReposRoute";
+import { agentStateColor } from "@/lib/agent-status";
 
-const COLS = "150px 1.3fr 1fr 118px";
+const COLS = "140px 190px 150px 90px 100px minmax(220px,1fr) 150px 120px 120px";
 
 function Stat({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
   return (
@@ -66,15 +67,20 @@ export function RepoRoute() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-line bg-panel">
+      <div className="overflow-x-auto rounded-md border border-line bg-panel">
         <div
-          className="hidden gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:grid"
+          className="hidden min-w-[1380px] gap-3 bg-bg px-4 py-[10px] font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:grid"
           style={{ gridTemplateColumns: COLS }}
         >
           <span>WORKSPACE</span>
           <span>BRANCH</span>
           <span>SHIP</span>
-          <span className="text-right">STATUS</span>
+          <span>SESSION</span>
+          <span>STATE</span>
+          <span>DESCRIPTION</span>
+          <span>MODEL</span>
+          <span>PROVIDER</span>
+          <span>HARNESS</span>
         </div>
 
         {rows.map((w) => (
@@ -82,7 +88,7 @@ export function RepoRoute() {
             key={w.name}
             to={`/repos/${encodeURIComponent(w.repoName)}/workspaces/${encodeURIComponent(w.name)}`}
             className={cn(
-              "flex flex-col gap-1.5 border-t border-l-2 border-line px-4 py-[13px] font-mono transition-colors hover:bg-panel2 md:grid md:items-center md:gap-3",
+              "flex flex-col gap-1.5 border-t border-l-2 border-line px-4 py-[13px] font-mono transition-colors hover:bg-panel2 md:grid md:min-w-[1380px] md:items-center md:gap-3",
               w.active ? "border-l-accent" : "border-l-transparent",
             )}
             style={{ gridTemplateColumns: COLS }}
@@ -98,9 +104,29 @@ export function RepoRoute() {
               <span className="text-[9px] text-dim2">{shipSpec(w.ship)}</span>
             </span>
             <span className="flex items-center gap-[7px] text-[10.5px] font-medium text-dim md:justify-end">
-              <RowLabel>STATUS</RowLabel>
+              <RowLabel>SESSION</RowLabel>
               <span className={cn("h-1.5 w-1.5 flex-none rounded-full", w.active ? "bg-accent" : "bg-dim2")} />
               {w.active ? "active" : "inactive"}
+            </span>
+            <span className="text-[10.5px] font-semibold uppercase text-dim" style={{ color: w.agent ? agentStateColor(w.agent.state) : undefined }}>
+              <RowLabel>STATE</RowLabel>
+              {w.agent?.state ?? "—"}
+            </span>
+            <span className="min-w-0 text-[10.5px] text-dim md:overflow-hidden md:text-ellipsis md:whitespace-nowrap" title={w.agent?.description}>
+              <RowLabel>DESCRIPTION</RowLabel>
+              {w.agent?.description ?? "—"}
+            </span>
+            <span className="text-[10.5px] text-dim">
+              <RowLabel>MODEL</RowLabel>
+              {w.agent?.model ?? "—"}
+            </span>
+            <span className="text-[10.5px] text-dim">
+              <RowLabel>PROVIDER</RowLabel>
+              {w.agent?.provider ?? "—"}
+            </span>
+            <span className="text-[10.5px] text-dim">
+              <RowLabel>HARNESS</RowLabel>
+              {w.agent?.harness ?? "—"}
             </span>
           </Link>
         ))}

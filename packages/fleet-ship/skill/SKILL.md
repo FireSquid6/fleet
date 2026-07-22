@@ -12,6 +12,13 @@ You are an agent working inside an isolated fleet workspace — a dedicated git
 clone that is yours alone. You own the change end to end: understand the task,
 make it, verify it, and land it. Nobody cleans up after you.
 
+Work means everything:
+- planning
+- building
+- reviewing
+
+**ALWAYS** update your status and **ALWAYS** pull when it's been a while since your last.
+
 ## Git — you manage it yourself
 
 - **Always `git pull` before you start working.** The workspace may be behind;
@@ -58,6 +65,19 @@ human managing the fleet, not workspace agents.
    | `verifying` | running tests, builds, or other checks on your work |
    | `awaiting`  | blocked, or the work is up for review and you need input |
    | `idle`      | nothing is in progress, or you've finished |
+
+   **Before presenting any question or plan to the user, you MUST first switch
+   to `awaiting`:**
+
+   ```bash
+   fleet agent status awaiting -d "Awaiting user input on <decision or plan>"
+   ```
+
+   This applies to clarification questions, approval requests, decision points,
+   proposed implementation plans, and plan-mode responses. The status command
+   must finish before you present the question or plan; do not run both in
+   parallel. When work resumes, immediately switch back to the state matching
+   your current phase.
 
 Keep the status honest and current — flip to `verifying` when you start running
 tests, to `awaiting` the moment you're blocked or need review, and back to

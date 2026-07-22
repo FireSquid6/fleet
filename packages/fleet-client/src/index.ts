@@ -19,9 +19,18 @@ export interface BridgeWsData {
   /** Frames the browser sent before `upstream` reached OPEN (e.g. the terminal's first `init`). */
   buffer: string[];
   pendingBytes: number;
+  /** Upstream frames received before Bun opens the browser-facing socket. */
+  upstreamBuffer: string[];
+  upstreamPendingBytes: number;
+  upstreamClose?: { code: number; reason: string };
 }
 
 type CreateWebSocket = (url: string) => WebSocket;
+
+function proxyCloseCode(code: number): number {
+  const standard = code === 1000 || (code >= 1001 && code <= 1014 && ![1004, 1005, 1006].includes(code));
+  return standard || (code >= 3000 && code <= 4999) ? code : 1011;
+}
 
 export function upgradeBridgeWebSocket(
   req: Request,
@@ -30,11 +39,40 @@ export function upgradeBridgeWebSocket(
   createWebSocket: CreateWebSocket = (url) => new WebSocket(url),
 ): Response | undefined {
   const upstream = createWebSocket(target);
-  const data: BridgeWsData = { upstream, buffer: [], pendingBytes: 0 };
+  const data: BridgeWsData = {
+    upstream,
+    buffer: [],
+    pendingBytes: 0,
+    upstreamBuffer: [],
+    upstreamPendingBytes: 0,
+  };
+  upstream.onmessage = (event) => {
+    if (typeof event.data !== "string") {
+      data.upstreamClose = { code: BINARY_MESSAGE_CLOSE_CODE, reason: BINARY_MESSAGE_CLOSE_REASON };
+      upstream.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+      return;
+    }
+    const pendingBytes = data.upstreamPendingBytes + utf8ByteLength(event.data);
+    if (pendingBytes > MAX_PENDING_BYTES) {
+      data.upstreamClose = { code: BUFFER_LIMIT_CLOSE_CODE, reason: BUFFER_LIMIT_CLOSE_REASON };
+      upstream.close(BUFFER_LIMIT_CLOSE_CODE, BUFFER_LIMIT_CLOSE_REASON);
+      return;
+    }
+    data.upstreamBuffer.push(event.data);
+    data.upstreamPendingBytes = pendingBytes;
+  };
+  upstream.onclose = (event) => {
+    data.upstreamClose ??= { code: event.code, reason: event.reason };
+  };
+  upstream.onerror = () => {
+    data.upstreamClose ??= { code: 1011, reason: "Bridge WebSocket connection failed" };
+  };
   if (server.upgrade(req, { data })) return undefined;
 
   data.buffer.length = 0;
   data.pendingBytes = 0;
+  data.upstreamBuffer.length = 0;
+  data.upstreamPendingBytes = 0;
   upstream.onopen = null;
   upstream.onmessage = null;
   upstream.onclose = null;
@@ -106,7 +144,7 @@ export function startClientServer(
     websocket: {
       maxPayloadLength: MAX_CLIENT_FRAME_BYTES,
       open(ws: ServerWebSocket<BridgeWsData>) {
-        const { upstream, buffer } = ws.data;
+        const { upstream, buffer, upstreamBuffer } = ws.data;
         upstream.onopen = () => {
           for (const frame of buffer) upstream.send(frame);
           buffer.length = 0;
@@ -122,11 +160,20 @@ export function startClientServer(
           ws.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
           upstream.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
         };
+        for (const frame of upstreamBuffer) ws.send(frame);
+        upstreamBuffer.length = 0;
+        ws.data.upstreamPendingBytes = 0;
+        if (ws.data.upstreamClose) {
+          ws.close(proxyCloseCode(ws.data.upstreamClose.code), ws.data.upstreamClose.reason);
+          return;
+        }
         upstream.onclose = (event) => {
           buffer.length = 0;
           ws.data.pendingBytes = 0;
+          upstreamBuffer.length = 0;
+          ws.data.upstreamPendingBytes = 0;
           try {
-            ws.close(event.code, event.reason);
+            ws.close(proxyCloseCode(event.code), event.reason);
           } catch {
             // already closed
           }
@@ -175,10 +222,12 @@ export function startClientServer(
       close(ws: ServerWebSocket<BridgeWsData>, code, reason) {
         ws.data.buffer.length = 0;
         ws.data.pendingBytes = 0;
+        ws.data.upstreamBuffer.length = 0;
+        ws.data.upstreamPendingBytes = 0;
         try {
-          ws.data.upstream.close(code, reason);
+          ws.data.upstream.close(proxyCloseCode(code), reason);
         } catch {
-          // already closed
+          ws.data.upstream.close();
         }
       },
     },

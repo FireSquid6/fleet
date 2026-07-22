@@ -24,14 +24,14 @@ const sync = (ship: string, workspaces: Array<{ repoName: string; name: string }
   type: "sync",
   ship,
   at: "2026-01-01T00:00:00.000Z",
-  workspaces: workspaces.map((w) => ({ ...w, branch: "main", active: false })),
+  workspaces: workspaces.map((w) => ({ ...w, branch: "main", active: false, agent: null })),
 });
 
 const change = (type: string, ship: string, repoName: string, name: string) => ({
   type,
   ship,
   at: "2026-01-01T00:00:00.000Z",
-  workspace: { repoName, name, branch: "main", active: false },
+  workspace: { repoName, name, branch: "main", active: false, agent: null },
 });
 
 describe("toWsUrl", () => {
@@ -92,6 +92,31 @@ describe("ShipConnection", () => {
     // A garbage frame is ignored, not fatal.
     socket.onmessage?.({ data: "not json" });
     expect([...c.workspaces.keys()]).toEqual(["r/two"]);
+  });
+
+  test("applies complete agent status changes to its workspace map", () => {
+    const c = connect();
+    c.connect();
+    socket.onmessage?.({ data: JSON.stringify(sync("ship-a", [{ repoName: "r", name: "one" }])) });
+    socket.onmessage?.({
+      data: JSON.stringify({
+        ...change("workspace.agent_status_changed", "ship-a", "r", "one"),
+        workspace: {
+          repoName: "r",
+          name: "one",
+          branch: "main",
+          active: true,
+          agent: {
+            state: "verifying",
+            description: "Running tests",
+            model: "sonnet",
+            provider: "anthropic",
+            harness: "opencode",
+          },
+        },
+      }),
+    });
+    expect(c.workspaces.get("r/one")?.agent).toMatchObject({ state: "verifying", description: "Running tests" });
   });
 
   test("pins identity on initial sync and ignores mismatched subsequent events", () => {

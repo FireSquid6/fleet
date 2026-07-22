@@ -26,6 +26,24 @@ export type BridgeWorkspaceSummary = WorkspaceSummary & { ship: string };
 /** `WorkspaceStatus` with `ship` guaranteed present on both variants. */
 export type BridgeWorkspaceStatus = WorkspaceStatus & { ship: string };
 
+export type BridgeWorkspaceEvent =
+  | {
+      readonly type: "sync";
+      readonly at: string;
+      readonly workspaces: BridgeWorkspaceSummary[];
+    }
+  | {
+      readonly type:
+        | "workspace.created"
+        | "workspace.branch_changed"
+        | "workspace.activated"
+        | "workspace.deactivated"
+        | "workspace.agent_status_changed"
+        | "workspace.removed";
+      readonly at: string;
+      readonly workspace: BridgeWorkspaceSummary;
+    };
+
 /**
  * One ship's entry in the aggregate `GET /system-resources`. `resources` is
  * present when the ship is online and responded; otherwise `error` explains why

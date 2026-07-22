@@ -8,7 +8,7 @@ export const FleetAgentActivation = async ({ $, directory }) => {
   return {
     "experimental.chat.system.transform": async (_input, output) => {
       output.system.push(
-        `You are running inside fleet workspace ${workspace}. Before doing any work, use the skill tool to activate the fleet-agent skill and follow its instructions for this session.`,
+        `MANDATORY: You are an agent working in a fleet workspace (${workspace}). Your first action MUST be to use the skill tool to activate the fleet-agent skill. Do not inspect files, run commands, plan, answer the user, or take any other action before activating it. After activation, follow every fleet-agent instruction for the entire session.`,
       );
     },
   };

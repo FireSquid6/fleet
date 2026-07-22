@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { bridge } from "./bridge";
 import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
+import { applyWorkspaceEvent } from "./workspace-events";
 
 interface FleetValue {
   ships: Ship[];
@@ -41,9 +42,11 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
     void (async () => {
       try {
         const [s, r, w] = await Promise.all([bridge.listShips(), bridge.listRepos(), bridge.listWorkspaces()]);
@@ -54,11 +57,21 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          unsubscribe = bridge.subscribeWorkspaces(
+            (event) => {
+              if (event.type === "sync") setStreamError(null);
+              setWorkspaces((current) => applyWorkspaceEvent(current, event));
+            },
+            (eventError) => setStreamError(eventError.message),
+          );
+        }
       }
     })();
     return () => {
       cancelled = true;
+      unsubscribe?.();
     };
   }, []);
 
@@ -144,7 +157,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     repos,
     workspaces,
     loading,
-    error,
+    error: error ?? streamError,
     liveCount: workspaces.filter((w) => w.active).length,
     activate,
     deactivate,

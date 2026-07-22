@@ -248,6 +248,8 @@ suite("WorkspaceManager end-to-end", () => {
     expect(manager.agentStatus(summary.repoName, "ws-agent")).toBeNull();
 
     await manager.activate(summary.repoName, "ws-agent");
+    const events: FleetEvent[] = [];
+    const unsubscribe = manager.subscribe((event) => events.push(event));
     const status = await manager.initAgent(summary.repoName, "ws-agent", {
       model: "opus",
       provider: "anthropic",
@@ -263,10 +265,17 @@ suite("WorkspaceManager end-to-end", () => {
       expect(detail.agent).toMatchObject({ state: "idle", model: "opus" });
     }
     expect(manager.agentStatus(summary.repoName, "ws-agent")).toMatchObject({ state: "idle" });
+    expect((await manager.list()).find((workspace) => workspace.name === "ws-agent")?.agent).toEqual(status);
+    expect(events.at(-1)).toMatchObject({
+      type: "workspace.agent_status_changed",
+      workspace: { agent: { state: "idle", model: "opus" } },
+    });
 
     // Deactivating tears down the session, so the agent status is cleared.
     await manager.deactivate(summary.repoName, "ws-agent");
     expect(manager.agentStatus(summary.repoName, "ws-agent")).toBeNull();
+    expect(events.at(-1)).toMatchObject({ type: "workspace.deactivated", workspace: { agent: null } });
+    unsubscribe();
 
     await manager.remove(summary.repoName, "ws-agent");
   });
@@ -281,6 +290,8 @@ suite("WorkspaceManager end-to-end", () => {
     ).rejects.toThrow(WorkspaceError);
 
     await manager.initAgent(summary.repoName, "ws-upd", { model: "opus", provider: "anthropic", harness: "cc" });
+    const events: FleetEvent[] = [];
+    const unsubscribe = manager.subscribe((event) => events.push(event));
     const updated = await manager.updateAgentStatus(summary.repoName, "ws-upd", {
       state: "building",
       description: "writing the parser",
@@ -293,6 +304,12 @@ suite("WorkspaceManager end-to-end", () => {
       harness: "cc",
     });
     expect(manager.agentStatus(summary.repoName, "ws-upd")).toMatchObject({ state: "building" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "workspace.agent_status_changed",
+      workspace: { agent: updated },
+    });
+    unsubscribe();
 
     await manager.remove(summary.repoName, "ws-upd");
   });

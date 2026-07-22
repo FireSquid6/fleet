@@ -1,4 +1,4 @@
-import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
 
 /**
  * The data our UI needs from the fleet bridge, expressed as one async surface.
@@ -30,6 +30,8 @@ export interface FleetBridge {
   deleteShip(name: string): Promise<void>;
   /** `GET /workspaces` — every workspace across all ships. */
   listWorkspaces(): Promise<Workspace[]>;
+  /** `WS /events` — live workspace snapshots and changes. */
+  subscribeWorkspaces(listener: (event: WorkspaceEvent) => void, onError?: (error: Error) => void): () => void;
   /** `POST /workspaces` — create a workspace on a given ship for a repo. */
   createWorkspace(input: { ship: string; repoName: string; name: string; branch: string }): Promise<Workspace>;
   /** `GET /workspaces/:repo/:name` — detailed status (diff, ship, …). */

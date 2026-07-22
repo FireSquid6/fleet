@@ -217,7 +217,7 @@ describe("bridge API", () => {
 
   test("malformed upstream workspace summaries return 502", async () => {
     await call("POST", "/repos", { name: "repo3", url: "git@fake/repo3.git" });
-    ships.get("http://ship-a")!.createResponse = { repoName: "wrong", name: "ws", branch: "main", active: false };
+    ships.get("http://ship-a")!.createResponse = { repoName: "wrong", name: "ws", branch: "main", active: false, agent: null };
 
     const response = await call("POST", "/workspaces", {
       ship: "ship-a",

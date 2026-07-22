@@ -73,12 +73,46 @@ describe("FleetManager", () => {
 
     const rows = (await mgr.listWorkspaces()).sort((a, b) => a.repoName.localeCompare(b.repoName));
     expect(rows).toEqual([
-      { repoName: "repo1", name: "one", branch: "main", active: true, ship: "ship-a" },
-      { repoName: "repo2", name: "two", branch: "main", active: false, ship: "ship-b" },
+      { repoName: "repo1", name: "one", branch: "main", active: true, agent: null, ship: "ship-a" },
+      { repoName: "repo2", name: "two", branch: "main", active: false, agent: null, ship: "ship-b" },
     ]);
     expect(await mgr.listWorkspaces("active")).toHaveLength(1);
     expect(await mgr.listWorkspaces("inactive")).toHaveLength(1);
     expect(mgr.listShips().every((s) => s.status === "online")).toBe(true);
+  });
+
+  test("publishes ship-annotated agent status changes", async () => {
+    const ships = new Map<string, FakeShip>([
+      ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one", true)] }],
+    ]);
+    const mgr = await boot(ships);
+    const events: import("../src/types").BridgeWorkspaceEvent[] = [];
+    const unsubscribe = mgr.subscribe((event) => events.push(event));
+    const workspace = {
+      ...ws("repo1", "one", true),
+      agent: {
+        state: "building" as const,
+        description: "Implementing status UI",
+        model: "sonnet",
+        provider: "anthropic",
+        harness: "opencode",
+      },
+    };
+
+    FakeSocket.byBase.get("http://ship-a")?.emit({
+      type: "workspace.agent_status_changed",
+      ship: "ship-a",
+      at: "2026-01-01T00:00:00.000Z",
+      workspace,
+    });
+
+    expect(events).toEqual([{
+      type: "workspace.agent_status_changed",
+      at: "2026-01-01T00:00:00.000Z",
+      workspace: { ...workspace, ship: "ship-a" },
+    }]);
+    expect(mgr.workspaceSnapshot()[0]?.agent).toEqual(workspace.agent);
+    unsubscribe();
   });
 
   test("refreshes a branch changed on the ship without an event", async () => {
@@ -200,7 +234,7 @@ describe("FleetManager", () => {
       name: "feature",
       branch: "dev",
     });
-    expect(created).toEqual({ repoName: "repo2", name: "feature", branch: "dev", active: false, ship: "ship-a" });
+    expect(created).toEqual({ repoName: "repo2", name: "feature", branch: "dev", active: false, agent: null, ship: "ship-a" });
     // Optimistically visible immediately.
     expect((await mgr.listWorkspaces()).some((w) => w.repoName === "repo2" && w.name === "feature")).toBe(true);
   });
@@ -208,7 +242,7 @@ describe("FleetManager", () => {
   test.each([
     ["empty", null],
     ["malformed", { repoName: "repo2", name: "feature" }],
-    ["wrong identity", { repoName: "other", name: "feature", branch: "main", active: false }],
+    ["wrong identity", { repoName: "other", name: "feature", branch: "main", active: false, agent: null }],
   ])("maps a %s upstream create summary to 502", async (_case, createResponse) => {
     const ship: FakeShip = { name: "ship-a", workspaces: [], createResponse };
     const ships = new Map<string, FakeShip>([["http://ship-a", ship]]);

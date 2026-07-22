@@ -78,8 +78,8 @@ export class WorkspaceManager {
   }
 
   /**
-   * Subscribe to workspace state-change events (create/branch/activate/
-   * deactivate/remove). Returns an unsubscribe function.
+   * Subscribe to workspace and agent status changes. Returns an unsubscribe
+   * function.
    */
   subscribe(listener: (event: FleetEvent) => void): () => void {
     this.listeners.add(listener);
@@ -263,6 +263,8 @@ export class WorkspaceManager {
       harness: options.harness,
     };
     this.agentStatuses.set(this.key(repoName, name), status);
+    const workspace = await this.summarize(repoName, name);
+    this.emit({ type: "workspace.agent_status_changed", ...this.stamp(), workspace });
     return status;
   }
 
@@ -289,6 +291,8 @@ export class WorkspaceManager {
 
     const status: AgentStatus = { ...current, state: update.state, description: update.description };
     this.agentStatuses.set(this.key(repoName, name), status);
+    const workspace = await this.summarize(repoName, name);
+    this.emit({ type: "workspace.agent_status_changed", ...this.stamp(), workspace });
     return status;
   }
 
@@ -306,7 +310,7 @@ export class WorkspaceManager {
     }
     await Git.clone(url, dir, { branch });
 
-    const summary: WorkspaceSummary = { repoName, name, branch, active: false };
+    const summary: WorkspaceSummary = { repoName, name, branch, active: false, agent: null };
     this.emit({ type: "workspace.created", ...this.stamp(), workspace: summary });
     return summary;
   }
@@ -362,7 +366,7 @@ export class WorkspaceManager {
     await rm(removalTarget, { recursive: true, force: true });
     this.agentStatuses.delete(this.key(repoName, name));
 
-    const workspace: WorkspaceSummary = { repoName, name, branch, active: false };
+    const workspace: WorkspaceSummary = { repoName, name, branch, active: false, agent: null };
     this.emit({ type: "workspace.removed", ...this.stamp(), workspace });
   }
 
@@ -371,7 +375,8 @@ export class WorkspaceManager {
     const git = new Git({ cwd: dir });
     const branch = await git.currentBranch();
     const active = await this.tmux.hasSession(this.sessionName(repoName, name));
-    return { repoName, name, branch, active };
+    const agent = active ? this.agentStatuses.get(this.key(repoName, name)) ?? null : null;
+    return { repoName, name, branch, active, agent };
   }
 
   private async diffSummary(git: Git): Promise<WorkspaceDiff> {

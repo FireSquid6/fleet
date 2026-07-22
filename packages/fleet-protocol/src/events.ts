@@ -49,6 +49,12 @@ export const WorkspaceDeactivatedEventSchema = EventBase.extend({
   workspace: WorkspaceSummarySchema,
 });
 
+/** The agent attached to a workspace initialized or changed its live status. */
+export const WorkspaceAgentStatusChangedEventSchema = EventBase.extend({
+  type: z.literal("workspace.agent_status_changed"),
+  workspace: WorkspaceSummarySchema,
+});
+
 /** A workspace was removed (deactivated if needed, then its directory deleted). */
 export const WorkspaceRemovedEventSchema = EventBase.extend({
   type: z.literal("workspace.removed"),
@@ -62,6 +68,7 @@ export const FleetEventSchema = z.discriminatedUnion("type", [
   WorkspaceBranchChangedEventSchema,
   WorkspaceActivatedEventSchema,
   WorkspaceDeactivatedEventSchema,
+  WorkspaceAgentStatusChangedEventSchema,
   WorkspaceRemovedEventSchema,
 ]);
 

@@ -167,11 +167,11 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
     s?.createGate?.entered();
     await s?.createGate?.wait;
     if (s?.createThenThrows) {
-      s.workspaces.push({ repoName: body.repoName, name: body.name, branch: body.branch, active: false });
+      s.workspaces.push({ repoName: body.repoName, name: body.name, branch: body.branch, active: false, agent: null });
       throw new Error("connection closed before response");
     }
     return wrap(() => {
-      const workspace = { repoName: body.repoName, name: body.name, branch: body.branch, active: false };
+      const workspace = { repoName: body.repoName, name: body.name, branch: body.branch, active: false, agent: null };
       ship()?.workspaces.push(workspace);
       const createResponse = ship()?.createResponse;
       return createResponse !== undefined ? createResponse : workspace;
@@ -202,4 +202,5 @@ export const ws = (repoName: string, name: string, active = false): WorkspaceSum
   name,
   branch: "main",
   active,
+  agent: null,
 });

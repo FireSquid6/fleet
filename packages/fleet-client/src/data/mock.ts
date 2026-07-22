@@ -1,6 +1,6 @@
-import type { WorkspaceDiff } from "fleet-protocol";
+import type { AgentState, AgentStatus, WorkspaceDiff } from "fleet-protocol";
 import type { FleetBridge } from "./provider";
-import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
 
 /**
  * In-memory implementation of {@link FleetBridge}. Seed data is ported from the
@@ -16,21 +16,25 @@ const SHIPS: Ship[] = [
   { name: "nimbus", spec: "32 vCPU · us-west-2", status: "online" },
 ];
 
+function agent(state: AgentState, description: string, model = "claude-sonnet-4"): AgentStatus {
+  return { state, description, model, provider: "anthropic", harness: "opencode" };
+}
+
 const SEED_WORKSPACES: Workspace[] = [
-  { name: "ws-4f2a", repoName: "api-gateway", ship: "forge-01", branch: "main", active: true },
-  { name: "ws-9c11", repoName: "api-gateway", ship: "forge-01", branch: "fix/rate-limit", active: true },
-  { name: "ws-2e70", repoName: "api-gateway", ship: "atlas-7", branch: "release/2.3", active: false },
-  { name: "ws-6b83", repoName: "auth-svc", ship: "forge-02", branch: "main", active: true },
-  { name: "ws-d904", repoName: "auth-svc", ship: "nimbus", branch: "feat/oauth-pkce", active: false },
-  { name: "ws-1a5f", repoName: "web-client", ship: "forge-01", branch: "main", active: true },
-  { name: "ws-7fc2", repoName: "web-client", ship: "forge-02", branch: "feat/redesign", active: true },
-  { name: "ws-3d18", repoName: "web-client", ship: "atlas-7", branch: "hotfix/csp", active: false },
-  { name: "ws-8e40", repoName: "billing", ship: "atlas-7", branch: "main", active: true },
-  { name: "ws-c227", repoName: "notifier", ship: "nimbus", branch: "main", active: false },
-  { name: "ws-5b96", repoName: "data-pipeline", ship: "forge-02", branch: "main", active: true },
-  { name: "ws-0a3e", repoName: "data-pipeline", ship: "forge-02", branch: "spike/backfill", active: false },
-  { name: "ws-b6d1", repoName: "search-idx", ship: "atlas-7", branch: "main", active: true },
-  { name: "ws-e812", repoName: "mobile-bff", ship: "nimbus", branch: "feat/push", active: true },
+  { name: "ws-4f2a", repoName: "api-gateway", ship: "forge-01", branch: "main", active: true, agent: agent("building", "Implementing request routing") },
+  { name: "ws-9c11", repoName: "api-gateway", ship: "forge-01", branch: "fix/rate-limit", active: true, agent: agent("verifying", "Running rate-limit tests") },
+  { name: "ws-2e70", repoName: "api-gateway", ship: "atlas-7", branch: "release/2.3", active: false, agent: null },
+  { name: "ws-6b83", repoName: "auth-svc", ship: "forge-02", branch: "main", active: true, agent: agent("planning", "Tracing token refresh flow") },
+  { name: "ws-d904", repoName: "auth-svc", ship: "nimbus", branch: "feat/oauth-pkce", active: false, agent: null },
+  { name: "ws-1a5f", repoName: "web-client", ship: "forge-01", branch: "main", active: true, agent: agent("awaiting", "Waiting for design confirmation") },
+  { name: "ws-7fc2", repoName: "web-client", ship: "forge-02", branch: "feat/redesign", active: true, agent: agent("building", "Updating responsive navigation") },
+  { name: "ws-3d18", repoName: "web-client", ship: "atlas-7", branch: "hotfix/csp", active: false, agent: null },
+  { name: "ws-8e40", repoName: "billing", ship: "atlas-7", branch: "main", active: true, agent: agent("idle", "Ready for the next task") },
+  { name: "ws-c227", repoName: "notifier", ship: "nimbus", branch: "main", active: false, agent: null },
+  { name: "ws-5b96", repoName: "data-pipeline", ship: "forge-02", branch: "main", active: true, agent: agent("verifying", "Checking backfill consistency") },
+  { name: "ws-0a3e", repoName: "data-pipeline", ship: "forge-02", branch: "spike/backfill", active: false, agent: null },
+  { name: "ws-b6d1", repoName: "search-idx", ship: "atlas-7", branch: "main", active: true, agent: null },
+  { name: "ws-e812", repoName: "mobile-bff", ship: "nimbus", branch: "feat/push", active: true, agent: agent("planning", "Reviewing push delivery paths") },
 ];
 
 function key(repo: string, name: string): string {
@@ -104,6 +108,11 @@ export class MockFleetBridge implements FleetBridge {
   private readonly workspaces: Workspace[] = SEED_WORKSPACES.map((w) => ({ ...w }));
   private readonly ships: Ship[] = SHIPS.map((s) => ({ ...s }));
   private readonly repos: Repo[] = seedRepos();
+  private readonly workspaceListeners = new Set<(event: WorkspaceEvent) => void>();
+
+  private emit(event: WorkspaceEvent): void {
+    for (const listener of this.workspaceListeners) listener(event);
+  }
 
   private find(repo: string, name: string): Workspace {
     const w = this.workspaces.find((x) => x.repoName === repo && x.name === name);
@@ -162,6 +171,12 @@ export class MockFleetBridge implements FleetBridge {
     return this.workspaces.map((w) => ({ ...w }));
   }
 
+  subscribeWorkspaces(listener: (event: WorkspaceEvent) => void): () => void {
+    this.workspaceListeners.add(listener);
+    listener({ type: "sync", at: new Date().toISOString(), workspaces: this.workspaces.map((w) => ({ ...w })) });
+    return () => this.workspaceListeners.delete(listener);
+  }
+
   async createWorkspace(input: {
     ship: string;
     repoName: string;
@@ -173,8 +188,9 @@ export class MockFleetBridge implements FleetBridge {
     if (this.workspaces.some((w) => w.repoName === input.repoName && w.name === input.name)) {
       throw new Error(`workspace already exists: ${key(input.repoName, input.name)}`);
     }
-    const ws: Workspace = { ...input, active: false };
+    const ws: Workspace = { ...input, active: false, agent: null };
     this.workspaces.push(ws);
+    this.emit({ type: "workspace.created", at: new Date().toISOString(), workspace: { ...ws } });
     return { ...ws };
   }
 
@@ -189,7 +205,7 @@ export class MockFleetBridge implements FleetBridge {
       name: w.name,
       branch: w.branch,
       diff: mockDiff(w.name),
-      agent: null,
+      agent: w.agent,
       issue: null,
       mergeRequest: null,
       ship: w.ship,
@@ -202,10 +218,15 @@ export class MockFleetBridge implements FleetBridge {
   }
 
   async activateWorkspace(repo: string, name: string): Promise<void> {
-    this.find(repo, name).active = true;
+    const workspace = this.find(repo, name);
+    workspace.active = true;
+    this.emit({ type: "workspace.activated", at: new Date().toISOString(), workspace: { ...workspace } });
   }
 
   async deactivateWorkspace(repo: string, name: string): Promise<void> {
-    this.find(repo, name).active = false;
+    const workspace = this.find(repo, name);
+    workspace.active = false;
+    workspace.agent = null;
+    this.emit({ type: "workspace.deactivated", at: new Date().toISOString(), workspace: { ...workspace } });
   }
 }

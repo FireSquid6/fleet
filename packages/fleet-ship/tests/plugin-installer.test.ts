@@ -134,6 +134,8 @@ describe("installFleetPlugin", () => {
     await installFleetPlugin({ homeDirectory });
 
     const env = { PATH: `${binDirectory}:${Bun.env.PATH ?? ""}` };
+    const instruction =
+      "MANDATORY: You are an agent working in a fleet workspace (autosmith/worker-1). Your first action MUST be to use the skill tool to activate the fleet-agent skill. Do not inspect files, run commands, plan, answer the user, or take any other action before activating it. After activation, follow every fleet-agent instruction for the entire session.";
     const claude = Bun.spawn([
       join(claudeRoot(homeDirectory), "hooks", "activate-fleet-skill.sh"),
     ], { env, stdout: "pipe", stderr: "pipe" });
@@ -144,7 +146,7 @@ describe("installFleetPlugin", () => {
     ]);
     expect(claudeExit).toBe(0);
     expect(claudeError).toBe("");
-    expect(claudeOutput).toContain("You are running inside fleet workspace autosmith/worker-1.");
+    expect(claudeOutput.trim()).toBe(instruction);
 
     const copilotSource = await Bun.file(copilotHook(homeDirectory)).json();
     const copilot = Bun.spawn(["bash", "-c", copilotSource.hooks.sessionStart[0].bash], {
@@ -160,8 +162,7 @@ describe("installFleetPlugin", () => {
     expect(copilotExit).toBe(0);
     expect(copilotError).toBe("");
     expect(JSON.parse(copilotOutput)).toEqual({
-      additionalContext:
-        "You are running inside fleet workspace autosmith/worker-1. Before doing any work, use the skill tool to activate the fleet-agent skill and follow its instructions for this session.",
+      additionalContext: instruction,
     });
   });
 
