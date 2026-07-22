@@ -87,6 +87,12 @@ export const ship = new Command()
     const { createApp } = await import("./api");
 
     const config = await canonicalizeFleetDirectory(await loadConfig(options.config));
+    if (!config.serviceToken) {
+      console.warn(
+        "fleet-ship: no service token set (FLEET_SERVICE_TOKEN or config.serviceToken) — " +
+          "the API is unauthenticated and will accept any caller.",
+      );
+    }
     await installStartupIntegrations();
     const manager = new WorkspaceManager(config);
     const app = createApp(manager, config);

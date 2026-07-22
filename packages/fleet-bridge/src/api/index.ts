@@ -27,7 +27,7 @@ export function createApp(manager: FleetManager, config: BridgeConfig, auth: Aut
         secure: process.env.NODE_ENV === "production",
       }),
     )
-    .use(workspacesPlugin(manager))
+    .use(workspacesPlugin(manager, config.serviceToken))
     .use(shipsPlugin(manager))
     .use(systemResourcesPlugin(manager))
     .use(reposPlugin(manager));

@@ -460,7 +460,7 @@ export class FleetManager {
   // --- internals ------------------------------------------------------------
 
   private createConnection(url: string, name?: string): ShipConnection {
-    const conn = new ShipConnection({ url, name, deps: this.deps });
+    const conn = new ShipConnection({ url, name, serviceToken: this.config.serviceToken, deps: this.deps });
     conn.setHandlers({
       onEvent: (c, event) => this.onEvent(c, event),
       onStatusChange: () => {},

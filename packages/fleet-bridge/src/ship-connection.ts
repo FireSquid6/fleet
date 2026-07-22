@@ -42,10 +42,19 @@ export interface ShipConnectionHandlers {
   onStatusChange: (conn: ShipConnection, status: ShipStatus) => void;
 }
 
-const defaultDeps: ShipConnectionDeps = {
-  createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
-  createClient: (url) => treaty<ShipApp>(url),
-};
+/**
+ * Default transport factories, optionally presenting the shared service token as a
+ * Bearer header on both the Eden client and the `/events` socket (server-opened
+ * sockets can carry headers, unlike a browser `WebSocket`).
+ */
+function defaultDeps(serviceToken?: string): ShipConnectionDeps {
+  const headers = serviceToken ? { authorization: `Bearer ${serviceToken}` } : undefined;
+  return {
+    createSocket: (url) =>
+      new WebSocket(url, headers ? { headers } : undefined) as unknown as SocketLike,
+    createClient: (url) => treaty<ShipApp>(url, headers ? { headers } : undefined),
+  };
+}
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -79,11 +88,11 @@ export class ShipConnection {
   private syncWaiters: Array<(event: SyncEvent) => void> = [];
   private identity?: string;
 
-  constructor(opts: { url: string; name?: string; deps?: Partial<ShipConnectionDeps> }) {
+  constructor(opts: { url: string; name?: string; serviceToken?: string; deps?: Partial<ShipConnectionDeps> }) {
     this.url = opts.url;
     this.name = opts.name ?? opts.url;
     this.identity = opts.name;
-    this.deps = { ...defaultDeps, ...opts.deps };
+    this.deps = { ...defaultDeps(opts.serviceToken), ...opts.deps };
     this.client = this.deps.createClient(opts.url);
   }
 

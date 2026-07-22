@@ -21,7 +21,8 @@ import type { ServerMsg } from "webterm/protocol";
 import type { FleetManager } from "../fleet-manager";
 import { mapError } from "./http";
 
-export function workspacesPlugin(manager: FleetManager) {
+export function workspacesPlugin(manager: FleetManager, serviceToken?: string) {
+  const upstreamHeaders = serviceToken ? { authorization: `Bearer ${serviceToken}` } : undefined;
   return new Elysia({ name: "bridge-workspaces" })
     .get(
       "/workspaces",
@@ -157,7 +158,8 @@ export function workspacesPlugin(manager: FleetManager) {
 
         // Dumb bidirectional pipe to the owning ship. Buffer client frames until
         // the upstream socket is open so the browser's first `init` isn't lost.
-        const upstream = new WebSocket(target);
+        // Present the service token so the ship accepts this server-opened socket.
+        const upstream = new WebSocket(target, upstreamHeaders ? { headers: upstreamHeaders } : undefined);
         const buffer: string[] = [];
         const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
         data.upstream = upstream;

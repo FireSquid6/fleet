@@ -18,6 +18,13 @@ export const FleetShipConfigSchema = z.object({
   port: z.number().int(),
   /** Human-facing name of this ship (surfaced as `ship` on active workspace status). */
   name: FleetIdentifierSchema,
+  /**
+   * Shared secret required (as `Authorization: Bearer <token>`) on every request,
+   * including WebSockets. Only the bridge and CLI reach a ship, and both present it.
+   * Usually supplied via `FLEET_SERVICE_TOKEN` rather than YAML; when unset the ship
+   * runs unauthenticated (rollout compatibility).
+   */
+  serviceToken: z.string().min(1).optional(),
 });
 
 /** The parsed `fleet-ship-config.yaml`, inferred from the schema. */

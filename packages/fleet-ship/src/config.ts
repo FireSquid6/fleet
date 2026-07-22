@@ -29,7 +29,11 @@ export async function loadConfig(path: string): Promise<FleetShipConfig> {
   // Validate the raw shape against the shared zod schema, then resolve the
   // workspace directory to an absolute path (relative to the current cwd).
   const config = FleetShipConfigSchema.parse(parsed);
-  return { ...config, fleetDirectory: resolve(config.fleetDirectory) };
+  return {
+    ...config,
+    fleetDirectory: resolve(config.fleetDirectory),
+    serviceToken: config.serviceToken ?? process.env.FLEET_SERVICE_TOKEN,
+  };
 }
 
 export async function canonicalizeFleetDirectory(config: FleetShipConfig): Promise<FleetShipConfig> {
