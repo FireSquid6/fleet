@@ -1,16 +1,16 @@
 /**
  * src/config.ts — the Fleet Ship configuration contract.
  *
- * A ship is configured by a small YAML file (default `./fleet-ship-config.yaml`).
- * The canonical shape is the zod schema below; the host parses YAML then validates
- * it against `FleetShipConfigSchema`, and `FleetShipConfig` is inferred from it so
- * the type and the runtime validator can never drift.
+ * A ship is configured from CLI flags (`fleet ship --port --name --fleet-directory`).
+ * The canonical shape is the zod schema below; the host assembles an object from the
+ * flags then validates it against `FleetShipConfigSchema`, and `FleetShipConfig` is
+ * inferred from it so the type and the runtime validator can never drift.
  */
 
 import { z } from "zod";
 import { FleetIdentifierSchema } from "./identifier";
 
-/** Runtime validator for a parsed `fleet-ship-config.yaml`. */
+/** Runtime validator for the ship configuration. */
 export const FleetShipConfigSchema = z.object({
   /** Directory that holds all workspaces, laid out as `<fleetDirectory>/<repo>/<name>`. */
   fleetDirectory: z.string().min(1),
@@ -20,7 +20,7 @@ export const FleetShipConfigSchema = z.object({
   name: FleetIdentifierSchema,
 });
 
-/** The parsed `fleet-ship-config.yaml`, inferred from the schema. */
+/** The ship configuration, inferred from the schema. */
 export type FleetShipConfig = z.infer<typeof FleetShipConfigSchema>;
 
 /**

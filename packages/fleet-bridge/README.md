@@ -10,18 +10,17 @@ persisted so the fleet survives a restart.
 
 ## Run
 
+Configured entirely from flags (sensible defaults shown):
+
 ```bash
-cp fleet-bridge-config.example.yaml fleet-bridge-config.yaml   # edit as needed
-bun run src/index.ts start -c fleet-bridge-config.yaml
+bun run src/index.ts \
+  --port 4800 \
+  --name my-bridge \
+  --data-directory ./.fleet-bridge   # ships.json roster is persisted here
 ```
 
-Config (`fleet-bridge-config.yaml`):
-
-```yaml
-dataDirectory: ./bridge-data   # ships.json roster is persisted here
-port: 4800
-name: my-bridge
-```
+To bring up a bridge together with ships and the gui in one process, use
+`fleet launch` (see the CLI's `fleet-config.yaml`).
 
 If two reachable ships hold the same `<repo>/<name>` at startup, the bridge prints the
 conflict and exits.

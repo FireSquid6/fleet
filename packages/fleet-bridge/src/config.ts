@@ -1,17 +1,17 @@
 /**
- * config.ts — loads and validates the Fleet Bridge configuration YAML.
+ * config.ts — the Fleet Bridge configuration contract.
  *
- * Mirrors `fleet-ship/src/config.ts`: this loader handles IO, YAML parsing, and
- * resolving `dataDirectory` to an absolute path. The shape is a small bridge-only
- * zod schema (the ship's config schema lives in the shared `fleet-protocol`
- * package; the bridge's is not shared, so it stays here).
+ * The bridge is configured entirely from CLI flags (see `index.ts`); this file
+ * owns the canonical shape (`BridgeConfigSchema`) and validates a flag-assembled
+ * object against it, resolving `dataDirectory` to an absolute path. The shape is
+ * a small bridge-only zod schema (the ship's config schema lives in the shared
+ * `fleet-protocol` package; the bridge's is not shared, so it stays here).
  */
 
 import { resolve } from "node:path";
-import { parse } from "yaml";
 import { z } from "zod";
 
-/** Runtime validator for a parsed `fleet-bridge-config.yaml`. */
+/** Runtime validator for the bridge configuration. */
 export const BridgeConfigSchema = z.object({
   /** Directory the bridge persists its ship roster (`ships.json`) to. */
   dataDirectory: z.string().min(1),
@@ -21,24 +21,11 @@ export const BridgeConfigSchema = z.object({
   name: z.string().min(1),
 });
 
-/** The parsed `fleet-bridge-config.yaml`, inferred from the schema. */
+/** The bridge configuration, inferred from the schema. */
 export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
 
-/** Read, parse, and validate a `fleet-bridge-config.yaml` at `path`. */
-export async function loadConfig(path: string): Promise<BridgeConfig> {
-  const file = Bun.file(path);
-  if (!(await file.exists())) {
-    throw new Error(`config file not found: ${path}`);
-  }
-
-  const text = await file.text();
-  let parsed: unknown;
-  try {
-    parsed = parse(text);
-  } catch (err) {
-    throw new Error(`failed to parse config file ${path} as YAML: ${(err as Error).message}`);
-  }
-
-  const config = BridgeConfigSchema.parse(parsed);
+/** Validate a raw (flag-assembled) config, resolving `dataDirectory` to an absolute path. */
+export function resolveBridgeConfig(raw: unknown): BridgeConfig {
+  const config = BridgeConfigSchema.parse(raw);
   return { ...config, dataDirectory: resolve(config.dataDirectory) };
 }

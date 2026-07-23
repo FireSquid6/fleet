@@ -1,8 +1,0 @@
-
-fleetDirectory: ./dev-data/fleet-ship-data
-
-# Port the ship's HTTP + WebSocket API listens on.
-port: 4700
-
-# Human-facing name of this ship, surfaced as `ship` on active workspace status.
-name: dev-ship

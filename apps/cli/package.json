@@ -18,7 +18,9 @@
     "fleet-bridge": "workspace:*",
     "fleet-client": "workspace:*",
     "fleet-protocol": "workspace:*",
-    "fleet-ship": "workspace:*"
+    "fleet-ship": "workspace:*",
+    "yaml": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest"
