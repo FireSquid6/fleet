@@ -1,0 +1,36 @@
+---
+title: Fleet
+description: Run coding agents in isolated git workspaces, across one machine or many.
+template: splash
+hero:
+  tagline: Give every agent its own git clone, its own terminal, and one dashboard to watch them all.
+  actions:
+    - text: Quickstart
+      link: /start/quickstart/
+      icon: right-arrow
+    - text: How it fits together
+      link: /concepts/architecture/
+      icon: open-book
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="Isolated workspaces" icon="seti:git">
+		Every agent gets a full clone on its own branch. No shared worktree, no
+		stepping on each other's changes.
+	</Card>
+	<Card title="One fleet, many hosts" icon="puzzle">
+		A bridge fronts any number of ships, so a fleet can span machines while
+		still looking like a single API.
+	</Card>
+	<Card title="Live terminals" icon="laptop">
+		Each workspace runs in a headless tmux session you can attach to from the
+		browser.
+	</Card>
+	<Card title="Agents report in" icon="approve-check">
+		`fleet agent status` keeps the dashboard honest about what every agent is
+		doing right now.
+	</Card>
+</CardGrid>

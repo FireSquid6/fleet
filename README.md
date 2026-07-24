@@ -1,15 +1,25 @@
-# autosmith
+# fleet
 
-To install dependencies:
+Run coding agents in isolated git workspaces, across one machine or many.
 
 ```bash
 bun install
 ```
 
-To run:
+## Documentation
+
+The docs site lives in [`apps/docs`](apps/docs) (Astro + Starlight):
 
 ```bash
-bun run index.ts
+bun run docs        # dev server on localhost:4321
+bun run docs:build  # production build to apps/docs/dist
 ```
 
-This project was created using `bun init` in bun v1.3.3. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Development
+
+```bash
+bun test        # every workspace's suite
+bun typecheck   # every workspace's typecheck
+```
+
+See the docs site's Contributing section for the repo layout and conventions.
