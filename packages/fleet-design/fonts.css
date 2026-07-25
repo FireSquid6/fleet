@@ -1,0 +1,9 @@
+/* ---------------------------------------------------------------------------
+ * Fleet design fonts — self-hosted via Fontsource so both the client and the
+ * docs site load the same typefaces with no external request. The font-family
+ * custom properties that reference these live in tokens.css
+ * (--font-mono / --font-prose).
+ * ------------------------------------------------------------------------- */
+
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/ibm-plex-sans";

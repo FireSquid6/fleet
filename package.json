@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "test": "bun run --filter='*' test",
-    "typecheck": "bun run --filter='*' typecheck"
+    "typecheck": "bun run --filter='*' typecheck",
+    "docs": "bun run --filter=docs dev",
+    "docs:build": "bun run --filter=docs build"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -19,6 +19,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "bun-plugin-tailwind": "^0.1.2",
     "fleet-bridge": "workspace:*",
+    "fleet-design": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fleet-protocol": "workspace:*",
