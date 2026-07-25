@@ -1,0 +1,59 @@
+/* ---------------------------------------------------------------------------
+ * Fleet docs adapter — binds the shared design tokens (fleet-design) onto
+ * Starlight's `--sl-*` variables so the docs site uses the same palette, fonts,
+ * and shapes as the web client. Layout stays Starlight's own.
+ *
+ * Each mapping is declared once on `:root`; because the shared tokens switch by
+ * theme selector (light on `:root`, dark on `:root[data-theme="dark"]`, which
+ * Starlight sets), the same mapping serves both themes automatically.
+ *
+ * These rules are unlayered, so they win over Starlight's `@layer starlight.base`
+ * defaults without needing `!important`.
+ * ------------------------------------------------------------------------- */
+
+@import "fleet-design/tokens.css";
+@import "fleet-design/fonts.css";
+
+:root {
+  /* Typography */
+  --sl-font: var(--font-prose);
+  --sl-font-mono: var(--font-mono);
+
+  /* Accent — the design's locked green */
+  --sl-color-accent-low: var(--accent-soft);
+  --sl-color-accent: var(--accent);
+  --sl-color-accent-high: var(--text);
+  --sl-color-text-accent: var(--accent);
+
+  /* Neutral scale mapped onto the Bridge panel/line/dim tokens */
+  --sl-color-white: var(--text);
+  --sl-color-gray-1: var(--text);
+  --sl-color-gray-2: var(--dim);
+  --sl-color-gray-3: var(--dim);
+  --sl-color-gray-4: var(--dim2);
+  --sl-color-gray-5: var(--line);
+  --sl-color-gray-6: var(--panel2);
+  --sl-color-gray-7: var(--panel2);
+  --sl-color-black: var(--bg);
+
+  /* Surfaces */
+  --sl-color-text: var(--text);
+  --sl-color-bg: var(--bg);
+  --sl-color-bg-nav: var(--panel);
+  --sl-color-bg-sidebar: var(--panel);
+  --sl-color-bg-inline-code: var(--panel2);
+  --sl-color-hairline: var(--line);
+  --sl-color-hairline-light: var(--line);
+  --sl-color-hairline-shade: var(--line);
+}
+
+/* Crisp shapes to echo the client's technical look. */
+:root {
+  --sl-content-width: 45rem;
+}
+
+.sl-markdown-content code:not(:where(.expressive-code *)),
+.sl-markdown-content pre:not(:where(.expressive-code *)),
+.starlight-aside {
+  border-radius: var(--radius);
+}

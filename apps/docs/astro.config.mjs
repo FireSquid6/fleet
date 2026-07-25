@@ -12,6 +12,19 @@ export default defineConfig({
 			title: 'Fleet',
 			description:
 				'Fleet runs coding agents in isolated git workspaces, spread across one machine or many.',
+			// Map the shared fleet-design tokens onto Starlight's theme.
+			customCss: ['./src/styles/fleet.css'],
+			// The web client is dark-first; seed Starlight's theme storage to dark
+			// on a visitor's very first load so the docs open dark too. A one-shot
+			// flag means we never override a returning visitor's own choice
+			// (including "Auto"). The toggle still works normally afterwards.
+			head: [
+				{
+					tag: 'script',
+					content:
+						"try{if(localStorage.getItem('fleet-theme-seeded')===null){localStorage.setItem('fleet-theme-seeded','1');if(!localStorage.getItem('starlight-theme'))localStorage.setItem('starlight-theme','dark');}}catch(e){}",
+				},
+			],
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/firesquid6/fleet' },
 			],
