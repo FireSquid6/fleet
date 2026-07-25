@@ -1,0 +1,14 @@
+{
+  "name": "fleet-design",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./fonts.css": "./fonts.css"
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5",
+    "@fontsource-variable/ibm-plex-sans": "^5"
+  }
+}
