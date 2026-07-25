@@ -19,6 +19,7 @@
     "fleet-client": "workspace:*",
     "fleet-protocol": "workspace:*",
     "fleet-ship": "workspace:*",
+    "webterm": "workspace:*",
     "yaml": "latest",
     "zod": "latest"
   },

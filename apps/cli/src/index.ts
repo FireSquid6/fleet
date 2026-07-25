@@ -22,6 +22,7 @@ import { bridge } from "fleet-bridge";
 import { startClientServer } from "fleet-client";
 import { agentCommand } from "./agent-command";
 import { launchCommand } from "./launch-command";
+import { attachToWorkspace } from "./attach";
 
 
 const clientCommand = new Command()
@@ -154,6 +155,17 @@ clientCommand
     unwrap(result);
 
     console.log(`deactivated ${repo}/${name}`);
+  });
+
+clientCommand
+  .command("attach")
+  .description("attach to a workspace's terminal (Ctrl-] to detach)")
+  .argument("<repo>", "repo name")
+  .argument("<name>", "workspace name")
+  .action(async (repo: string, name: string) => {
+    const { url } = clientCommand.opts<{ url: string }>();
+    const code = await attachToWorkspace(normalizeUrl(url), repo, name);
+    process.exit(code);
   });
 
 clientCommand
