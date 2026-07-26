@@ -1,4 +1,5 @@
-import type { AgentState, AgentStatus, WorkspaceDiff } from "fleet-protocol";
+import type { AgentState, AgentStatus, WorkspaceDiff, WorkspaceRefs } from "fleet-protocol";
+import type { DiffQuery } from "@/lib/diff/diff-target";
 import type { FleetBridge } from "./provider";
 import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
 
@@ -90,6 +91,32 @@ index 0000000..d4e5f6a
 +  version: process.env.APP_VERSION ?? "dev",
 +}));
 `;
+
+/** Appended when the diff target reaches past the working tree into history. */
+const MOCK_HISTORY_DIFF = `diff --git a/src/config.ts b/src/config.ts
+index 1c2d3e4..5f6a7b8 100644
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -3,6 +3,7 @@ export interface Config {
+   port: number;
+   host: string;
++  version: string;
+ }
+`;
+
+const MOCK_BRANCHES: WorkspaceRefs["branches"] = [
+  { name: "main", remote: false },
+  { name: "develop", remote: false },
+  { name: "origin/main", remote: true },
+  { name: "origin/develop", remote: true },
+];
+
+const MOCK_COMMITS: WorkspaceRefs["commits"] = [
+  { sha: "9f1c0a2b3d4e5f60718293a4b5c6d7e8f9012345", shortSha: "9f1c0a2", subject: "Add the /version route" },
+  { sha: "8e0b9a1c2d3e4f5061728394a5b6c7d8e9f01234", shortSha: "8e0b9a1", subject: "Return structured health output" },
+  { sha: "7d9a8b0c1d2e3f4051627384a5b6c7d8e9f01233", shortSha: "7d9a8b0", subject: "Drop the legacy boot entry point" },
+  { sha: "6c8970ab1c2d3e4f50617283a4b5c6d7e8f90122", shortSha: "6c8970a", subject: "Wire up the config loader" },
+];
 
 /** Seed the repo registry from the distinct repo names in the seed workspaces. */
 function seedRepos(): Repo[] {
@@ -212,9 +239,24 @@ export class MockFleetBridge implements FleetBridge {
     };
   }
 
-  async getWorkspaceDiff(repo: string, name: string): Promise<string> {
+  async getWorkspaceDiff(repo: string, name: string, query: DiffQuery): Promise<string> {
     this.find(repo, name);
-    return MOCK_DIFF;
+    // Ranges other than the working tree get an extra file appended, so
+    // switching diff targets visibly changes the result in mock mode.
+    return query.range === "HEAD" ? MOCK_DIFF : MOCK_DIFF + MOCK_HISTORY_DIFF;
+  }
+
+  async getWorkspaceRefs(repo: string, name: string): Promise<WorkspaceRefs> {
+    const workspace = this.find(repo, name);
+    return {
+      current: workspace.branch,
+      defaultBranch: "main",
+      branches: MOCK_BRANCHES.filter((b) => b.name !== workspace.branch).concat({
+        name: workspace.branch,
+        remote: false,
+      }),
+      commits: MOCK_COMMITS,
+    };
   }
 
   async activateWorkspace(repo: string, name: string): Promise<void> {

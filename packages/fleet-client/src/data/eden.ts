@@ -1,4 +1,5 @@
-import { WorkspaceSummarySchema, type SystemResources } from "fleet-protocol";
+import { WorkspaceRefsSchema, WorkspaceSummarySchema, type SystemResources, type WorkspaceRefs } from "fleet-protocol";
+import type { DiffQuery } from "@/lib/diff/diff-target";
 import { makeBridgeClient, wsBridgeUrl, type BridgeClient } from "./client";
 import type { FleetBridge } from "./provider";
 import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
@@ -169,15 +170,19 @@ export class EdenFleetBridge implements FleetBridge {
     return data;
   }
 
-  async getWorkspaceDiff(repo: string, name: string): Promise<string> {
-    // `HEAD` captures all staged+unstaged changes vs the last commit; the ship
-    // synthesizes add-file diffs for untracked files so brand-new files appear.
-    const { data, error } = await this.client
-      .workspaces({ repo })({ name })
-      .diff.get({ query: { range: "HEAD", includeUntracked: true } });
+  async getWorkspaceDiff(repo: string, name: string, query: DiffQuery): Promise<string> {
+    const { data, error } = await this.client.workspaces({ repo })({ name }).diff.get({ query });
     if (error) throw edenError(error);
     if (typeof data !== "string") throw edenError({ value: data });
     return data;
+  }
+
+  async getWorkspaceRefs(repo: string, name: string): Promise<WorkspaceRefs> {
+    const { data, error } = await this.client.workspaces({ repo })({ name }).refs.get({ query: {} });
+    if (error) throw edenError(error);
+    const parsed = WorkspaceRefsSchema.safeParse(data);
+    if (!parsed.success) throw edenError({ value: data });
+    return parsed.data;
   }
 
   async activateWorkspace(repo: string, name: string): Promise<void> {

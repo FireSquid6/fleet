@@ -1,3 +1,5 @@
+import type { WorkspaceRefs } from "fleet-protocol";
+import type { DiffQuery } from "@/lib/diff/diff-target";
 import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
 
 /**
@@ -36,8 +38,10 @@ export interface FleetBridge {
   createWorkspace(input: { ship: string; repoName: string; name: string; branch: string }): Promise<Workspace>;
   /** `GET /workspaces/:repo/:name` — detailed status (diff, ship, …). */
   getWorkspace(repo: string, name: string): Promise<WorkspaceDetail>;
-  /** `GET /workspaces/:repo/:name/diff` — raw `git diff` text (incl. untracked). */
-  getWorkspaceDiff(repo: string, name: string): Promise<string>;
+  /** `GET /workspaces/:repo/:name/diff` — raw `git diff` text for a {@link DiffQuery}. */
+  getWorkspaceDiff(repo: string, name: string, query: DiffQuery): Promise<string>;
+  /** `GET /workspaces/:repo/:name/refs` — branches and recent commits to diff against. */
+  getWorkspaceRefs(repo: string, name: string): Promise<WorkspaceRefs>;
   /** `POST /workspaces/:repo/:name/activate` — attach a session. */
   activateWorkspace(repo: string, name: string): Promise<void>;
   /** `POST /workspaces/:repo/:name/deactivate` — kill the session. */
