@@ -939,9 +939,10 @@ describe("FleetManager", () => {
       );
     });
 
-    test("drops a registered ship url's own query and fragment", async () => {
-      // A ship url is an unvalidated string; anything it carries after the path
-      // would otherwise swallow the takeover flag appended behind it.
+    test("keeps a registered ship url's own query and fragment", async () => {
+      // `toWsUrl` preserves whatever a ship was registered with — a token on
+      // `/events` has to reach `/terminal` too — so the flag joins the existing
+      // query instead of replacing it.
       const ships = new Map<string, FakeShip>([
         ["http://ship-a:3001", { name: "ship-a", workspaces: [ws("repo1", "one")] }],
       ]);
@@ -949,10 +950,12 @@ describe("FleetManager", () => {
       const mgr = build(ships);
       await mgr.init();
 
-      expect(mgr.terminalTarget("repo1", "one")).toBe("ws://ship-a:3001/workspaces/repo1/one/terminal");
-      expect(mgr.terminalTarget("repo1", "one", { takeover: true })).toBe(
-        "ws://ship-a:3001/workspaces/repo1/one/terminal?takeover=true",
+      expect(mgr.terminalTarget("repo1", "one")).toBe(
+        "ws://ship-a:3001/workspaces/repo1/one/terminal?token=abc#frag",
       );
+      const target = mgr.terminalTarget("repo1", "one", { takeover: true });
+      expect(target).toBe("ws://ship-a:3001/workspaces/repo1/one/terminal?token=abc&takeover=true#frag");
+      expect(new URL(target).searchParams.get("takeover")).toBe("true");
     });
   });
 });

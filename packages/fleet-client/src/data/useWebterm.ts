@@ -93,7 +93,15 @@ export function useWebterm(
   const [status, setStatus] = useState<WebtermStatus>("idle");
   const wsRef = useRef<WebSocket | null>(null);
   const initializedRef = useRef(false);
-  const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  /**
+   * The most recent size `resize()` reported, replayed to every socket as it
+   * opens. It deliberately survives reconnects: the canvas is unchanged, and
+   * nothing re-measures it (the caller's ResizeObserver only fires on an actual
+   * resize), so dropping it would leave a reconnected socket un-`init`ed — which
+   * the ship closes after 5s. Resetting `initializedRef` is what makes the
+   * replay an `init` rather than a `resize`.
+   */
+  const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   // Bumping the attempt is what re-runs the socket effect; the flag rides in a
   // ref that the effect consumes, so eviction applies to that attempt alone and
   // never to a later reconnect.
@@ -122,11 +130,7 @@ export function useWebterm(
       setStatus("idle");
       return;
     }
-    // Keep the last reported cell size: the canvas is unchanged across a
-    // reconnect, and nothing re-measures it (the caller's ResizeObserver only
-    // fires on an actual resize). Clearing it here would leave `onopen` with
-    // nothing to send, and the ship closes an un-`init`ed socket after 5s.
-    // `initializedRef` is what makes the replay an `init` rather than a `resize`.
+    // A fresh socket needs `init` before anything else; `lastSizeRef` carries over.
     initializedRef.current = false;
     setStatus("connecting");
 
@@ -135,8 +139,8 @@ export function useWebterm(
 
     ws.onopen = () => {
       setStatus("open");
-      const pending = pendingSizeRef.current;
-      if (pending) sendSize(ws, pending.cols, pending.rows);
+      const size = lastSizeRef.current;
+      if (size) sendSize(ws, size.cols, size.rows);
     };
     ws.onmessage = (ev) => {
       handleServerFrame(ev.data, optsRef.current, (code, reason) => ws.close(code, reason));
@@ -165,7 +169,7 @@ export function useWebterm(
   const resize = useCallback(
     (cols: number, rows: number) => {
       ({ cols, rows } = clampTerminalSize(cols, rows));
-      pendingSizeRef.current = { cols, rows };
+      lastSizeRef.current = { cols, rows };
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN) sendSize(ws, cols, rows);
     },

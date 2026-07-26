@@ -498,10 +498,10 @@ export class FleetManager {
     const url = new URL(
       toWsUrl(conn.url, `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`),
     );
-    // A registered ship URL is an unvalidated string and may carry its own query
-    // or fragment; either would swallow the takeover flag appended after it.
-    url.search = "";
-    url.hash = "";
+    // Added through `searchParams`, not concatenation: a registered ship URL is
+    // an unvalidated string, and `toWsUrl` deliberately keeps any query or
+    // fragment it carries (`/events` gets them too, so a ship registered with a
+    // token keeps it here).
     if (options.takeover) url.searchParams.set(TERMINAL_TAKEOVER_QUERY, "true");
     return url.toString();
   }
