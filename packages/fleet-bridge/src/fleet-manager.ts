@@ -28,7 +28,7 @@ import {
   type WorkspaceSummary,
 } from "fleet-protocol";
 import type { DiffOptions } from "git-bun";
-import { TERMINAL_TAKEOVER_QUERY, TERMINAL_TAKEOVER_QUERY_VALUE } from "webterm/protocol";
+import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import type { BridgeConfig } from "./config";
 import {
@@ -495,13 +495,15 @@ export class FleetManager {
    */
   terminalTarget(repo: string, name: string, options: { takeover?: boolean } = {}): string {
     const conn = this.routeFor(repo, name);
-    const url = toWsUrl(
-      conn.url,
-      `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`,
+    const url = new URL(
+      toWsUrl(conn.url, `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`),
     );
-    return options.takeover
-      ? `${url}?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`
-      : url;
+    // A registered ship URL is an unvalidated string and may carry its own query
+    // or fragment; either would swallow the takeover flag appended after it.
+    url.search = "";
+    url.hash = "";
+    if (options.takeover) url.searchParams.set(TERMINAL_TAKEOVER_QUERY, "true");
+    return url.toString();
   }
 
   // --- internals ------------------------------------------------------------

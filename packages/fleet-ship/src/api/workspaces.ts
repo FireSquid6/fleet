@@ -11,7 +11,6 @@ import {
   decodeClientMessage,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
-  isTakeoverRequested,
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_CONFLICT_CLOSE_REASON,
   TERMINAL_TAKEOVER_CLOSE_CODE,
@@ -254,7 +253,7 @@ export function workspacesPlugin(
     })
     .ws("/workspaces/:repo/:name/terminal", {
       query: t.Object({
-        takeover: t.Optional(t.String()),
+        takeover: t.Optional(t.Boolean()),
       }),
       open(ws) {
         const { repo, name } = ws.data.params;
@@ -262,7 +261,7 @@ export function workspacesPlugin(
 
         const incumbent = activeTerminals.get(sessionName);
         if (incumbent) {
-          if (!isTakeoverRequested(ws.data.query.takeover)) {
+          if (!ws.data.query.takeover) {
             // Leave the incumbent's entry and bridge untouched — the close code
             // is the whole signal, and the browser offers a takeover from it.
             ws.close(TERMINAL_CONFLICT_CLOSE_CODE, TERMINAL_CONFLICT_CLOSE_REASON);
@@ -288,9 +287,10 @@ export function workspacesPlugin(
           try {
             bridge?.stop();
           } finally {
-            // Only release the guard if we still hold it: an evicted connection
-            // finishes again on its `close` event, after the taker has claimed
-            // the session.
+            // Invariant: a connection only ever releases the guard it holds.
+            // Every replacement path finishes the incumbent *before* claiming
+            // the session, so today the entry is always ours; the check keeps
+            // that assumption checkable here rather than at each call site.
             if (activeTerminals.get(sessionName) === data) activeTerminals.delete(sessionName);
           }
           if (closeSocket) ws.close(code, reason);

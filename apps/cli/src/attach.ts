@@ -13,6 +13,8 @@ import type { WorkspaceStatus } from "fleet-protocol";
 import {
   decodeServerMessage,
   splitInput,
+  TERMINAL_CONFLICT_CLOSE_CODE,
+  TERMINAL_TAKEOVER_CLOSE_CODE,
   type ClientMsg,
 } from "webterm/protocol";
 import { makeClient, unwrap } from "./client";
@@ -33,6 +35,27 @@ function terminalSize(): { cols: number; rows: number } {
 function terminalWsUrl(shipUrl: string, repo: string, name: string): string {
   const base = shipUrl.replace(/^http/, "ws");
   return `${base}/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
+}
+
+/**
+ * How to report a terminal socket the ship closed on us. The single-terminal
+ * guard is the only close the user can act on, so it is the only one that gets
+ * a message; a detach or a clean shell exit stays silent.
+ */
+export function attachCloseOutcome(
+  code: number,
+  workspace: string,
+): { message?: string; exitCode: number } {
+  if (code === TERMINAL_CONFLICT_CLOSE_CODE) {
+    return {
+      message: `fleet: ${workspace} is already attached elsewhere — detach that client, or take it over from the web UI`,
+      exitCode: 1,
+    };
+  }
+  if (code === TERMINAL_TAKEOVER_CLOSE_CODE) {
+    return { message: `fleet: another client took over ${workspace}`, exitCode: 1 };
+  }
+  return { exitCode: 0 };
 }
 
 /** Ensure the workspace has a running session, activating it if inactive. */
@@ -114,16 +137,8 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
 
     ws.onmessage = (event) => {
       const msg = decodeServerMessage(event.data);
-      if (msg.type === "grid") {
-        process.stdout.write(renderGrid(msg));
-      } else {
-        // The server sends exit(1) when another client already holds this
-        // session (only one terminal per workspace at a time).
-        if (msg.code === 1 && !torn) {
-          console.error(`fleet: ${repo}/${name} is already attached elsewhere`);
-        }
-        teardown(msg.code);
-      }
+      if (msg.type === "grid") process.stdout.write(renderGrid(msg));
+      else teardown(msg.code);
     };
 
     ws.onerror = () => {
@@ -131,6 +146,12 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
       teardown(1);
     };
 
-    ws.onclose = () => teardown(0);
+    ws.onclose = (event) => {
+      if (torn) return;
+      const { message, exitCode } = attachCloseOutcome(event.code, `${repo}/${name}`);
+      // Tear down first — the message would be wiped with the alt screen.
+      teardown(exitCode);
+      if (message) console.error(message);
+    };
   });
 }

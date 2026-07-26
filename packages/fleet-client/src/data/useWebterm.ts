@@ -10,7 +10,6 @@ import {
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_TAKEOVER_CLOSE_CODE,
   TERMINAL_TAKEOVER_QUERY,
-  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import type { GridMsg } from "webterm/protocol";
 import { wsBridgeUrl } from "./client";
@@ -60,7 +59,7 @@ export function closeStatus(code: number): WebtermStatus {
 
 export function terminalPath(repo: string, name: string, takeover = false): string {
   const path = `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
-  return takeover ? `${path}?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}` : path;
+  return takeover ? `${path}?${TERMINAL_TAKEOVER_QUERY}=true` : path;
 }
 
 interface UseWebtermResult {
@@ -114,14 +113,21 @@ export function useWebterm(
   }, []);
 
   useEffect(() => {
+    // Consumed before the `active` bail-out: a takeover belongs to the attempt
+    // that asked for it, and must not be replayed against whoever holds the
+    // session the next time this workspace is attached.
     const requestTakeover = takeoverRef.current;
     takeoverRef.current = false;
     if (!active) {
       setStatus("idle");
       return;
     }
+    // Keep the last reported cell size: the canvas is unchanged across a
+    // reconnect, and nothing re-measures it (the caller's ResizeObserver only
+    // fires on an actual resize). Clearing it here would leave `onopen` with
+    // nothing to send, and the ship closes an un-`init`ed socket after 5s.
+    // `initializedRef` is what makes the replay an `init` rather than a `resize`.
     initializedRef.current = false;
-    pendingSizeRef.current = null;
     setStatus("connecting");
 
     const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name, requestTakeover)));

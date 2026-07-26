@@ -18,7 +18,7 @@ describe("browser server-message handling", () => {
 
   test("appends the takeover flag after the encoded path segments", () => {
     expect(terminalPath("repo ?#% 雪", "work ?#% λ", true)).toBe(
-      "/workspaces/repo%20%3F%23%25%20%E9%9B%AA/work%20%3F%23%25%20%CE%BB/terminal?takeover=1",
+      "/workspaces/repo%20%3F%23%25%20%E9%9B%AA/work%20%3F%23%25%20%CE%BB/terminal?takeover=true",
     );
     expect(terminalPath("repo", "work", false)).toBe("/workspaces/repo/work/terminal");
   });

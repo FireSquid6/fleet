@@ -14,7 +14,6 @@ import {
   decodeClientMessage,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
-  isTakeoverRequested,
   MAX_PENDING_BYTES,
   utf8ByteLength,
 } from "webterm/protocol";
@@ -163,16 +162,14 @@ export function workspacesPlugin(manager: FleetManager) {
     })
     .ws("/workspaces/:repo/:name/terminal", {
       query: t.Object({
-        takeover: t.Optional(t.String()),
+        takeover: t.Optional(t.Boolean()),
       }),
       open(ws) {
         const { repo, name } = ws.data.params;
 
         let target: string;
         try {
-          target = manager.terminalTarget(repo, name, {
-            takeover: isTakeoverRequested(ws.data.query.takeover),
-          });
+          target = manager.terminalTarget(repo, name, { takeover: ws.data.query.takeover });
         } catch {
           // No HTTP status once a WS is open — use the ship's own exit convention.
           ws.send(JSON.stringify({ type: "exit", code: 1 } satisfies ServerMsg));

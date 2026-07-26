@@ -37,15 +37,11 @@ export const TERMINAL_CONFLICT_CLOSE_REASON = "Terminal already attached by anot
 export const TERMINAL_TAKEOVER_CLOSE_CODE = 4410;
 export const TERMINAL_TAKEOVER_CLOSE_REASON = "Terminal taken over by another connection";
 
-/** Query param on the terminal ws URL asking to evict the incumbent connection. */
+/**
+ * Query param on the terminal ws URL asking to evict the incumbent connection.
+ * Decoded as a boolean by the route schemas, so producers must write `true`.
+ */
 export const TERMINAL_TAKEOVER_QUERY = "takeover";
-/** The value every hop writes for `TERMINAL_TAKEOVER_QUERY`. */
-export const TERMINAL_TAKEOVER_QUERY_VALUE = "1";
-
-/** Whether a `takeover` query value asks to evict the incumbent connection. */
-export function isTakeoverRequested(value: string | undefined): boolean {
-  return value === TERMINAL_TAKEOVER_QUERY_VALUE || value === "true";
-}
 
 const utf8 = new TextEncoder();
 const colsSchema = z.number().int().min(MIN_TERMINAL_COLS).max(MAX_TERMINAL_COLS);

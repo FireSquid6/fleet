@@ -6,7 +6,6 @@ import {
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
   TERMINAL_TAKEOVER_QUERY,
-  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import { startClientServer, upgradeBridgeWebSocket } from "../src";
 
@@ -87,12 +86,12 @@ describe("client terminal proxy", () => {
   });
 
   test("carries the terminal takeover query through to the bridge", async () => {
-    const socket = new WebSocket(`${url}?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`);
+    const socket = new WebSocket(`${url}?${TERMINAL_TAKEOVER_QUERY}=true`);
     await opened(socket);
     const message = nextMessage(socket);
     socket.send('{"type":"input","data":"where"}');
     expect(await message).toBe(
-      `/workspaces/repo/name/terminal?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`,
+      `/workspaces/repo/name/terminal?${TERMINAL_TAKEOVER_QUERY}=true`,
     );
     socket.close();
   });

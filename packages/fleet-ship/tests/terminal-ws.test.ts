@@ -10,7 +10,6 @@ import {
   TERMINAL_TAKEOVER_CLOSE_CODE,
   TERMINAL_TAKEOVER_CLOSE_REASON,
   TERMINAL_TAKEOVER_QUERY,
-  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import type { ServerMsg } from "webterm/protocol";
 import { createApp } from "../src/api";
@@ -59,6 +58,20 @@ describe("ship terminal protocol", () => {
     url = `ws://localhost:${app.server?.port}/workspaces/repo/name/terminal`;
   });
 
+  /**
+   * Resolve once the ship has *accepted* the attach. `opened()` alone proves
+   * nothing: a refused connection is upgraded first and closed immediately
+   * after, so it fires `open` too. Driving an `init` through to the bridge is
+   * the cheapest thing only a live connection can do.
+   */
+  const attached = async (socket: WebSocket, cols = 80, rows = 24) => {
+    await opened(socket);
+    const before = handled.length;
+    socket.send(JSON.stringify({ type: "init", cols, rows }));
+    await Bun.sleep(20);
+    expect(handled.slice(before)).toEqual([{ type: "init", cols, rows }]);
+  };
+
   test("configures the Bun WebSocket payload limit through Elysia", () => {
     expect(app.config.websocket?.maxPayloadLength).toBe(MAX_CLIENT_FRAME_BYTES);
   });
@@ -96,7 +109,7 @@ describe("ship terminal protocol", () => {
 
     sendOnCreate = undefined;
     const replacement = new WebSocket(url);
-    await opened(replacement);
+    await attached(replacement);
     expect(creates).toBe(2);
     const replacementClose = closed(replacement);
     replacement.close();
@@ -140,8 +153,8 @@ describe("ship terminal protocol", () => {
     expect(stops).toBe(1);
 
     const replacement = new WebSocket(url);
-    await opened(replacement);
-    replacement.send('{"type":"init","cols":80,"rows":24}');
+    await attached(replacement);
+    // Past the 20ms init timeout: the `init` disarmed it.
     await Bun.sleep(30);
     expect(replacement.readyState).toBe(WebSocket.OPEN);
     const replacementClose = closed(replacement);
@@ -166,7 +179,7 @@ describe("ship terminal protocol", () => {
       expect(stops).toBe(1);
 
       const replacement = new WebSocket(url);
-      await opened(replacement);
+      await attached(replacement);
       const replacementClose = closed(replacement);
       replacement.close();
       await replacementClose;
@@ -174,16 +187,17 @@ describe("ship terminal protocol", () => {
   }
 
   describe("single-connection guard", () => {
-    const takeoverUrl = () => `${url}?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`;
+    const takeoverUrl = () => `${url}?${TERMINAL_TAKEOVER_QUERY}=true`;
+    const refused = async (socket: WebSocket, code: number) => {
+      expect(await closed(socket)).toMatchObject({ code });
+    };
 
-    test("refuses a second connection without disturbing the incumbent", async () => {
+    test("refuses further connections while keeping the incumbent's claim", async () => {
       const first = new WebSocket(url);
-      await opened(first);
-      first.send('{"type":"init","cols":80,"rows":24}');
+      await attached(first);
 
       const second = new WebSocket(url);
-      const refused = closed(second);
-      expect(await refused).toMatchObject({
+      expect(await closed(second)).toMatchObject({
         code: TERMINAL_CONFLICT_CLOSE_CODE,
         reason: TERMINAL_CONFLICT_CLOSE_REASON,
       });
@@ -195,6 +209,13 @@ describe("ship terminal protocol", () => {
       await Bun.sleep(20);
       expect(handled).toContainEqual({ type: "input", data: "still here" });
 
+      // A refusal must leave the guard entry itself intact, not just the
+      // incumbent's socket and bridge — otherwise the next arrival walks in.
+      const third = new WebSocket(url);
+      await refused(third, TERMINAL_CONFLICT_CLOSE_CODE);
+      expect(creates).toBe(1);
+      expect(first.readyState).toBe(WebSocket.OPEN);
+
       const close = closed(first);
       first.close();
       await close;
@@ -202,23 +223,16 @@ describe("ship terminal protocol", () => {
 
     test("evicts the incumbent when a takeover is requested", async () => {
       const first = new WebSocket(url);
-      await opened(first);
-      first.send('{"type":"init","cols":80,"rows":24}');
-      await Bun.sleep(20);
+      await attached(first);
 
       const evicted = closed(first);
       const second = new WebSocket(takeoverUrl());
-      await opened(second);
+      await attached(second, 100, 40);
       expect(await evicted).toMatchObject({
         code: TERMINAL_TAKEOVER_CLOSE_CODE,
         reason: TERMINAL_TAKEOVER_CLOSE_REASON,
       });
-      await Bun.sleep(20);
       expect({ creates, stops }).toEqual({ creates: 2, stops: 1 });
-
-      second.send('{"type":"init","cols":100,"rows":40}');
-      await Bun.sleep(20);
-      expect(handled).toContainEqual({ type: "init", cols: 100, rows: 40 });
       expect(second.readyState).toBe(WebSocket.OPEN);
 
       const close = closed(second);
@@ -231,14 +245,14 @@ describe("ship terminal protocol", () => {
       await opened(first);
       const evicted = closed(first);
       const second = new WebSocket(takeoverUrl());
-      await opened(second);
+      await attached(second);
       await evicted;
       // The evicted socket's own close event must not release the guard the
       // taker now holds.
       await Bun.sleep(20);
 
       const third = new WebSocket(url);
-      expect(await closed(third)).toMatchObject({ code: TERMINAL_CONFLICT_CLOSE_CODE });
+      await refused(third, TERMINAL_CONFLICT_CLOSE_CODE);
       expect(second.readyState).toBe(WebSocket.OPEN);
 
       const released = closed(second);
@@ -246,8 +260,11 @@ describe("ship terminal protocol", () => {
       await released;
       await Bun.sleep(20);
 
+      // Only an accepted connection reaches the bridge, so `attached` is what
+      // proves the ordinary disconnect above released the guard.
       const fourth = new WebSocket(url);
-      await opened(fourth);
+      await attached(fourth);
+      expect(creates).toBe(3);
       const close = closed(fourth);
       fourth.close();
       await close;
@@ -255,11 +272,8 @@ describe("ship terminal protocol", () => {
 
     test("connects normally when a takeover finds no incumbent", async () => {
       const socket = new WebSocket(takeoverUrl());
-      await opened(socket);
-      socket.send('{"type":"init","cols":80,"rows":24}');
-      await Bun.sleep(20);
+      await attached(socket);
       expect({ creates, stops }).toEqual({ creates: 1, stops: 0 });
-      expect(handled).toEqual([{ type: "init", cols: 80, rows: 24 }]);
       const close = closed(socket);
       socket.close();
       await close;

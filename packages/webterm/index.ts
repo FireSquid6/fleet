@@ -31,8 +31,6 @@ export {
   TERMINAL_TAKEOVER_CLOSE_CODE,
   TERMINAL_TAKEOVER_CLOSE_REASON,
   TERMINAL_TAKEOVER_QUERY,
-  TERMINAL_TAKEOVER_QUERY_VALUE,
-  isTakeoverRequested,
   decodeClientMessage,
   decodeServerMessage,
   utf8ByteLength,

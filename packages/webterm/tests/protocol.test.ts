@@ -3,14 +3,12 @@ import {
   clampTerminalSize,
   decodeClientMessage,
   decodeServerMessage,
-  isTakeoverRequested,
   MAX_INPUT_BYTES,
   splitInput,
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_CONFLICT_CLOSE_REASON,
   TERMINAL_TAKEOVER_CLOSE_CODE,
   TERMINAL_TAKEOVER_CLOSE_REASON,
-  TERMINAL_TAKEOVER_QUERY_VALUE,
   utf8ByteLength,
 } from "../protocol";
 import type { GridMsg } from "../protocol";
@@ -103,14 +101,5 @@ describe("terminal takeover signalling", () => {
     for (const reason of [TERMINAL_CONFLICT_CLOSE_REASON, TERMINAL_TAKEOVER_CLOSE_REASON]) {
       expect(utf8ByteLength(reason)).toBeLessThanOrEqual(123);
     }
-  });
-
-  test("recognises only the agreed takeover query values", () => {
-    expect(isTakeoverRequested(TERMINAL_TAKEOVER_QUERY_VALUE)).toBe(true);
-    expect(isTakeoverRequested("true")).toBe(true);
-    expect(isTakeoverRequested(undefined)).toBe(false);
-    expect(isTakeoverRequested("")).toBe(false);
-    expect(isTakeoverRequested("0")).toBe(false);
-    expect(isTakeoverRequested("false")).toBe(false);
   });
 });

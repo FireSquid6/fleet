@@ -20,7 +20,6 @@ import {
   INVALID_MESSAGE_CLOSE_REASON,
   MAX_CLIENT_FRAME_BYTES,
   TERMINAL_TAKEOVER_QUERY,
-  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
@@ -150,14 +149,14 @@ describe("bridge terminal proxy", () => {
     await plainClose;
 
     const client = new WebSocket(
-      `${bridgeUrl}/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`,
+      `${bridgeUrl}/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=true`,
     );
     await opened(client);
     const reply = nextMessage(client);
     client.send('{"type":"init","cols":80,"rows":24}');
     await reply;
     expect(upstreamPaths.at(-1)).toBe(
-      `/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`,
+      `/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=true`,
     );
     const close = closed(client);
     client.close();
