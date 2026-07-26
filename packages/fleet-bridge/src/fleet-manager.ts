@@ -37,6 +37,19 @@ import {
   type ShipSystemResources,
 } from "./types";
 import { RepoAlreadyExistsError, Store } from "./store/store";
+import {
+  providerFor,
+  type Issue,
+  type IssueComment,
+  type IssueSummary,
+  type ListOptions,
+  type PullRequest,
+  type PullRequestSummary,
+  type RepoInfo,
+  type RepoProvider,
+  type Review,
+  type ReviewEvent,
+} from "./providers";
 
 /** A typed error carrying the HTTP status the API layer should map it to. */
 export class BridgeError extends Error {
@@ -81,15 +94,18 @@ export class FleetManager {
   private readonly syncTimeoutMs: number;
   /** Ship roster + repo registry persistence. Tests inject a shared `Store` via `opts.store`. */
   private readonly store: Store;
+  /** Builds a `RepoProvider` for a registered repo; overridable in tests. */
+  private readonly makeProvider: (repo: Repo) => RepoProvider;
 
   constructor(
     private readonly config: BridgeConfig,
     deps?: Partial<ShipConnectionDeps>,
-    opts?: { syncTimeoutMs?: number; store?: Store },
+    opts?: { syncTimeoutMs?: number; store?: Store; providerFor?: (repo: Repo) => RepoProvider },
   ) {
     this.deps = deps;
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
     this.store = opts?.store ?? new Store(config.dataDirectory);
+    this.makeProvider = opts?.providerFor ?? providerFor;
   }
 
   /**
@@ -300,6 +316,61 @@ export class FleetManager {
     this.identifier(name, "repo");
     const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
+  }
+
+  /**
+   * Look up a registered repo and run `fn` against its provider. `ProviderError`
+   * from `fn` propagates unchanged so the API can surface its HTTP status.
+   */
+  private async withProvider<T>(name: string, fn: (provider: RepoProvider) => Promise<T>): Promise<T> {
+    this.identifier(name, "repo");
+    const repo = await this.store.getRepo(name);
+    if (!repo) throw new BridgeError(`repo not found: ${name}`, 404);
+    return fn(this.makeProvider(repo));
+  }
+
+  /** `GET /repos/:name/info`. */
+  async repoInfo(name: string): Promise<RepoInfo> {
+    return this.withProvider(name, (provider) => provider.getInfo());
+  }
+
+  /** `GET /repos/:name/issues`. */
+  async listRepoIssues(name: string, options?: ListOptions): Promise<IssueSummary[]> {
+    return this.withProvider(name, (provider) => provider.listIssues(options));
+  }
+
+  /** `GET /repos/:name/issues/:number`. */
+  async getRepoIssue(name: string, number: number): Promise<Issue> {
+    return this.withProvider(name, (provider) => provider.getIssue(number));
+  }
+
+  /** `POST /repos/:name/issues/:number/comments`. */
+  async commentRepoIssue(name: string, number: number, body: string): Promise<IssueComment> {
+    return this.withProvider(name, (provider) => provider.commentOnIssue(number, body));
+  }
+
+  /** `GET /repos/:name/pulls`. */
+  async listRepoPullRequests(name: string, options?: ListOptions): Promise<PullRequestSummary[]> {
+    return this.withProvider(name, (provider) => provider.listPullRequests(options));
+  }
+
+  /** `GET /repos/:name/pulls/:number`. */
+  async getRepoPullRequest(name: string, number: number): Promise<PullRequest> {
+    return this.withProvider(name, (provider) => provider.getPullRequest(number));
+  }
+
+  /** `POST /repos/:name/pulls/:number/comments`. */
+  async commentRepoPullRequest(name: string, number: number, body: string): Promise<IssueComment> {
+    return this.withProvider(name, (provider) => provider.commentOnPullRequest(number, body));
+  }
+
+  /** `POST /repos/:name/pulls/:number/reviews`. */
+  async reviewRepoPullRequest(
+    name: string,
+    number: number,
+    review: { event: ReviewEvent; body?: string },
+  ): Promise<Review> {
+    return this.withProvider(name, (provider) => provider.reviewPullRequest(number, review));
   }
 
   // --- workspace API (superset of the ship's) -------------------------------
