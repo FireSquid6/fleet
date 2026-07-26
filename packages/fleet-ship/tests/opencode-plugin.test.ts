@@ -17,8 +17,8 @@ function shellResult(exitCode: number, stdout: string) {
 }
 
 describe("OpenCode fleet-agent plugin", () => {
-  test("invokes the fleet agent namespace", () => {
-    expect(pluginSource).toContain("fleet agent in-workspace");
+  test("invokes the fagent agent namespace", () => {
+    expect(pluginSource).toContain("fagent agent in-workspace");
     expect(pluginSource).not.toContain("fleet-agent in-workspace");
   });
 

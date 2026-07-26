@@ -2,7 +2,7 @@
  * plugin-installer.ts — install the startup plugin/hook that tells an agent to
  * activate the `fleet-agent` skill when it boots inside a fleet workspace.
  *
- * Each supported provider's plugin runs the same logic — `fleet agent
+ * Each supported provider's plugin runs the same logic — `fagent agent
  * in-workspace`, and on success inject an "activate the fleet-agent skill"
  * instruction — but the packaging differs per provider:
  *
