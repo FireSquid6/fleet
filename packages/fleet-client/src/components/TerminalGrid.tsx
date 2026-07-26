@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent, type FocusEvent } from "react";
 import { ATTR, type GridMsg, type WireCellObject } from "webterm/protocol";
 import { resolveColor } from "@/lib/webterm/palette";
 import { drawCellGlyph } from "@/lib/webterm/glyphs";
@@ -38,6 +38,26 @@ function baseFont(bold: boolean, italic: boolean): string {
   return `${italic ? "italic " : ""}${bold ? "bold " : ""}${FONT_SIZE}px ${FONT_FAMILY}`;
 }
 
+/** How the cursor cell should be painted this frame. */
+export type CursorRender = "hidden" | "solid" | "outline";
+
+/**
+ * Decide the cursor's appearance. The outline signals "this terminal does not
+ * have keyboard focus", so it wins over the terminal's own blink/shape settings
+ * — but never over `visible`: an app that hid the cursor (DECTCEM) stays hidden
+ * whether or not we are focused.
+ */
+export function cursorRender(
+  cursor: GridMsg["cursor"],
+  focused: boolean,
+  cursorOn: boolean,
+): CursorRender {
+  if (!cursor.visible) return "hidden";
+  if (!focused) return "outline";
+  if (!(cursor.blinking ?? true)) return "solid";
+  return cursorOn ? "solid" : "hidden";
+}
+
 /** Paint a full grid snapshot. The context transform already accounts for DPR. */
 function drawGrid(
   ctx: CanvasRenderingContext2D,
@@ -45,6 +65,7 @@ function drawGrid(
   metrics: CellMetrics,
   colors: TermColors,
   cursorOn: boolean,
+  focused: boolean,
   dpr: number,
 ) {
   const { width: cw, height: ch } = metrics;
@@ -75,34 +96,46 @@ function drawGrid(
     }
   }
 
-  const cursorBlinking = grid.cursor.blinking ?? true;
-  if (grid.cursor.visible && (!cursorBlinking || cursorOn)) {
+  const render = cursorRender(grid.cursor, focused, cursorOn);
+  if (render !== "hidden") {
     const x = colEdge(grid.cursor.x);
     const y = rowEdge(grid.cursor.y);
     const w = colEdge(grid.cursor.x + 1) - x;
     const h = rowEdge(grid.cursor.y + 1) - y;
     const px = (size: number) => Math.max(1, Math.round(size * dpr)) / dpr;
-    ctx.fillStyle = resolveColor(grid.cursor.color, colors.cursor);
+    const cursorColor = resolveColor(grid.cursor.color, colors.cursor);
 
-    switch (grid.cursor.shape ?? "block") {
-      case "block": {
-        ctx.fillRect(x, y, w, h);
-        const cell = grid.cells[grid.cursor.y]?.[grid.cursor.x];
-        if (cell) {
-          const { bg } = cellColors(cell, colors);
-          paintCellGlyph(ctx, cell, x, y, w, h, bg, dpr);
+    if (render === "outline") {
+      const thickness = px(1);
+      ctx.strokeStyle = cursorColor;
+      ctx.lineWidth = thickness;
+      // `strokeRect` centers the stroke on the path, so a rect on the exact cell
+      // edges would spill half its width into the neighbouring cells. Insetting
+      // by half the (whole-device-pixel) thickness lands it inside the cell and
+      // on pixel boundaries, so it stays crisp at any DPR.
+      ctx.strokeRect(x + thickness / 2, y + thickness / 2, w - thickness, h - thickness);
+    } else {
+      ctx.fillStyle = cursorColor;
+      switch (grid.cursor.shape ?? "block") {
+        case "block": {
+          ctx.fillRect(x, y, w, h);
+          const cell = grid.cells[grid.cursor.y]?.[grid.cursor.x];
+          if (cell) {
+            const { bg } = cellColors(cell, colors);
+            paintCellGlyph(ctx, cell, x, y, w, h, bg, dpr);
+          }
+          break;
         }
-        break;
-      }
-      case "underline": {
-        const thickness = px(h / 10);
-        ctx.fillRect(x, y + h - thickness, w, thickness);
-        break;
-      }
-      case "bar": {
-        const thickness = px(w / 6);
-        ctx.fillRect(x, y, thickness, h);
-        break;
+        case "underline": {
+          const thickness = px(h / 10);
+          ctx.fillRect(x, y + h - thickness, w, thickness);
+          break;
+        }
+        case "bar": {
+          const thickness = px(w / 6);
+          ctx.fillRect(x, y, thickness, h);
+          break;
+        }
       }
     }
   }
@@ -198,6 +231,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   const lastSize = useRef<{ cols: number; rows: number } | null>(null);
   const dprRef = useRef(1);
   const cursorOn = useRef(true);
+  const focused = useRef(false);
   const [exitCode, setExitCode] = useState<number | null>(null);
 
   const paint = useCallback(() => {
@@ -207,7 +241,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     const colors = colorsRef.current;
     if (!canvas || !grid || !metrics || !colors) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawGrid(ctx, grid, metrics, colors, cursorOn.current, dprRef.current);
+    if (ctx) drawGrid(ctx, grid, metrics, colors, cursorOn.current, focused.current, dprRef.current);
   }, []);
 
   const scheduleDraw = useCallback(() => {
@@ -237,6 +271,14 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       cursorOn.current = true;
     }
   }, [active, repo, name]);
+
+  // The container can already hold focus by the time we mount (React reuses the
+  // node across a re-attach), and no focus event fires for that, so seed the ref
+  // from the DOM rather than assuming we start blurred.
+  useEffect(() => {
+    focused.current = document.activeElement === containerRef.current;
+    scheduleDraw();
+  }, [active, scheduleDraw]);
 
   // Size the canvas to the container, tell the PTY, and repaint on any change.
   useEffect(() => {
@@ -287,7 +329,10 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     if (!active) return;
     const id = setInterval(() => {
       const grid = latestGrid.current;
-      if (!grid?.cursor.visible || !(grid.cursor.blinking ?? true)) {
+      // Parking `cursorOn` at true (rather than just skipping the toggle) means
+      // regaining focus starts a fresh blink cycle from a drawn cursor instead
+      // of resuming mid-off.
+      if (!focused.current || !grid?.cursor.visible || !(grid.cursor.blinking ?? true)) {
         cursorOn.current = true;
         return;
       }
@@ -309,6 +354,21 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     send(e.clipboardData.getData("text"));
   };
 
+  // React's focus handlers are delegated focusin/focusout, so they also fire for
+  // descendants (the takeover button). Only the container itself captures keys.
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    focused.current = true;
+    cursorOn.current = true;
+    scheduleDraw();
+  };
+
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return;
+    focused.current = false;
+    scheduleDraw();
+  };
+
   const statusMessage =
     exitCode !== null
       ? `process exited (code ${exitCode})`
@@ -328,6 +388,8 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       tabIndex={0}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
+      onFocus={onFocus}
+      onBlur={onBlur}
       className="relative min-h-0 flex-1 cursor-text overflow-hidden bg-term-bg px-3 py-2 outline-none focus:ring-1 focus:ring-inset focus:ring-term-line"
     >
       <canvas ref={canvasRef} />
