@@ -31,18 +31,18 @@ Work means everything:
 
 ## Report your status
 
-Use `fleet agent` to keep the fleet dashboard current. This is how
+Use `fagent agent` to keep the fleet dashboard current. This is how
 humans watching the fleet know what you're doing.
 
-`fleet agent ...` is the only Fleet CLI namespace you may use. Never invoke
-`fleet` by itself or any other Fleet command, including `fleet client ...`,
+Report your status with `fagent agent ...`. Never drive the fleet-management
+CLI: don't invoke `fleet` by itself or any of `fleet client ...`,
 `fleet ship ...`, or `fleet bridge ...`. Those commands are for the process or
 human managing the fleet, not workspace agents.
 
 1. **At the start of a session, run `init` once:**
 
    ```bash
-   fleet agent init --model <model> --provider <provider> --harness <harness>
+   fagent agent init --model <model> --provider <provider> --harness <harness>
    ```
 
    This registers the session and sets your status to `idle`.
@@ -50,7 +50,7 @@ human managing the fleet, not workspace agents.
 2. **Whenever you change phase, update your status:**
 
    ```bash
-   fleet agent status <state> -d "<what you're doing right now>"
+   fagent agent status <state> -d "<what you're doing right now>"
    ```
 
    The description should be a short (100–200 character) human-readable summary
@@ -70,7 +70,7 @@ human managing the fleet, not workspace agents.
    to `awaiting`:**
 
    ```bash
-   fleet agent status awaiting -d "Awaiting user input on <decision or plan>"
+   fagent agent status awaiting -d "Awaiting user input on <decision or plan>"
    ```
 
    This applies to clarification questions, approval requests, decision points,
@@ -83,10 +83,18 @@ Keep the status honest and current — flip to `verifying` when you start runnin
 tests, to `awaiting` the moment you're blocked or need review, and back to
 `building` when you resume.
 
+## Working with issues, PRs, and CI
+
+Use `fagent repo ...` to read and act on the workspace's repository through the
+fleet bridge — issues, pull requests, reviews, and CI check runs. It is handy
+when you need context beyond the code: for example, pull the logs of a failed CI
+run and fix it with `fagent repo logs --pr <n>`. Run `fagent repo --help`, or
+see the `fagent` CLI reference in the Fleet docs, for the full command list.
+
 ## Confirm your context
 
 If you're unsure whether you're inside a fleet workspace, run:
 
 ```bash
-fleet agent in-workspace
+fagent agent in-workspace
 ```

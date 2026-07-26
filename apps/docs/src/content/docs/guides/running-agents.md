@@ -5,14 +5,16 @@ sidebar:
   order: 6
 ---
 
-`fleet agent` is the namespace an agent uses from *inside* its workspace. It has
-exactly three commands, and they need no URL, no ship name, and no workspace
-name — the agent's working directory is enough.
+`fagent agent` is the namespace an agent uses from *inside* its workspace to
+report status. It has exactly three commands, and they need no URL, no ship
+name, and no workspace name — the agent's working directory is enough. (The same
+binary also has `fagent repo` for the workspace's issues, PRs, and CI — see the
+[fagent reference](/reference/fagent/).)
 
-Everything else in the CLI (`fleet client`, `fleet ship`, `fleet bridge`) is for
-the human or process managing the fleet. The `fleet-agent` skill the ship
-installs tells agents so explicitly: `fleet agent ...` is the only namespace they
-may use.
+The `fleet` CLI (`fleet client`, `fleet ship`, `fleet bridge`) is for the human
+or process managing the fleet, not agents. The `fleet-agent` skill the ship
+installs tells agents so explicitly: report with `fagent agent ...`, and leave
+the fleet-management commands alone.
 
 ## How the commands find the workspace
 
@@ -20,7 +22,7 @@ The ship writes an `atlas.json` discovery file to the root of its fleet
 directory, containing the port it is listening on. Workspaces sit two levels
 below that, at `<fleetDirectory>/<repo>/<name>`.
 
-So `fleet agent` walks up from the current directory until it finds
+So `fagent` walks up from the current directory until it finds
 `atlas.json`, reads the port, and derives the workspace identity from the first
 two path segments below that root. It then talks to `http://localhost:<port>`.
 
@@ -34,7 +36,7 @@ The consequences are worth knowing:
 ## Confirm you're in a workspace
 
 ```bash
-fleet agent in-workspace
+fagent agent in-workspace
 ```
 
 Inside a workspace it prints `repo/name` and exits `0`:
@@ -50,7 +52,7 @@ integrations](/guides/agent-integrations/).
 ## Start a session
 
 ```bash
-fleet agent init \
+fagent agent init \
   --model claude-opus-4-8 \
   --provider anthropic \
   --harness claude-code
@@ -75,7 +77,7 @@ activate`](/guides/managing-workspaces/), or from the GUI.
 ## Report status
 
 ```bash
-fleet agent status building -d "Adding the retry path to the upstream client"
+fagent agent status building -d "Adding the retry path to the upstream client"
 ```
 
 ```
@@ -128,18 +130,18 @@ real time.
 ## A typical session
 
 ```bash
-fleet agent in-workspace          # confirm context
-fleet agent init --model claude-opus-4-8 --provider anthropic --harness claude-code
+fagent agent in-workspace         # confirm context
+fagent agent init --model claude-opus-4-8 --provider anthropic --harness claude-code
 
 git pull                          # start from the latest commit
 
-fleet agent status planning -d "Reading the upstream client and its tests"
-fleet agent status building -d "Adding the retry path to the upstream client"
-fleet agent status verifying -d "Running the client test suite"
+fagent agent status planning -d "Reading the upstream client and its tests"
+fagent agent status building -d "Adding the retry path to the upstream client"
+fagent agent status verifying -d "Running the client test suite"
 
 git push                          # nothing pushes for you
 
-fleet agent status idle -d "Retry path landed and pushed on feature/retry"
+fagent agent status idle -d "Retry path landed and pushed on feature/retry"
 ```
 
 The workspace is a real clone and the agent owns its git state end to end: pull

@@ -20,7 +20,6 @@ import {
 import { ship } from "fleet-ship";
 import { bridge } from "fleet-bridge";
 import { startClientServer } from "fleet-client";
-import { agentCommand } from "./agent-command";
 import { launchCommand } from "./launch-command";
 import { attachToWorkspace } from "./attach";
 
@@ -271,6 +270,5 @@ mainCommand.addCommand(clientCommand);
 mainCommand.addCommand(ship);
 mainCommand.addCommand(bridge);
 mainCommand.addCommand(launchCommand);
-mainCommand.addCommand(agentCommand);
 
 mainCommand.parseAsync(process.argv);

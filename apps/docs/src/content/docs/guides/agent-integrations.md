@@ -6,7 +6,7 @@ sidebar:
 ---
 
 For an agent to report status, two things have to be true: it must know the
-`fleet agent` workflow, and something must tell it to start using that workflow
+`fagent agent` workflow, and something must tell it to start using that workflow
 when it boots inside a workspace.
 
 Fleet ships both. A **skill** (`fleet-agent`) carries the instructions, and a
@@ -59,7 +59,7 @@ All three implement the same logic in their provider's own idiom:
 
 1. Is a `fleet` binary on `PATH`? If not, stay silent — this isn't a
    Fleet-managed environment.
-2. Run `fleet agent in-workspace`. Non-zero exit means we're not inside a
+2. Run `fagent agent in-workspace`. Non-zero exit means we're not inside a
    workspace; stay silent.
 3. Check that the output is exactly one `repo/name` pair.
 4. Only then inject an instruction naming the workspace and requiring the agent
@@ -68,7 +68,7 @@ All three implement the same logic in their provider's own idiom:
 The guards matter: a session started outside a workspace gets nothing injected at
 all, and nothing leaks into the model's context.
 
-The skill itself is the source of truth for agent behaviour — the `fleet agent`
+The skill itself is the source of truth for agent behaviour — the `fagent agent`
 commands, the status states, and the git expectations. See [Running
 agents](/guides/running-agents/).
 

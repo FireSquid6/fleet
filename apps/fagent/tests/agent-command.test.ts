@@ -7,7 +7,7 @@ import { initAgent, updateStatus } from "../src/agent-ship";
 
 const entrypoint = join(import.meta.dir, "..", "src", "index.ts");
 
-async function runFleet(args: string[], cwd?: string) {
+async function runFagent(args: string[], cwd?: string) {
   const process = Bun.spawn(["bun", entrypoint, ...args], {
     cwd,
     stdout: "pipe",
@@ -21,7 +21,7 @@ async function runFleet(args: string[], cwd?: string) {
   return { exitCode, stdout, stderr };
 }
 
-describe("fleet agent", () => {
+describe("fagent agent", () => {
   test("encodes workspace identifiers in ship request path segments", async () => {
     const paths: string[] = [];
     const server = Bun.serve({
@@ -64,16 +64,16 @@ describe("fleet agent", () => {
     expect(help).toContain("in-workspace");
   });
 
-  test("is registered by the fleet executable", async () => {
-    const { exitCode, stdout, stderr } = await runFleet(["agent", "--help"]);
+  test("is registered by the fagent executable", async () => {
+    const { exitCode, stdout, stderr } = await runFagent(["agent", "--help"]);
 
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
-    expect(stdout).toContain("Usage: fleet agent");
+    expect(stdout).toContain("Usage: fagent agent");
     expect(stdout).toContain("Workspace reporting commands for agents, not necessarily humans");
   });
 
-  test("dispatches workspace detection and status reporting through fleet", async () => {
+  test("dispatches workspace detection and status reporting through fagent", async () => {
     const requests: Array<{ path: string; body: unknown }> = [];
     const server = Bun.serve({
       port: 0,
@@ -96,13 +96,13 @@ describe("fleet agent", () => {
     await Bun.write(join(dataDirectory, "atlas.json"), JSON.stringify({ port: server.port }));
 
     try {
-      expect(await runFleet(["agent", "in-workspace"], workspace)).toEqual({
+      expect(await runFagent(["agent", "in-workspace"], workspace)).toEqual({
         exitCode: 0,
         stdout: "repo/worker\n",
         stderr: "",
       });
 
-      const initialized = await runFleet([
+      const initialized = await runFagent([
         "agent",
         "init",
         "--model",
@@ -118,7 +118,7 @@ describe("fleet agent", () => {
         stderr: "",
       });
 
-      const updated = await runFleet([
+      const updated = await runFagent([
         "agent",
         "status",
         "building",

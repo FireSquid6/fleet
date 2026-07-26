@@ -89,7 +89,7 @@ up the tree:
    directory but not in a workspace.
 4. The ship is then reachable at `http://localhost:<port>`.
 
-That is what `fleet agent in-workspace` does, and what every other `fleet agent`
+That is what `fagent agent in-workspace` does, and what every other `fagent`
 command does before it makes a request. See [Agents](/concepts/agents/).
 
 `atlas.json` is written atomically — a private temp file, then a rename — and

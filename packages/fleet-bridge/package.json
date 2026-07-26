@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./api": "./src/api/index.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./providers": "./src/providers/index.ts"
   },
   "bin": {
     "fleet-bridge": "src/index.ts"

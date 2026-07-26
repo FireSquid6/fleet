@@ -6,7 +6,7 @@ import { findWorkspace, type WorkspaceLocation } from "./agent-workspace";
 async function requireWorkspace(): Promise<WorkspaceLocation> {
   const location = await findWorkspace();
   if (location === null) {
-    console.error("fleet agent: not inside a fleet workspace");
+    console.error("fagent: not inside a fleet workspace");
     process.exit(1);
   }
   return location;
@@ -35,7 +35,7 @@ agentCommand
   .requiredOption("-d, --description <text>", "short summary of what you're doing (100-200 characters)")
   .action(async (state: string, options: { description: string }) => {
     if (!(AGENT_STATES as readonly string[]).includes(state)) {
-      console.error(`fleet agent: invalid state "${state}"; expected one of: ${AGENT_STATES.join(", ")}`);
+      console.error(`fagent: invalid state "${state}"; expected one of: ${AGENT_STATES.join(", ")}`);
       process.exit(1);
     }
     const location = await requireWorkspace();

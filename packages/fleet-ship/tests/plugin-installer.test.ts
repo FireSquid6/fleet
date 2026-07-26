@@ -106,10 +106,10 @@ describe("installFleetPlugin", () => {
     ).text();
     const openCodeHook = await Bun.file(openCodePlugin(homeDirectory)).text();
     const copilotHookSource = await Bun.file(copilotHook(homeDirectory)).text();
-    expect(claudeHook).toContain("fleet agent in-workspace");
+    expect(claudeHook).toContain("fagent agent in-workspace");
     expect(openCodeHook).toContain("FleetAgentActivation");
-    expect(openCodeHook).toContain("fleet agent in-workspace");
-    expect(copilotHookSource).toContain("fleet agent in-workspace");
+    expect(openCodeHook).toContain("fagent agent in-workspace");
+    expect(copilotHookSource).toContain("fagent agent in-workspace");
     expect([claudeHook, openCodeHook, copilotHookSource].join("\n")).not.toContain("fleet-agent in-workspace");
     expect(JSON.parse(copilotHookSource)).toMatchObject({ version: 1 });
     expect((await inspectFleetPlugin({ homeDirectory })).every(({ state }) => state === "current")).toBe(
@@ -117,7 +117,7 @@ describe("installFleetPlugin", () => {
     );
   });
 
-  test("installed shell hooks invoke fleet agent in-workspace", async () => {
+  test("installed shell hooks invoke fagent agent in-workspace", async () => {
     const { homeDirectory } = await fixture();
     const binDirectory = join(homeDirectory, "bin");
     await Promise.all([
@@ -125,12 +125,12 @@ describe("installFleetPlugin", () => {
       mkdir(join(homeDirectory, ".copilot")),
       mkdir(binDirectory),
     ]);
-    const fakeFleet = join(binDirectory, "fleet");
+    const fakeFagent = join(binDirectory, "fagent");
     await Bun.write(
-      fakeFleet,
+      fakeFagent,
       '#!/usr/bin/env bash\n[[ "$1" == "agent" && "$2" == "in-workspace" ]] || exit 64\nprintf "autosmith/worker-1\\n"\n',
     );
-    await chmod(fakeFleet, 0o755);
+    await chmod(fakeFagent, 0o755);
     await installFleetPlugin({ homeDirectory });
 
     const env = { PATH: `${binDirectory}:${Bun.env.PATH ?? ""}` };
