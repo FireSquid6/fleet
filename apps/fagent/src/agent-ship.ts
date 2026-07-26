@@ -12,7 +12,7 @@ async function post(location: WorkspaceLocation, path: string, body: unknown): P
       body: JSON.stringify(body),
     });
   } catch (error) {
-    console.error(`fleet agent: could not reach ship at ${location.baseUrl}: ${(error as Error).message}`);
+    console.error(`fagent: could not reach ship at ${location.baseUrl}: ${(error as Error).message}`);
     process.exit(1);
   }
 
@@ -20,7 +20,7 @@ async function post(location: WorkspaceLocation, path: string, body: unknown): P
   const parsed = text ? JSON.parse(text) : undefined;
   if (!response.ok) {
     const message = parsed && typeof parsed === "object" && "error" in parsed ? parsed.error : text;
-    console.error(`fleet agent: request failed (${response.status}): ${message}`);
+    console.error(`fagent: request failed (${response.status}): ${message}`);
     process.exit(1);
   }
   return parsed as AgentStatus;

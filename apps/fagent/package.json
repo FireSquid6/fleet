@@ -1,0 +1,23 @@
+{
+  "name": "fagent",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "fagent": "src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "commander": "latest",
+    "fleet-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
