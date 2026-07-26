@@ -11,6 +11,10 @@ import {
   decodeClientMessage,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
+  TERMINAL_CONFLICT_CLOSE_CODE,
+  TERMINAL_CONFLICT_CLOSE_REASON,
+  TERMINAL_TAKEOVER_CLOSE_CODE,
+  TERMINAL_TAKEOVER_CLOSE_REASON,
   TerminalBridge,
 } from "webterm";
 import type { ServerMsg } from "webterm/protocol";
@@ -19,8 +23,10 @@ import { WORKSPACE_TMUX_NAMESPACE } from "../workspace-session";
 import { mapError } from "./http";
 
 // One terminal connection per workspace session — guards against two browser
-// tabs racing to attach the same tmux session through separate PTYs.
-const activeTerminals = new Map<string, true>();
+// tabs racing to attach the same tmux session through separate PTYs. The value
+// is the incumbent's connection state so a later connection asking for a
+// takeover can evict it through its own `finish`.
+const activeTerminals = new Map<string, TerminalConnectionData>();
 
 export const TERMINAL_INIT_TIMEOUT_MS = 5_000;
 export const TERMINAL_INIT_TIMEOUT_CLOSE_CODE = 1008;
@@ -246,18 +252,28 @@ export function workspacesPlugin(
       }
     })
     .ws("/workspaces/:repo/:name/terminal", {
+      query: t.Object({
+        takeover: t.Optional(t.Boolean()),
+      }),
       open(ws) {
         const { repo, name } = ws.data.params;
         const sessionName = manager.sessionName(repo, name);
 
-        if (activeTerminals.has(sessionName)) {
-          ws.send(JSON.stringify({ type: "exit", code: 1 } satisfies ServerMsg));
-          ws.close();
-          return;
+        const incumbent = activeTerminals.get(sessionName);
+        if (incumbent) {
+          if (!ws.data.query.takeover) {
+            // Leave the incumbent's entry and bridge untouched — the close code
+            // is the whole signal, and the browser offers a takeover from it.
+            ws.close(TERMINAL_CONFLICT_CLOSE_CODE, TERMINAL_CONFLICT_CLOSE_REASON);
+            return;
+          }
+          // Evict before registering: `finish` clears the incumbent's map entry,
+          // so claiming the session first would drop our own registration.
+          incumbent.finish?.(true, TERMINAL_TAKEOVER_CLOSE_CODE, TERMINAL_TAKEOVER_CLOSE_REASON);
         }
-        activeTerminals.set(sessionName, true);
 
         const data = ws.data as TerminalConnectionData;
+        activeTerminals.set(sessionName, data);
         data.sessionName = sessionName;
         data.initialized = false;
         data.finished = false;
@@ -271,7 +287,11 @@ export function workspacesPlugin(
           try {
             bridge?.stop();
           } finally {
-            activeTerminals.delete(sessionName);
+            // Invariant: a connection only ever releases the guard it holds.
+            // Every replacement path finishes the incumbent *before* claiming
+            // the session, so today the entry is always ours; the check keeps
+            // that assumption checkable here rather than at each call site.
+            if (activeTerminals.get(sessionName) === data) activeTerminals.delete(sessionName);
           }
           if (closeSocket) ws.close(code, reason);
         };

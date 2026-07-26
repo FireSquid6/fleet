@@ -219,7 +219,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     });
   }, [paint]);
 
-  const { status, send, resize } = useWebterm(repo, name, active, {
+  const { status, send, resize, takeover } = useWebterm(repo, name, active, {
     onGrid: (grid) => {
       latestGrid.current = grid;
       cursorOn.current = true;
@@ -309,6 +309,19 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     send(e.clipboardData.getData("text"));
   };
 
+  const statusMessage =
+    exitCode !== null
+      ? `process exited (code ${exitCode})`
+      : status === "connecting"
+        ? "connecting…"
+        : status === "superseded"
+          ? "this terminal was taken over by another connection"
+          : status === "error"
+            ? "connection failed"
+            : status === "closed"
+              ? "disconnected"
+              : null;
+
   return (
     <div
       ref={containerRef}
@@ -318,16 +331,26 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       className="relative min-h-0 flex-1 cursor-text overflow-hidden bg-term-bg px-3 py-2 outline-none focus:ring-1 focus:ring-inset focus:ring-term-line"
     >
       <canvas ref={canvasRef} />
-      {(status === "connecting" || status === "closed" || status === "error" || exitCode !== null) && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[11.5px] text-term-sys">
-          {exitCode !== null
-            ? `process exited (code ${exitCode})`
-            : status === "connecting"
-              ? "connecting…"
-              : status === "error"
-                ? "connection failed"
-                : "disconnected"}
+      {/* The conflict overlay owns pointer events — its button is the only way out. */}
+      {status === "conflict" && exitCode === null ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-[15px] bg-term-bg p-10 text-center">
+          <div className="max-w-[360px] font-mono text-[11.5px] leading-[1.6] text-term-sys">
+            Another connection exists. Would you like to close it and connect yourself?
+          </div>
+          <button
+            type="button"
+            onClick={takeover}
+            className="rounded-[4px] bg-accent px-5 py-[9px] font-mono text-[12px] font-bold text-[#06140b] transition-[filter] hover:brightness-110"
+          >
+            ▸ Close it and connect
+          </button>
         </div>
+      ) : (
+        statusMessage !== null && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[11.5px] text-term-sys">
+            {statusMessage}
+          </div>
+        )
       )}
     </div>
   );

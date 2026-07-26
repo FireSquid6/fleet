@@ -5,6 +5,7 @@ import {
   BINARY_MESSAGE_CLOSE_REASON,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
+  TERMINAL_TAKEOVER_QUERY,
 } from "webterm/protocol";
 import { startClientServer, upgradeBridgeWebSocket } from "../src";
 
@@ -51,7 +52,8 @@ describe("client terminal proxy", () => {
     upstream = Bun.serve({
       port: 0,
       fetch(request, server) {
-        if (server.upgrade(request, { data: new URL(request.url).pathname })) return undefined;
+        const target = new URL(request.url);
+        if (server.upgrade(request, { data: target.pathname + target.search })) return undefined;
         return new Response(null, { status: 400 });
       },
       websocket: {
@@ -62,6 +64,7 @@ describe("client terminal proxy", () => {
           const data = JSON.parse(String(message)).data;
           if (data === "bye") socket.close(4321, "bridge closed");
           else if (data === "binary") socket.send(new Uint8Array([1, 2, 3]));
+          else if (data === "where") socket.send(socket.data);
         },
       },
     });
@@ -80,6 +83,17 @@ describe("client terminal proxy", () => {
     const close = closed(socket);
     socket.send('{"type":"input","data":"bye"}');
     expect(await close).toMatchObject({ code: 4321, reason: "bridge closed" });
+  });
+
+  test("carries the terminal takeover query through to the bridge", async () => {
+    const socket = new WebSocket(`${url}?${TERMINAL_TAKEOVER_QUERY}=true`);
+    await opened(socket);
+    const message = nextMessage(socket);
+    socket.send('{"type":"input","data":"where"}');
+    expect(await message).toBe(
+      `/workspaces/repo/name/terminal?${TERMINAL_TAKEOVER_QUERY}=true`,
+    );
+    socket.close();
   });
 
   test("forwards a sync sent before the downstream socket opens", async () => {

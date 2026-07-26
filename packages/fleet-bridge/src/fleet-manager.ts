@@ -28,6 +28,7 @@ import {
   type WorkspaceSummary,
 } from "fleet-protocol";
 import type { DiffOptions } from "git-bun";
+import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import type { BridgeConfig } from "./config";
 import {
@@ -487,13 +488,22 @@ export class FleetManager {
     );
   }
 
-  /** Resolve the ws:// terminal endpoint on the ship that owns `(repo, name)`. */
-  terminalTarget(repo: string, name: string): string {
+  /**
+   * Resolve the ws:// terminal endpoint on the ship that owns `(repo, name)`.
+   * With `takeover`, ask the ship to evict whichever connection currently owns
+   * the workspace's tmux session.
+   */
+  terminalTarget(repo: string, name: string, options: { takeover?: boolean } = {}): string {
     const conn = this.routeFor(repo, name);
-    return toWsUrl(
-      conn.url,
-      `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`,
+    const url = new URL(
+      toWsUrl(conn.url, `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`),
     );
+    // Added through `searchParams`, not concatenation: a registered ship URL is
+    // an unvalidated string, and `toWsUrl` deliberately keeps any query or
+    // fragment it carries (`/events` gets them too, so a ship registered with a
+    // token keeps it here).
+    if (options.takeover) url.searchParams.set(TERMINAL_TAKEOVER_QUERY, "true");
+    return url.toString();
   }
 
   // --- internals ------------------------------------------------------------
