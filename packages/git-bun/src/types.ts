@@ -271,6 +271,15 @@ export interface PushOptions {
 
 /** Options for {@link Git.lsRemote}. */
 export interface LsRemoteOptions {
+  /**
+   * Directory to run from; must already exist. `ls-remote` talks to `url`, but
+   * `-C <cwd>` still decides which repository's configuration git reads, so remote
+   * names, `url.<base>.insteadOf` rewrites and credential helpers all come from
+   * there. Required rather than defaulting to `process.cwd()`: a probe that silently
+   * inherited ambient config could resolve `url` differently than the clone that
+   * follows it.
+   */
+  cwd: string;
   /** List only branch refs (`--heads`). */
   heads?: boolean;
   /** List only tag refs (`--tags`). */
@@ -280,13 +289,6 @@ export interface LsRemoteOptions {
    * ref, so `"foo"` also reports `refs/heads/bar/foo`.
    */
   pattern?: string;
-  /**
-   * Directory to run from. `ls-remote` only talks to `url`, but {@link GitCommand}
-   * injects `-C <cwd>` into every invocation and git resolves `-C` before it does
-   * anything else, so some existing directory is still required. Defaults to
-   * `process.cwd()`; the repository (if any) at that path is never consulted.
-   */
-  cwd?: string;
   /** git executable name/path. Defaults to `"git"`. */
   binary?: string;
   /** Extra environment variables for the invocation, e.g. `GIT_SSH_COMMAND`. */

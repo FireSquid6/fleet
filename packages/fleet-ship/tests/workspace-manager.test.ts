@@ -494,12 +494,101 @@ suite("WorkspaceManager end-to-end", () => {
     expect((await git.branches({ remote: true })).map((b) => b.name)).toContain("origin/main");
   });
 
+  test("create checks out a tag that exists upstream instead of forking a branch", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-tag-"));
+    const upstream = join(base, "upstream");
+    try {
+      const git = await Git.init(upstream, { initialBranch: "main" });
+      await git.setConfig("user.email", "test@example.com");
+      await git.setConfig("user.name", "Test");
+      await Bun.write(join(upstream, "README.md"), "hi\n");
+      await git.add();
+      await git.commit("initial");
+      await Bun.write(join(upstream, "tagged.txt"), "v1\n");
+      await git.add();
+      await git.commit("tagged commit");
+      await git.command.run(["tag", "v1.0"]);
+      // Move the default branch past the tag, so the tag's tree is distinguishable
+      // from a branch forked off `main`.
+      await Bun.write(join(upstream, "after.txt"), "later\n");
+      await git.add();
+      await git.commit("after the tag");
+
+      const summary = await manager.create({
+        url: upstream,
+        repoName: "repo",
+        name: "ws-tag",
+        branch: "v1.0",
+      });
+      expect(summary.branch).toBe("v1.0");
+
+      const wsDir = manager.workspaceDir("repo", "ws-tag");
+      expect(await Bun.file(join(wsDir, "tagged.txt")).text()).toBe("v1\n");
+      expect(await Bun.file(join(wsDir, "after.txt")).exists()).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create trims the requested branch before using it", async () => {
+    const summary = await manager.create({
+      url: sourceRepo,
+      repoName: "repo",
+      name: "ws-trim",
+      branch: " main",
+    });
+    expect(summary.branch).toBe("main");
+    expect(await new Git({ cwd: manager.workspaceDir("repo", "ws-trim") }).currentBranch()).toBe(
+      "main",
+    );
+  });
+
   test("create rejects an empty branch without creating a directory", async () => {
     await expect(
       manager.create({ url: sourceRepo, repoName: "repo", name: "ws-blank-branch", branch: "  " }),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/branch must not be empty/),
+    });
 
     await expect(stat(join(fleetDirectory, "repo", "ws-blank-branch"))).rejects.toThrow(/ENOENT/);
+  });
+
+  test("create rejects a branch name git refuses, removing the clone it made", async () => {
+    await expect(
+      manager.create({
+        url: sourceRepo,
+        repoName: "repo",
+        name: "ws-bad-branch",
+        branch: "bad..name",
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/could not create branch/),
+    });
+
+    // The clone succeeds and only `switch -c` fails, so this is the rollback path:
+    // nothing may be left behind, or every retry would be a 409.
+    await expect(stat(join(fleetDirectory, "repo", "ws-bad-branch"))).rejects.toThrow(/ENOENT/);
+  });
+
+  test("create rejects a remote with no commits to branch from", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-empty-"));
+    const empty = join(base, "empty");
+    try {
+      await Git.init(empty, { initialBranch: "main" });
+
+      await expect(
+        manager.create({ url: empty, repoName: "repo", name: "ws-empty-remote", branch: "main" }),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/no commits/),
+      });
+
+      await expect(stat(join(fleetDirectory, "repo", "ws-empty-remote"))).rejects.toThrow(/ENOENT/);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
   });
 
   test("list skips directories that are not git working trees", async () => {

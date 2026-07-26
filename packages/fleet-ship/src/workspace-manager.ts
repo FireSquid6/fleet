@@ -8,7 +8,8 @@
  */
 
 import { lstat, readdir, rm } from "node:fs/promises";
-import { Git, type DiffOptions } from "git-bun";
+import { dirname } from "node:path";
+import { Git, GitError, type DiffOptions } from "git-bun";
 import { Tmux } from "tmux-bun";
 import {
   FleetIdentifierSchema,
@@ -74,6 +75,45 @@ const DEFAULT_BRANCH_CANDIDATES = ["main", "master", "origin/main", "origin/mast
 
 function defaultBranch(names: readonly string[]): string | null {
   return DEFAULT_BRANCH_CANDIDATES.find((candidate) => names.includes(candidate)) ?? null;
+}
+
+/**
+ * Clone `url` into `dir` and put the workspace on `branch`, which the remote did
+ * not advertise: it is created off whatever the clone checked out. Rolls the clone
+ * back on any failure, so a failed create never leaves a directory behind for the
+ * next attempt to trip over.
+ */
+async function createOnNewBranch(url: string, dir: string, branch: string): Promise<void> {
+  const git = await Git.clone(url, dir);
+  try {
+    // A clone can exit 0 with nothing checked out — an empty remote, or one whose
+    // HEAD names a deleted branch — and a branch forked off that has no commits, so
+    // every later git read on the workspace fails. Refuse it while it is still ours.
+    if ((await git.command.tryRun(["rev-parse", "--verify", "HEAD"])).exitCode !== 0) {
+      throw new WorkspaceError(`remote has no commits to create branch "${branch}" from`, 400);
+    }
+    if ((await git.currentBranch()) !== branch) {
+      // The probe's answer can be stale — `branch` may have been pushed since — so
+      // decide from the refs the clone fetched: without `create`, git's DWIM tracks
+      // `origin/<branch>` instead of forking a same-named branch off the default.
+      const remotes = await git.branches({ remote: true });
+      const tracking = remotes.some((remote) => remote.name === `origin/${branch}`);
+      await git.switchBranch(branch, { create: !tracking });
+    }
+  } catch (error) {
+    // Leave nothing behind: a half-configured clone would make every retry a
+    // 409 on the clone destination. `assertCloneDestinationAvailable` proved
+    // `dir` did not exist before, so removing it can only undo our own work.
+    await rm(dir, { recursive: true, force: true });
+    // The clone succeeded, so git refusing anything after it means a branch name it
+    // will not take (`HEAD`, `a..b`, or one colliding with an existing ref) — the
+    // caller's input, not a server fault.
+    if (error instanceof GitError) {
+      const detail = error.stderr.trim() === "" ? error.message : error.stderr.trim();
+      throw new WorkspaceError(`could not create branch "${branch}": ${detail}`, 400);
+    }
+    throw error;
+  }
 }
 
 export class WorkspaceManager {
@@ -352,11 +392,13 @@ export class WorkspaceManager {
   async create(options: CreateWorkspaceOptions): Promise<WorkspaceSummary> {
     const parsed = CreateWorkspaceRequestSchema.safeParse(options);
     if (!parsed.success) throw new WorkspaceError("invalid workspace create request", 400);
-    const { url, repoName, name, branch } = parsed.data;
+    const { url, repoName, name } = parsed.data;
     // The protocol only types `branch` as a string, so a blank one reaches here.
-    // Reject it before any directory is created, and before it can be handed to
-    // the ref probe below as a pattern that means nothing.
-    if (branch.trim().length === 0) throw new WorkspaceError("branch must not be empty", 400);
+    if (parsed.data.branch.trim().length === 0) {
+      throw new WorkspaceError("branch must not be empty", 400);
+    }
+    // One trimmed value downstream: probe pattern, ref git resolves, branch reported.
+    const branch = parsed.data.branch.trim();
     let dir: string;
     try {
       dir = await assertCloneDestinationAvailable(this.config.fleetDirectory, repoName, name);
@@ -366,30 +408,22 @@ export class WorkspaceManager {
       throw error;
     }
 
-    // `ls-remote`'s pattern matches the tail of a ref, so a pattern of `foo` also
-    // reports `refs/heads/bar/foo`; only the fully qualified name means the caller's
-    // branch is really upstream. A failing probe (unreachable URL, auth) propagates
-    // as a GitError rather than being read as "the branch doesn't exist", so a
-    // network blip can't silently put the workspace on the wrong branch.
-    const heads = await Git.lsRemote(url, { heads: true, pattern: branch });
-    if (heads.some((head) => head.ref === `refs/heads/${branch}`)) {
+    // A failing probe propagates as a GitError instead of being read as "the ref
+    // doesn't exist", so a network blip can't put the workspace on a branch forked
+    // off the wrong place. `cwd` is where `Git.clone` runs, so both read one config.
+    const advertised = await Git.lsRemote(url, {
+      cwd: dirname(dir),
+      heads: true,
+      tags: true,
+      pattern: branch,
+    });
+    const isUpstreamRef = advertised.some(
+      (ref) => ref.ref === `refs/heads/${branch}` || ref.ref === `refs/tags/${branch}`,
+    );
+    if (isUpstreamRef) {
       await Git.clone(url, dir, { branch });
     } else {
-      const git = await Git.clone(url, dir, {});
-      try {
-        // The probe would normally have found a branch that is already the clone's
-        // HEAD, but an unborn or otherwise odd remote can still land here, and
-        // `switch -c` fails on an existing branch.
-        if ((await git.currentBranch()) !== branch) {
-          await git.switchBranch(branch, { create: true });
-        }
-      } catch (error) {
-        // Leave nothing behind: a half-configured clone would make every retry a
-        // 409 on the clone destination. `assertCloneDestinationAvailable` proved
-        // `dir` did not exist before, so removing it can only undo our own work.
-        await rm(dir, { recursive: true, force: true });
-        throw error;
-      }
+      await createOnNewBranch(url, dir, branch);
     }
 
     const summary: WorkspaceSummary = { repoName, name, branch, active: false, agent: null };

@@ -477,14 +477,44 @@ suite("git-bun end-to-end", () => {
     await repo.commit("base");
     await repo.createBranch("feature/one");
 
-    const heads = await Git.lsRemote(dir, { heads: true });
+    const heads = await Git.lsRemote(dir, { cwd: root, heads: true });
     expect(heads.map((h) => h.ref).sort()).toEqual(["refs/heads/feature/one", "refs/heads/main"]);
     expect(heads[0]?.sha).toMatch(/^[0-9a-f]{40}$/);
 
-    const found = await Git.lsRemote(dir, { heads: true, pattern: "feature/one" });
+    const found = await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "feature/one" });
     expect(found.map((h) => h.ref)).toEqual(["refs/heads/feature/one"]);
 
-    expect(await Git.lsRemote(dir, { heads: true, pattern: "no-such-branch" })).toEqual([]);
+    expect(await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "no-such-branch" })).toEqual(
+      [],
+    );
+  });
+
+  test("lsRemote matches a pattern against the tail of a ref, not the whole name", async () => {
+    const dir = join(root, "ls-remote-tail-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(dir, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.createBranch("feature/one");
+
+    // `one` is not a branch here, yet git still reports `refs/heads/feature/one` —
+    // which is why callers testing for one specific branch must compare the fully
+    // qualified ref rather than treating a non-empty result as "it exists".
+    const tail = await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "one" });
+    expect(tail.map((h) => h.ref)).toEqual(["refs/heads/feature/one"]);
+  });
+
+  test("lsRemote reports tags when asked, and only branches when not", async () => {
+    const dir = join(root, "ls-remote-tag-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(dir, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.command.run(["tag", "v1.0"]);
+
+    const refs = await Git.lsRemote(dir, { cwd: root, heads: true, tags: true, pattern: "v1.0" });
+    expect(refs.map((r) => r.ref)).toContain("refs/tags/v1.0");
+    expect(await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "v1.0" })).toEqual([]);
   });
 
   test("genuine failures surface as GitError", async () => {

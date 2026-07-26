@@ -365,7 +365,9 @@ export class Git {
   /**
    * List the refs a remote advertises (`ls-remote`) — a metadata-only round trip,
    * so it answers "does this branch exist upstream?" without fetching objects.
-   * Static because the query is addressed to `url`, not to a working directory.
+   * Static because the query is addressed to `url`, not to a working directory —
+   * but `options.cwd` is still required, since it decides whose git config the
+   * probe reads (see {@link LsRemoteOptions.cwd}).
    *
    * `options.pattern` narrows the listing by *tail* match, so a pattern of `"foo"`
    * also returns `refs/heads/bar/foo`; compare `ref` against the fully qualified
@@ -373,17 +375,19 @@ export class Git {
    */
   static async lsRemote(
     url: string,
-    options: LsRemoteOptions = {},
+    options: LsRemoteOptions,
     backend?: GitBackend,
   ): Promise<RemoteRef[]> {
     const command = new GitCommand(
-      { cwd: options.cwd ?? process.cwd(), binary: options.binary, env: options.env },
+      { cwd: options.cwd, binary: options.binary, env: options.env },
       backend,
     );
     const args = ["ls-remote"];
     if (options.heads) args.push("--heads");
     if (options.tags) args.push("--tags");
-    args.push(url);
+    // `--` keeps a `url` or `pattern` that starts with `-` out of git's option
+    // parser, since both are caller-supplied.
+    args.push("--", url);
     if (options.pattern !== undefined) args.push(options.pattern);
     return parseLsRemote(await command.run(args));
   }

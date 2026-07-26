@@ -270,6 +270,10 @@ bridge looks up its clone URL and calls the ship's `POST /workspaces` with
 `{url, repoName, name, branch}`. Returns `201` with the ship's
 `WorkspaceSummary` plus `ship`.
 
+`branch` is handled entirely by the ship, so a branch the repo does not have yet is
+created in the new workspace rather than rejected — see
+[ship API](/reference/ship-api/).
+
 | Status | Cause |
 | --- | --- |
 | `422` | A body field is missing. |
