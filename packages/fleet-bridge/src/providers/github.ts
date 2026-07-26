@@ -10,6 +10,8 @@
  */
 
 import type {
+  CheckRun,
+  FailedJobLog,
   Issue,
   IssueComment,
   IssueSummary,
@@ -93,7 +95,7 @@ interface GitHubPull {
   updated_at: string;
   draft: boolean;
   base: { ref: string };
-  head: { ref: string };
+  head: { ref: string; sha: string };
   body: string | null;
   merged: boolean;
   mergeable: boolean | null;
@@ -116,6 +118,26 @@ interface GitHubReview {
   user: GitHubUser | null;
   body: string;
   html_url: string;
+}
+
+interface GitHubCheckRun {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  details_url: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+}
+
+interface GitHubJob {
+  id: number;
+  name: string;
+  conclusion: string | null;
 }
 
 export class GitHubProvider implements RepoProvider {
@@ -188,6 +210,7 @@ export class GitHubProvider implements RepoProvider {
       additions: pull.additions,
       deletions: pull.deletions,
       changedFiles: pull.changed_files,
+      headSha: pull.head.sha,
     };
   }
 
@@ -216,6 +239,63 @@ export class GitHubProvider implements RepoProvider {
       body: created.body,
       url: created.html_url,
     };
+  }
+
+  async listChecks(ref: string): Promise<CheckRun[]> {
+    const result = await this.request<{ check_runs: GitHubCheckRun[] }>(
+      `/repos/${this.owner}/${this.repo}/commits/${encodeURIComponent(ref)}/check-runs`,
+    );
+    return result.check_runs.map((run) => ({
+      name: run.name,
+      status: run.status,
+      conclusion: run.conclusion,
+      detailsUrl: run.details_url,
+      startedAt: run.started_at,
+      completedAt: run.completed_at,
+    }));
+  }
+
+  async getFailedLogs(ref: string): Promise<FailedJobLog[]> {
+    // Downloading Actions logs is authenticated even on public repos.
+    this.requireToken();
+
+    const commit = await this.request<{ sha: string }>(
+      `/repos/${this.owner}/${this.repo}/commits/${encodeURIComponent(ref)}`,
+    );
+    const sha = commit.sha;
+
+    const runs = await this.request<{ workflow_runs: GitHubWorkflowRun[] }>(
+      `/repos/${this.owner}/${this.repo}/actions/runs?head_sha=${sha}`,
+    );
+
+    if (runs.workflow_runs.length === 0) {
+      // No Actions runs: distinguish "third-party check failed (no logs here)"
+      // from "nothing failed" so the caller gets an actionable answer.
+      const checks = await this.listChecks(ref);
+      const failed = checks.some((check) => check.conclusion === "failure");
+      if (failed) {
+        throw new ProviderError(
+          `no GitHub Actions runs for ${ref}; failing checks are not Actions-backed, so logs are not retrievable via the API`,
+          415,
+        );
+      }
+      return [];
+    }
+
+    const logs: FailedJobLog[] = [];
+    for (const run of runs.workflow_runs) {
+      const jobsResult = await this.request<{ jobs: GitHubJob[] }>(
+        `/repos/${this.owner}/${this.repo}/actions/runs/${run.id}/jobs`,
+      );
+      for (const job of jobsResult.jobs) {
+        if (job.conclusion !== "failure") continue;
+        const log = await this.downloadText(
+          `/repos/${this.owner}/${this.repo}/actions/jobs/${job.id}/logs`,
+        );
+        logs.push({ workflow: run.name, job: job.name, jobId: job.id, log });
+      }
+    }
+    return logs;
   }
 
   private async postComment(number: number, body: string): Promise<IssueComment> {
@@ -292,6 +372,38 @@ export class GitHubProvider implements RepoProvider {
     }
 
     return (await response.json()) as T;
+  }
+
+  /**
+   * Fetch a non-JSON body (Actions job logs). GitHub answers the logs endpoint
+   * with a 302 to a pre-signed storage URL that rejects the `Authorization`
+   * header, so we follow the redirect manually and re-fetch the location with no
+   * auth headers at all.
+   */
+  private async downloadText(path: string): Promise<string> {
+    const headers: Record<string, string> = {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "fleet-bridge",
+    };
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
+
+    let response = await this.fetchImpl(`${this.baseUrl}${path}`, { headers, redirect: "manual" });
+
+    if ([301, 302, 307, 308].includes(response.status)) {
+      const location = response.headers.get("Location");
+      if (!location) {
+        throw new ProviderError(`GitHub redirect for ${path} carried no Location header`, 502);
+      }
+      response = await this.fetchImpl(location);
+    }
+
+    if (!response.ok) {
+      throw await this.toProviderError(response);
+    }
+
+    return response.text();
   }
 
   /** Map an upstream failure onto a `ProviderError`, folding all 5xx down to 502. */

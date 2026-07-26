@@ -9,6 +9,8 @@
 
 import { Command } from "commander";
 import type {
+  CheckRun,
+  FailedJobLog,
   Issue,
   IssueComment,
   IssueSummary,
@@ -20,6 +22,7 @@ import type {
 import { findWorkspace } from "./agent-workspace";
 import { makeBridgeClient, normalizeUrl, unwrap } from "./client";
 import {
+  formatCheckList,
   formatIssue,
   formatIssueList,
   formatPr,
@@ -62,6 +65,38 @@ function parseNumber(value: string): number {
     process.exit(1);
   }
   return n;
+}
+
+/** The current git branch of the CWD; exits 1 when not on a named branch. */
+async function currentBranch(): Promise<string> {
+  let branch: string;
+  try {
+    const out = await Bun.$`git rev-parse --abbrev-ref HEAD`.text();
+    branch = out.trim();
+  } catch {
+    branch = "";
+  }
+  // Empty (not a git repo) or "HEAD" (detached) means there is no branch to check.
+  if (branch === "" || branch === "HEAD") {
+    console.error("fagent: could not determine the current branch; pass --ref or --pr");
+    process.exit(1);
+  }
+  return branch;
+}
+
+/**
+ * Turn the shared `--pr`/`--ref` options into a checks/logs query. The two are
+ * mutually exclusive; when both are absent the target defaults to the current
+ * git branch.
+ */
+async function resolveCheckTarget(options: { pr?: string; ref?: string }): Promise<{ pr?: number; ref?: string }> {
+  if (options.pr !== undefined && options.ref !== undefined) {
+    console.error("fagent: choose at most one of --pr, --ref");
+    process.exit(1);
+  }
+  if (options.pr !== undefined) return { pr: parseNumber(options.pr) };
+  if (options.ref !== undefined) return { ref: options.ref };
+  return { ref: await currentBranch() };
 }
 
 repoCommand
@@ -165,4 +200,34 @@ repoCommand
     const number = parseNumber(value);
     const review = unwrap(await bridge().repos({ name }).pulls({ number }).reviews.post({ event, body: options.body })) as Review;
     console.log(`submitted ${event} review on pr #${number}: ${review.url}`);
+  });
+
+repoCommand
+  .command("checks")
+  .description("show the CI checks for a PR, a ref, or the current branch")
+  .option("--pr <number>", "check the head commit of this pull request")
+  .option("--ref <ref>", "check this commit-ish (branch, tag, or SHA)")
+  .action(async (options: { pr?: string; ref?: string }) => {
+    const query = await resolveCheckTarget(options);
+    const name = await resolveRepo();
+    const checks = unwrap(await bridge().repos({ name }).checks.get({ query })) as CheckRun[];
+    console.log(checks.length === 0 ? "no checks" : formatCheckList(checks));
+  });
+
+repoCommand
+  .command("logs")
+  .description("show the raw logs of the failed CI jobs for a PR, a ref, or the current branch")
+  .option("--pr <number>", "logs for the head commit of this pull request")
+  .option("--ref <ref>", "logs for this commit-ish (branch, tag, or SHA)")
+  .action(async (options: { pr?: string; ref?: string }) => {
+    const query = await resolveCheckTarget(options);
+    const name = await resolveRepo();
+    const logs = unwrap(await bridge().repos({ name }).checks.logs.get({ query })) as FailedJobLog[];
+    if (logs.length === 0) {
+      console.log("no failed jobs");
+      return;
+    }
+    console.log(
+      logs.map((entry) => `=== ${entry.workflow} / ${entry.job} (job ${entry.jobId}) ===\n${entry.log}`).join("\n\n"),
+    );
   });

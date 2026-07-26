@@ -5,6 +5,7 @@
  */
 
 import type {
+  CheckRun,
   Issue,
   IssueSummary,
   PullRequest,
@@ -92,6 +93,19 @@ export function formatPrList(prs: PullRequestSummary[]): string {
       pr.author ?? "",
       `${pr.baseBranch}←${pr.headBranch}`,
       String(pr.draft),
+    ]),
+  );
+}
+
+/** Render a list of CI check runs as a table. */
+export function formatCheckList(checks: CheckRun[]): string {
+  return renderTable(
+    ["NAME", "STATUS", "CONCLUSION", "DETAILS"],
+    checks.map((check) => [
+      check.name,
+      check.status,
+      check.conclusion ?? "",
+      check.detailsUrl ?? "",
     ]),
   );
 }

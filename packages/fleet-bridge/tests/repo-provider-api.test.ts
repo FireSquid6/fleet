@@ -14,6 +14,8 @@ import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
 import {
   ProviderError,
+  type CheckRun,
+  type FailedJobLog,
   type Issue,
   type IssueComment,
   type IssueSummary,
@@ -34,6 +36,8 @@ interface Recorder {
   getIssueNumber?: number;
   commentIssue?: { number: number; body: string };
   reviewPr?: { number: number; review: { event: ReviewEvent; body?: string } };
+  checksRef?: string;
+  failedLogsRef?: string;
 }
 
 const info: RepoInfo = {
@@ -91,7 +95,19 @@ const pr: PullRequest = {
   additions: 10,
   deletions: 2,
   changedFiles: 3,
+  headSha: "sha-of-pr-8",
 };
+
+const checkRun: CheckRun = {
+  name: "build",
+  status: "completed",
+  conclusion: "failure",
+  detailsUrl: "https://github.com/acme/repo1/runs/1",
+  startedAt: "2026-01-01T00:00:00.000Z",
+  completedAt: "2026-01-01T00:05:00.000Z",
+};
+
+const failedLog: FailedJobLog = { workflow: "CI", job: "test", jobId: 901, log: "boom" };
 
 describe("repo provider API", () => {
   let dir: string;
@@ -145,6 +161,16 @@ describe("repo provider API", () => {
         guard();
         recorder.reviewPr = { number, review: r };
         return review;
+      },
+      async listChecks(ref: string) {
+        guard();
+        recorder.checksRef = ref;
+        return [checkRun];
+      },
+      async getFailedLogs(ref: string) {
+        guard();
+        recorder.failedLogsRef = ref;
+        return [failedLog];
       },
     };
   }
@@ -221,6 +247,33 @@ describe("repo provider API", () => {
     expect(res.status).toBe(201);
     expect(res.body).toEqual(review);
     expect(recorder.reviewPr).toEqual({ number: 8, review: { event: "APPROVE", body: "lgtm" } });
+  });
+
+  test("GET /repos/:name/checks?ref=main calls listChecks with that ref", async () => {
+    const res = await call("GET", "/repos/repo1/checks?ref=main");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([checkRun]);
+    expect(recorder.checksRef).toBe("main");
+  });
+
+  test("GET /repos/:name/checks?pr=8 resolves the PR head SHA then calls listChecks", async () => {
+    const res = await call("GET", "/repos/repo1/checks?pr=8");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([checkRun]);
+    expect(recorder.getIssueNumber).toBe(8);
+    expect(recorder.checksRef).toBe(pr.headSha);
+  });
+
+  test("GET /repos/:name/checks with neither ref nor pr returns 400", async () => {
+    const res = await call("GET", "/repos/repo1/checks");
+    expect(res.status).toBe(400);
+  });
+
+  test("GET /repos/:name/checks/logs?ref=main returns the failed logs", async () => {
+    const res = await call("GET", "/repos/repo1/checks/logs?ref=main");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([failedLog]);
+    expect(recorder.failedLogsRef).toBe("main");
   });
 
   test("an unregistered repo returns 404", async () => {

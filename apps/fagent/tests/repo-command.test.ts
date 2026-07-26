@@ -74,6 +74,17 @@ const review = {
   url: "https://github.com/acme/acme/pull/3#review-200",
 };
 
+const checkRun = {
+  name: "build",
+  status: "completed",
+  conclusion: "failure",
+  detailsUrl: "https://github.com/acme/acme/runs/1",
+  startedAt: "2026-01-01T00:00:00Z",
+  completedAt: "2026-01-01T00:05:00Z",
+};
+
+const failedLog = { workflow: "CI", job: "test", jobId: 901, log: "boom: the test failed" };
+
 /** Stand up a fake bridge that records every request and returns canned DTOs. */
 function makeFakeBridge(overrides?: (path: string) => Response | undefined) {
   const requests: RecordedRequest[] = [];
@@ -95,6 +106,8 @@ function makeFakeBridge(overrides?: (path: string) => Response | undefined) {
       const override = overrides?.(path);
       if (override) return override;
 
+      if (path.endsWith("/checks/logs")) return Response.json([failedLog]);
+      if (path.endsWith("/checks")) return Response.json([checkRun]);
       if (path.endsWith("/info")) return Response.json(repoInfo);
       if (path.endsWith("/issues")) return Response.json([issueSummary]);
       if (path.endsWith("/issues/7")) return Response.json(issue);
@@ -253,6 +266,73 @@ describe("fagent repo", () => {
     } finally {
       server.stop(true);
       await rm(dataDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("checks --ref hits GET /repos/:name/checks?ref= and prints the check table", async () => {
+    const { server, requests } = makeFakeBridge();
+    try {
+      const url = `http://localhost:${server.port}`;
+      const { exitCode, stdout, stderr } = await runFagent(["repo", "checks", "--ref", "main", "--repo", "acme", "--bridge-url", url]);
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("build");
+      expect(stdout).toContain("failure");
+      expect(requests[0]!.path).toBe("/repos/acme/checks");
+      expect(requests[0]!.query).toBe("?ref=main");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("logs --pr hits GET /repos/:name/checks/logs?pr= and prints the job header + log", async () => {
+    const { server, requests } = makeFakeBridge();
+    try {
+      const url = `http://localhost:${server.port}`;
+      const { exitCode, stdout } = await runFagent(["repo", "logs", "--pr", "3", "--repo", "acme", "--bridge-url", url]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("=== CI / test (job 901) ===");
+      expect(stdout).toContain("boom: the test failed");
+      expect(requests[0]!.path).toBe("/repos/acme/checks/logs");
+      expect(requests[0]!.query).toBe("?pr=3");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("checks defaults to the current git branch when neither --pr nor --ref is given", async () => {
+    const { server, requests } = makeFakeBridge();
+    const repoDir = await mkdtemp(join(tmpdir(), "fleet-repo-branch-"));
+    await Bun.spawn(["git", "init", "-b", "work", "-q"], { cwd: repoDir }).exited;
+    await Bun.spawn(
+      ["git", "-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"],
+      { cwd: repoDir },
+    ).exited;
+    try {
+      const url = `http://localhost:${server.port}`;
+      const { exitCode, stderr } = await runFagent(
+        ["repo", "checks", "--repo", "acme", "--bridge-url", url],
+        repoDir,
+      );
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      expect(requests[0]!.path).toBe("/repos/acme/checks");
+      expect(requests[0]!.query).toBe("?ref=work");
+    } finally {
+      server.stop(true);
+      await rm(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test("checks with both --pr and --ref exits non-zero with the choose-at-most-one message", async () => {
+    const { server } = makeFakeBridge();
+    try {
+      const url = `http://localhost:${server.port}`;
+      const { exitCode, stderr } = await runFagent(["repo", "checks", "--pr", "3", "--ref", "main", "--repo", "acme", "--bridge-url", url]);
+      expect(exitCode).not.toBe(0);
+      expect(stderr).toContain("fagent: choose at most one of --pr, --ref");
+    } finally {
+      server.stop(true);
     }
   });
 

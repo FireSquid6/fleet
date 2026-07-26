@@ -38,6 +38,8 @@ export {
   ProviderError,
 } from "./provider";
 export type {
+  CheckRun,
+  FailedJobLog,
   Issue,
   IssueComment,
   IssueSummary,

@@ -39,6 +39,8 @@ import {
 import { RepoAlreadyExistsError, Store } from "./store/store";
 import {
   providerFor,
+  type CheckRun,
+  type FailedJobLog,
   type Issue,
   type IssueComment,
   type IssueSummary,
@@ -371,6 +373,35 @@ export class FleetManager {
     review: { event: ReviewEvent; body?: string },
   ): Promise<Review> {
     return this.withProvider(name, (provider) => provider.reviewPullRequest(number, review));
+  }
+
+  /** `GET /repos/:name/checks` — CI checks for a ref or a PR's head commit. */
+  async listRepoChecks(name: string, target: { ref?: string; pr?: number }): Promise<CheckRun[]> {
+    return this.withProvider(name, async (provider) => {
+      const ref = await this.resolveCheckRef(provider, target);
+      return provider.listChecks(ref);
+    });
+  }
+
+  /** `GET /repos/:name/checks/logs` — raw logs of the failed Actions jobs for a ref or PR. */
+  async getRepoFailedLogs(name: string, target: { ref?: string; pr?: number }): Promise<FailedJobLog[]> {
+    return this.withProvider(name, async (provider) => {
+      const ref = await this.resolveCheckRef(provider, target);
+      return provider.getFailedLogs(ref);
+    });
+  }
+
+  /** Resolve a check target to a commit-ish: a PR's head SHA, an explicit ref, or reject. */
+  private async resolveCheckRef(
+    provider: RepoProvider,
+    target: { ref?: string; pr?: number },
+  ): Promise<string> {
+    if (target.pr !== undefined) {
+      const p = await provider.getPullRequest(target.pr);
+      return p.headSha;
+    }
+    if (target.ref !== undefined) return target.ref;
+    throw new BridgeError("checks require a ref or pr", 400);
   }
 
   // --- workspace API (superset of the ship's) -------------------------------

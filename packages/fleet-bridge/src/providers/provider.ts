@@ -62,6 +62,26 @@ export interface PullRequest extends PullRequestSummary {
   readonly additions: number;
   readonly deletions: number;
   readonly changedFiles: number;
+  /** SHA of the PR's head commit; the ref used to resolve its CI checks/logs. */
+  readonly headSha: string;
+}
+
+/** A single CI check on a commit — from GitHub Actions or any third-party check. */
+export interface CheckRun {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+  readonly detailsUrl: string | null;
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
+}
+
+/** The raw log of one failed GitHub Actions job, tagged with its workflow/job. */
+export interface FailedJobLog {
+  readonly workflow: string;
+  readonly job: string;
+  readonly jobId: number;
+  readonly log: string;
 }
 
 export interface IssueComment {
@@ -96,4 +116,8 @@ export interface RepoProvider {
   commentOnIssue(number: number, body: string): Promise<IssueComment>;
   commentOnPullRequest(number: number, body: string): Promise<IssueComment>;
   reviewPullRequest(number: number, review: { event: ReviewEvent; body?: string }): Promise<Review>;
+  /** CI checks on a commit-ish (branch name, tag, or SHA). */
+  listChecks(ref: string): Promise<CheckRun[]>;
+  /** Raw logs of the failed GitHub Actions jobs for a commit-ish. */
+  getFailedLogs(ref: string): Promise<FailedJobLog[]>;
 }

@@ -157,6 +157,32 @@ export function reposPlugin(manager: FleetManager) {
           body: t.Optional(t.String()),
         }),
       },
+    )
+    .get(
+      "/repos/:name/checks",
+      async ({ params, query, set }) => {
+        try {
+          return await manager.listRepoChecks(params.name, { ref: query.ref, pr: query.pr });
+        } catch (err) {
+          const mapped = mapError(err);
+          set.status = mapped.status;
+          return mapped.body;
+        }
+      },
+      { query: checkTargetQuery },
+    )
+    .get(
+      "/repos/:name/checks/logs",
+      async ({ params, query, set }) => {
+        try {
+          return await manager.getRepoFailedLogs(params.name, { ref: query.ref, pr: query.pr });
+        } catch (err) {
+          const mapped = mapError(err);
+          set.status = mapped.status;
+          return mapped.body;
+        }
+      },
+      { query: checkTargetQuery },
     );
 }
 
@@ -166,4 +192,10 @@ const numberParams = t.Object({ name: t.String(), number: t.Numeric() });
 /** Optional `?state=open|closed|all` filter shared by the list endpoints. */
 const stateQuery = t.Object({
   state: t.Optional(t.Union([t.Literal("open"), t.Literal("closed"), t.Literal("all")])),
+});
+
+/** `?ref=<commit-ish>` or `?pr=<number>` — the target a checks/logs query resolves. */
+const checkTargetQuery = t.Object({
+  ref: t.Optional(t.String()),
+  pr: t.Optional(t.Numeric()),
 });

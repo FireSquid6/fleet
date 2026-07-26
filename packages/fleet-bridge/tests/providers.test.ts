@@ -151,7 +151,7 @@ describe("GitHubProvider", () => {
         updated_at: "2026-01-02T00:00:00Z",
         draft: true,
         base: { ref: "main" },
-        head: { ref: "feature" },
+        head: { ref: "feature", sha: "deadbeef" },
         body: "does things",
         merged: false,
         mergeable: true,
@@ -181,6 +181,7 @@ describe("GitHubProvider", () => {
       additions: 10,
       deletions: 4,
       changedFiles: 2,
+      headSha: "deadbeef",
     });
     expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/pulls/12");
   });
@@ -332,6 +333,137 @@ describe("GitHubProvider", () => {
     expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/pulls/1/reviews");
     expect(calls[0]!.method).toBe("POST");
     expect(JSON.parse(calls[0]!.body!)).toEqual({ event: "APPROVE", body: "lgtm" });
+  });
+
+  test("listChecks maps check_runs fields and hits the check-runs endpoint", async () => {
+    const { fetch, calls } = fakeFetch(
+      Response.json({
+        check_runs: [
+          {
+            name: "build",
+            status: "completed",
+            conclusion: "failure",
+            details_url: "https://github.com/owner/repo/runs/1",
+            started_at: "2026-01-01T00:00:00Z",
+            completed_at: "2026-01-01T00:05:00Z",
+          },
+        ],
+      }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", fetch });
+
+    const checks = await provider.listChecks("main");
+
+    expect(checks).toEqual([
+      {
+        name: "build",
+        status: "completed",
+        conclusion: "failure",
+        detailsUrl: "https://github.com/owner/repo/runs/1",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: "2026-01-01T00:05:00Z",
+      },
+    ]);
+    expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/commits/main/check-runs");
+  });
+
+  test("getFailedLogs drives the full happy path and follows the log redirect without auth", async () => {
+    const calls: FetchCall[] = [];
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({
+        url,
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+
+      if (url.endsWith("/commits/main")) return Response.json({ sha: "abc123" });
+      if (url.includes("/actions/runs?head_sha=")) {
+        return Response.json({ workflow_runs: [{ id: 55, name: "CI" }] });
+      }
+      if (url.endsWith("/actions/runs/55/jobs")) {
+        return Response.json({
+          jobs: [
+            { id: 900, name: "lint", conclusion: "success" },
+            { id: 901, name: "test", conclusion: "failure" },
+          ],
+        });
+      }
+      if (url.endsWith("/actions/jobs/901/logs")) {
+        return new Response(null, { status: 302, headers: { Location: "https://storage.example.com/log-901" } });
+      }
+      if (url === "https://storage.example.com/log-901") return new Response("boom: the test failed");
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    const logs = await provider.getFailedLogs("main");
+
+    expect(logs).toEqual([{ workflow: "CI", job: "test", jobId: 901, log: "boom: the test failed" }]);
+
+    const redirected = calls.find((c) => c.url === "https://storage.example.com/log-901");
+    expect(redirected).toBeDefined();
+    expect(redirected!.headers.get("Authorization")).toBeNull();
+  });
+
+  test("getFailedLogs throws ProviderError(401) without a token", async () => {
+    const { fetch, calls } = fakeFetch(Response.json({}));
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", fetch });
+
+    try {
+      await provider.getFailedLogs("main");
+      throw new Error("expected getFailedLogs to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).status).toBe(401);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  test("getFailedLogs throws 415 when a failed check has no Actions run behind it", async () => {
+    const fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/commits/main")) return Response.json({ sha: "abc123" });
+      if (url.includes("/actions/runs?head_sha=")) return Response.json({ workflow_runs: [] });
+      if (url.endsWith("/commits/main/check-runs")) {
+        return Response.json({
+          check_runs: [
+            { name: "third-party", status: "completed", conclusion: "failure", details_url: null, started_at: null, completed_at: null },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    try {
+      await provider.getFailedLogs("main");
+      throw new Error("expected getFailedLogs to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).status).toBe(415);
+    }
+  });
+
+  test("getFailedLogs returns [] when nothing failed and there are no Actions runs", async () => {
+    const fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/commits/main")) return Response.json({ sha: "abc123" });
+      if (url.includes("/actions/runs?head_sha=")) return Response.json({ workflow_runs: [] });
+      if (url.endsWith("/commits/main/check-runs")) {
+        return Response.json({
+          check_runs: [
+            { name: "build", status: "completed", conclusion: "success", details_url: null, started_at: null, completed_at: null },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    expect(await provider.getFailedLogs("main")).toEqual([]);
   });
 });
 
