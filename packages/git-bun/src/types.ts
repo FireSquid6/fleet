@@ -136,6 +136,12 @@ export interface DiffOptions {
   nameOnly?: boolean;
   /** Commit or range to diff, e.g. `"HEAD~1"` or `"main..feature"`. */
   range?: string;
+  /**
+   * Treat `range` as a single ref and diff from its merge base with HEAD.
+   * Unlike the `A...HEAD` range — which stops at the HEAD *commit* — this keeps
+   * the working tree on the right-hand side, so uncommitted work is included.
+   */
+  mergeBase?: boolean;
   /** Restrict the diff to these paths. */
   paths?: string[];
   /**
