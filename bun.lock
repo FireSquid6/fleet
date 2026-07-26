@@ -61,7 +61,10 @@
         "fagent": "src/index.ts",
       },
       "dependencies": {
+        "@elysiajs/eden": "latest",
         "commander": "latest",
+        "elysia": "latest",
+        "fleet-bridge": "workspace:*",
         "fleet-protocol": "workspace:*",
       },
       "devDependencies": {
