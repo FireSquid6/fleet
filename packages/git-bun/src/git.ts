@@ -6,6 +6,7 @@ import {
   LOG_FORMAT,
   parseBranches,
   parseLog,
+  parseLsRemote,
   parseStatus,
   parseWorktrees,
 } from "./format";
@@ -24,9 +25,11 @@ import type {
   InitOptions,
   ListBranchesOptions,
   LogOptions,
+  LsRemoteOptions,
   PullOptions,
   PushOptions,
   RemoteInfo,
+  RemoteRef,
   ResetOptions,
   RestoreOptions,
   ShowOptions,
@@ -357,6 +360,32 @@ export class Git {
   /** Add a remote (`remote add <name> <url>`). */
   async addRemote(name: string, url: string): Promise<void> {
     await this.command.run(["remote", "add", name, url]);
+  }
+
+  /**
+   * List the refs a remote advertises (`ls-remote`) — a metadata-only round trip,
+   * so it answers "does this branch exist upstream?" without fetching objects.
+   * Static because the query is addressed to `url`, not to a working directory.
+   *
+   * `options.pattern` narrows the listing by *tail* match, so a pattern of `"foo"`
+   * also returns `refs/heads/bar/foo`; compare `ref` against the fully qualified
+   * name to test a specific branch.
+   */
+  static async lsRemote(
+    url: string,
+    options: LsRemoteOptions = {},
+    backend?: GitBackend,
+  ): Promise<RemoteRef[]> {
+    const command = new GitCommand(
+      { cwd: options.cwd ?? process.cwd(), binary: options.binary, env: options.env },
+      backend,
+    );
+    const args = ["ls-remote"];
+    if (options.heads) args.push("--heads");
+    if (options.tags) args.push("--tags");
+    args.push(url);
+    if (options.pattern !== undefined) args.push(options.pattern);
+    return parseLsRemote(await command.run(args));
   }
 
   // --- worktrees -----------------------------------------------------------

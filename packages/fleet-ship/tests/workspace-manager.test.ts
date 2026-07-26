@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Git } from "git-bun";
@@ -441,6 +441,65 @@ suite("WorkspaceManager end-to-end", () => {
     } finally {
       await rm(base, { recursive: true, force: true });
     }
+  });
+
+  test("create checks out a branch that already exists upstream", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-upstream-"));
+    const upstream = join(base, "upstream");
+    try {
+      const git = await Git.init(upstream, { initialBranch: "main" });
+      await git.setConfig("user.email", "test@example.com");
+      await git.setConfig("user.name", "Test");
+      await Bun.write(join(upstream, "README.md"), "hi\n");
+      await git.add();
+      await git.commit("initial");
+      await git.switchBranch("release/1.x", { create: true });
+      // A file only this branch has, so the assertion below cannot be satisfied by
+      // a fresh branch forked off the default one.
+      await Bun.write(join(upstream, "release.txt"), "shipped\n");
+      await git.add();
+      await git.commit("release commit");
+      await git.switchBranch("main");
+
+      const summary = await manager.create({
+        url: upstream,
+        repoName: "repo",
+        name: "ws-existing-branch",
+        branch: "release/1.x",
+      });
+      expect(summary.branch).toBe("release/1.x");
+
+      const wsDir = manager.workspaceDir("repo", "ws-existing-branch");
+      expect(await new Git({ cwd: wsDir }).currentBranch()).toBe("release/1.x");
+      expect(await Bun.file(join(wsDir, "release.txt")).text()).toBe("shipped\n");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create makes a branch that does not exist upstream", async () => {
+    const summary = await manager.create({
+      url: sourceRepo,
+      repoName: "repo",
+      name: "ws-new-branch",
+      branch: "feature/brand-new",
+    });
+    expect(summary.branch).toBe("feature/brand-new");
+
+    const wsDir = manager.workspaceDir("repo", "ws-new-branch");
+    const git = new Git({ cwd: wsDir });
+    expect(await git.currentBranch()).toBe("feature/brand-new");
+    // Forked off the clone's default branch, so it carries the upstream commit.
+    expect(await git.headSha()).toBe(await new Git({ cwd: sourceRepo }).headSha());
+    expect((await git.branches({ remote: true })).map((b) => b.name)).toContain("origin/main");
+  });
+
+  test("create rejects an empty branch without creating a directory", async () => {
+    await expect(
+      manager.create({ url: sourceRepo, repoName: "repo", name: "ws-blank-branch", branch: "  " }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    await expect(stat(join(fleetDirectory, "repo", "ws-blank-branch"))).rejects.toThrow(/ENOENT/);
   });
 
   test("list skips directories that are not git working trees", async () => {

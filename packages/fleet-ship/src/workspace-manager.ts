@@ -353,6 +353,10 @@ export class WorkspaceManager {
     const parsed = CreateWorkspaceRequestSchema.safeParse(options);
     if (!parsed.success) throw new WorkspaceError("invalid workspace create request", 400);
     const { url, repoName, name, branch } = parsed.data;
+    // The protocol only types `branch` as a string, so a blank one reaches here.
+    // Reject it before any directory is created, and before it can be handed to
+    // the ref probe below as a pattern that means nothing.
+    if (branch.trim().length === 0) throw new WorkspaceError("branch must not be empty", 400);
     let dir: string;
     try {
       dir = await assertCloneDestinationAvailable(this.config.fleetDirectory, repoName, name);
@@ -361,7 +365,32 @@ export class WorkspaceManager {
       if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
       throw error;
     }
-    await Git.clone(url, dir, { branch });
+
+    // `ls-remote`'s pattern matches the tail of a ref, so a pattern of `foo` also
+    // reports `refs/heads/bar/foo`; only the fully qualified name means the caller's
+    // branch is really upstream. A failing probe (unreachable URL, auth) propagates
+    // as a GitError rather than being read as "the branch doesn't exist", so a
+    // network blip can't silently put the workspace on the wrong branch.
+    const heads = await Git.lsRemote(url, { heads: true, pattern: branch });
+    if (heads.some((head) => head.ref === `refs/heads/${branch}`)) {
+      await Git.clone(url, dir, { branch });
+    } else {
+      const git = await Git.clone(url, dir, {});
+      try {
+        // The probe would normally have found a branch that is already the clone's
+        // HEAD, but an unborn or otherwise odd remote can still land here, and
+        // `switch -c` fails on an existing branch.
+        if ((await git.currentBranch()) !== branch) {
+          await git.switchBranch(branch, { create: true });
+        }
+      } catch (error) {
+        // Leave nothing behind: a half-configured clone would make every retry a
+        // 409 on the clone destination. `assertCloneDestinationAvailable` proved
+        // `dir` did not exist before, so removing it can only undo our own work.
+        await rm(dir, { recursive: true, force: true });
+        throw error;
+      }
+    }
 
     const summary: WorkspaceSummary = { repoName, name, branch, active: false, agent: null };
     this.emit({ type: "workspace.created", ...this.stamp(), workspace: summary });

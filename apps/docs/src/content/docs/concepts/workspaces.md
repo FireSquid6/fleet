@@ -74,7 +74,8 @@ mid-scan.
 ```
 
 **Create** clones the repo into `<fleetDirectory>/<repo>/<name>` at the
-requested branch. If the destination already exists the request fails with
+requested branch, creating that branch off the default branch when the remote
+does not have it. If the destination already exists the request fails with
 `409`; the ship never clones over an existing directory. A new workspace starts
 `inactive`.
 

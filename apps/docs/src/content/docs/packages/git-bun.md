@@ -193,15 +193,37 @@ cases that need it.
 | `push` | `(options?: PushOptions) => Promise<void>` | `remote`, `branch`, `setUpstream`, `force`, `tags` |
 | `remotes` | `() => Promise<RemoteInfo[]>` | Parsed from `remote -v`, one entry per remote name |
 | `addRemote` | `(name: string, url: string) => Promise<void>` | `remote add` |
+| `Git.lsRemote` | `(url: string, options?: LsRemoteOptions, backend?: GitBackend) => Promise<RemoteRef[]>` | `heads`, `tags`, `pattern`, `cwd`, `binary`, `env` |
 
 ```ts
 await repo.addRemote("origin", "git@github.com:org/repo.git");
 await repo.push({ remote: "origin", branch: "feature", setUpstream: true });
 await repo.fetch({ all: true, prune: true });
+
+const heads = await Git.lsRemote("git@github.com:org/repo.git", {
+  heads: true,
+  pattern: "main",
+});
+const exists = heads.some((head) => head.ref === "refs/heads/main");
 ```
 
 `RemoteInfo` is `{ name, fetchUrl, pushUrl }` — the two URL lines git prints per
 remote are folded into a single entry.
+
+`lsRemote` is static because the query is addressed to a URL rather than to a
+working directory, and it is metadata-only: it reports what a remote advertises
+without fetching a single object, which is how you answer "does this branch exist
+upstream?" cheaply. `RemoteRef` is `{ sha, ref }`, with `ref` fully qualified
+(`refs/heads/main`).
+
+Two things to know before relying on it:
+
+- `pattern` matches the **tail** of a ref, so `"foo"` also reports
+  `refs/heads/bar/foo`. Compare `ref` against the fully qualified name to test one
+  specific branch.
+- `cwd` exists only because every invocation carries `-C <cwd>` and git resolves
+  `-C` before anything else, so some existing directory is required. It defaults
+  to `process.cwd()` and the repository (if any) there is never consulted.
 
 ## Worktrees
 
@@ -342,6 +364,7 @@ import {
   parseStatus,
   parseBranches,
   parseWorktrees,
+  parseLsRemote,
 } from "git-bun";
 ```
 

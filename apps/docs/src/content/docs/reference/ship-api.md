@@ -55,7 +55,7 @@ carrying the error's message.
 
 | Status | Raised when |
 | --- | --- |
-| `400` | Invalid repo/workspace identifier; a path that escapes the fleet directory; `invalid workspace create request`; `workspace not active: <repo>/<name>`; `workspace already active: <repo>/<name>`; `agent not initialized: <repo>/<name>`. |
+| `400` | Invalid repo/workspace identifier; a path that escapes the fleet directory; `invalid workspace create request`; `branch must not be empty`; `workspace not active: <repo>/<name>`; `workspace already active: <repo>/<name>`; `agent not initialized: <repo>/<name>`. |
 | `404` | `workspace not found: <repo>/<name>` — the directory does not exist or is not a git working tree. |
 | `409` | The clone destination already exists (`POST /workspaces`). |
 | `422` | Elysia schema validation — a missing or wrongly typed request body/query field. Note this is Elysia's own error shape, not `{error}`. |
@@ -147,9 +147,16 @@ on `branch`. Returns `201`.
 { repoName: string; name: string; branch: string; active: false; agent: null }
 ```
 
+A `branch` the remote already advertises is checked out by the clone
+(`git clone --branch`). One the remote does not advertise is created locally off
+the repo's default branch after the clone (`git switch --create`), so the create
+succeeds instead of failing. Such a branch is never pushed — it exists only in
+the workspace until something pushes it.
+
 Errors: `422` if a body field is missing or mistyped, `400` for an invalid
-identifier or `invalid workspace create request`, `409` if the destination
-directory already exists.
+identifier, `invalid workspace create request`, or `branch must not be empty`
+(a blank or whitespace-only `branch`), `409` if the destination directory
+already exists.
 
 A new workspace always starts inactive; the `workspace.created` event is emitted
 on `/events`.

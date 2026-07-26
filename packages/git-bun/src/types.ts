@@ -85,6 +85,14 @@ export interface RemoteInfo {
   pushUrl: string;
 }
 
+/** A single ref advertised by `git ls-remote`. */
+export interface RemoteRef {
+  /** Commit hash the ref points at. */
+  sha: string;
+  /** Fully qualified ref name, e.g. `"refs/heads/main"`. */
+  ref: string;
+}
+
 /** Mode passed to {@link Git.reset}: how far the reset reaches. */
 export type ResetMode = "soft" | "mixed" | "hard";
 
@@ -259,6 +267,30 @@ export interface PushOptions {
   force?: boolean;
   /** Also push tags (`--tags`). */
   tags?: boolean;
+}
+
+/** Options for {@link Git.lsRemote}. */
+export interface LsRemoteOptions {
+  /** List only branch refs (`--heads`). */
+  heads?: boolean;
+  /** List only tag refs (`--tags`). */
+  tags?: boolean;
+  /**
+   * Ref pattern to narrow the listing. Git matches it against the *tail* of each
+   * ref, so `"foo"` also reports `refs/heads/bar/foo`.
+   */
+  pattern?: string;
+  /**
+   * Directory to run from. `ls-remote` only talks to `url`, but {@link GitCommand}
+   * injects `-C <cwd>` into every invocation and git resolves `-C` before it does
+   * anything else, so some existing directory is still required. Defaults to
+   * `process.cwd()`; the repository (if any) at that path is never consulted.
+   */
+  cwd?: string;
+  /** git executable name/path. Defaults to `"git"`. */
+  binary?: string;
+  /** Extra environment variables for the invocation, e.g. `GIT_SSH_COMMAND`. */
+  env?: Record<string, string>;
 }
 
 /** Options for {@link Git.worktreeAdd}. */

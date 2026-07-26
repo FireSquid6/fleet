@@ -2,7 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Git, GitError, parseBranches, parseLog, parseStatus, parseWorktrees } from "./index";
+import {
+  Git,
+  GitError,
+  parseBranches,
+  parseLog,
+  parseLsRemote,
+  parseStatus,
+  parseWorktrees,
+} from "./index";
 
 // Deterministic identity so commits never fail on missing user.name/user.email,
 // regardless of the machine's global git config (the analog of tmux-bun's
@@ -204,6 +212,31 @@ describe("parseBranches", () => {
     const branches = parseBranches(stdout);
     expect(branches[0]).toEqual({ name: "main", sha: "aaa", current: true, upstream: "origin/main" });
     expect(branches[1]).toEqual({ name: "feature", sha: "bbb", current: false, upstream: undefined });
+  });
+});
+
+describe("parseLsRemote", () => {
+  test("reads sha/ref pairs and ignores blank and non-ref lines", () => {
+    const mainSha = "1".repeat(40);
+    const featureSha = "a".repeat(64);
+    const stdout = [
+      "ref: refs/heads/main\tHEAD",
+      `${mainSha}\tHEAD`,
+      `${mainSha}\trefs/heads/main`,
+      "",
+      `${featureSha}\trefs/heads/feature/one`,
+      "",
+    ].join("\n");
+
+    expect(parseLsRemote(stdout)).toEqual([
+      { sha: mainSha, ref: "HEAD" },
+      { sha: mainSha, ref: "refs/heads/main" },
+      { sha: featureSha, ref: "refs/heads/feature/one" },
+    ]);
+  });
+
+  test("returns [] for empty output", () => {
+    expect(parseLsRemote("")).toEqual([]);
   });
 });
 
@@ -434,6 +467,24 @@ suite("git-bun end-to-end", () => {
       fetchUrl: "https://example.com/x.git",
       pushUrl: "https://example.com/x.git",
     });
+  });
+
+  test("lsRemote reports the heads a remote advertises", async () => {
+    const dir = join(root, "ls-remote-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(dir, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.createBranch("feature/one");
+
+    const heads = await Git.lsRemote(dir, { heads: true });
+    expect(heads.map((h) => h.ref).sort()).toEqual(["refs/heads/feature/one", "refs/heads/main"]);
+    expect(heads[0]?.sha).toMatch(/^[0-9a-f]{40}$/);
+
+    const found = await Git.lsRemote(dir, { heads: true, pattern: "feature/one" });
+    expect(found.map((h) => h.ref)).toEqual(["refs/heads/feature/one"]);
+
+    expect(await Git.lsRemote(dir, { heads: true, pattern: "no-such-branch" })).toEqual([]);
   });
 
   test("genuine failures surface as GitError", async () => {

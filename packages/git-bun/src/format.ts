@@ -1,4 +1,4 @@
-import type { BranchInfo, CommitInfo, FileStatus, StatusInfo, WorktreeInfo } from "./types";
+import type { BranchInfo, CommitInfo, FileStatus, RemoteRef, StatusInfo, WorktreeInfo } from "./types";
 
 // Field separator woven into every machine-readable `--format`/`--pretty` string.
 // ASCII Unit Separator (0x1F) is a control character that never appears in commit
@@ -196,4 +196,21 @@ export function parseBranches(stdout: string): BranchInfo[] {
         upstream: cols[3] ? cols[3] : undefined,
       };
     });
+}
+
+// --- ls-remote -------------------------------------------------------------
+
+// `<sha>\t<ref>` per line. The sha is the remote's full hash — 40 hex chars for
+// SHA-1, 64 for SHA-256 — and is never abbreviated, so anything else on the left
+// is not a ref record: `--symref` prefixes the listing with `ref: <target>\tHEAD`.
+const LS_REMOTE_LINE = /^([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/i;
+
+export function parseLsRemote(stdout: string): RemoteRef[] {
+  const refs: RemoteRef[] = [];
+  for (const line of stdout.split("\n")) {
+    const match = LS_REMOTE_LINE.exec(line);
+    if (match === null) continue;
+    refs.push({ sha: match[1] ?? "", ref: match[2] ?? "" });
+  }
+  return refs;
 }
