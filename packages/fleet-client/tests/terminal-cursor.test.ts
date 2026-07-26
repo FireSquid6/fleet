@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import type { WireCursor, WireCursorShape } from "webterm/protocol";
-import { cursorRender } from "../src/components/TerminalGrid";
+import { cursorBlinks, cursorRender } from "../src/components/TerminalGrid";
 
 const SHAPES: (WireCursorShape | undefined)[] = [undefined, "block", "underline", "bar"];
 
@@ -47,4 +47,30 @@ test("a focused non-blinking cursor is solid in both blink phases", () => {
 test("focus never resurrects a hidden cursor and blur never hides a visible one", () => {
   expect(cursorRender(cursor({ visible: false }), true, true)).toBe("hidden");
   expect(cursorRender(cursor({ visible: true, blinking: true }), false, false)).toBe("outline");
+});
+
+test("only a focused, visible, blink-enabled cursor blinks", () => {
+  expect(cursorBlinks(cursor(), true)).toBe(true);
+  expect(cursorBlinks(cursor({ blinking: true }), true)).toBe(true);
+  expect(cursorBlinks(cursor({ blinking: false }), true)).toBe(false);
+  expect(cursorBlinks(cursor(), false)).toBe(false);
+  expect(cursorBlinks(cursor({ visible: false }), true)).toBe(false);
+  expect(cursorBlinks(cursor({ visible: false, blinking: true }), false)).toBe(false);
+});
+
+// The blink timer guards on `cursorBlinks` and the renderer branches on
+// `cursorRender`; if they ever disagree the cursor either ticks with nothing to
+// show or freezes mid-phase.
+test("cursorBlinks agrees with the phase-sensitivity of cursorRender", () => {
+  for (const shape of SHAPES) {
+    for (const blinking of [true, false, undefined]) {
+      for (const focused of [true, false]) {
+        for (const visible of [true, false]) {
+          const c = cursor({ shape, blinking, visible });
+          const phaseSensitive = cursorRender(c, focused, true) !== cursorRender(c, focused, false);
+          expect(cursorBlinks(c, focused)).toBe(phaseSensitive);
+        }
+      }
+    }
+  }
 });

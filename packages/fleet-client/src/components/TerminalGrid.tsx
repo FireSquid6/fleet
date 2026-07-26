@@ -42,6 +42,16 @@ function baseFont(bold: boolean, italic: boolean): string {
 export type CursorRender = "hidden" | "solid" | "outline";
 
 /**
+ * Whether the cursor's phase is currently animating. The single source of truth
+ * for the blink condition: both the renderer and the blink timer ask this, so a
+ * timer tick can never disagree with what the next frame would paint.
+ * `blinking` is optional on the wire and defaults to on.
+ */
+export function cursorBlinks(cursor: GridMsg["cursor"], focused: boolean): boolean {
+  return cursor.visible && focused && (cursor.blinking ?? true);
+}
+
+/**
  * Decide the cursor's appearance. The outline signals "this terminal does not
  * have keyboard focus", so it wins over the terminal's own blink/shape settings
  * — but never over `visible`: an app that hid the cursor (DECTCEM) stays hidden
@@ -54,7 +64,7 @@ export function cursorRender(
 ): CursorRender {
   if (!cursor.visible) return "hidden";
   if (!focused) return "outline";
-  if (!(cursor.blinking ?? true)) return "solid";
+  if (!cursorBlinks(cursor, focused)) return "solid";
   return cursorOn ? "solid" : "hidden";
 }
 
@@ -231,8 +241,14 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   const lastSize = useRef<{ cols: number; rows: number } | null>(null);
   const dprRef = useRef(1);
   const cursorOn = useRef(true);
-  const focused = useRef(false);
+  const elementFocused = useRef(false);
+  const windowFocused = useRef(true);
   const [exitCode, setExitCode] = useState<number | null>(null);
+
+  // Keystrokes only reach the PTY when this element holds focus *and* the window
+  // is the one the OS is delivering keys to; a focused element in a background
+  // window is exactly the "where is my typing going?" case issue #14 is about.
+  const focused = useCallback(() => elementFocused.current && windowFocused.current, []);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -241,8 +257,8 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     const colors = colorsRef.current;
     if (!canvas || !grid || !metrics || !colors) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawGrid(ctx, grid, metrics, colors, cursorOn.current, focused.current, dprRef.current);
-  }, []);
+    if (ctx) drawGrid(ctx, grid, metrics, colors, cursorOn.current, focused(), dprRef.current);
+  }, [focused]);
 
   const scheduleDraw = useCallback(() => {
     if (rafScheduled.current) return;
@@ -272,12 +288,34 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     }
   }, [active, repo, name]);
 
-  // The container can already hold focus by the time we mount (React reuses the
-  // node across a re-attach), and no focus event fires for that, so seed the ref
-  // from the DOM rather than assuming we start blurred.
+  // Focus state that no event will tell us about: the window may already be in
+  // the background on mount, and window-level focus changes never surface as
+  // focusin/focusout on the element. Seeding from the DOM also keeps the element
+  // half honest if a future caller autofocuses the container before this runs.
+  //
+  // The two refs are independent and combined with AND, so browsers that *also*
+  // fire an element blur on window deactivation are handled by either path in
+  // whichever order the events arrive; the repaints coalesce into one frame.
   useEffect(() => {
-    focused.current = document.activeElement === containerRef.current;
+    elementFocused.current = document.activeElement === containerRef.current;
+    windowFocused.current = document.hasFocus();
+
+    const onWindowFocus = () => {
+      windowFocused.current = true;
+      cursorOn.current = true;
+      scheduleDraw();
+    };
+    const onWindowBlur = () => {
+      windowFocused.current = false;
+      scheduleDraw();
+    };
+    window.addEventListener("focus", onWindowFocus);
+    window.addEventListener("blur", onWindowBlur);
     scheduleDraw();
+    return () => {
+      window.removeEventListener("focus", onWindowFocus);
+      window.removeEventListener("blur", onWindowBlur);
+    };
   }, [active, scheduleDraw]);
 
   // Size the canvas to the container, tell the PTY, and repaint on any change.
@@ -332,7 +370,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       // Parking `cursorOn` at true (rather than just skipping the toggle) means
       // regaining focus starts a fresh blink cycle from a drawn cursor instead
       // of resuming mid-off.
-      if (!focused.current || !grid?.cursor.visible || !(grid.cursor.blinking ?? true)) {
+      if (!grid || !cursorBlinks(grid.cursor, focused())) {
         cursorOn.current = true;
         return;
       }
@@ -340,9 +378,18 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       scheduleDraw();
     }, CURSOR_BLINK_MS);
     return () => clearInterval(id);
-  }, [active, scheduleDraw]);
+  }, [active, focused, scheduleDraw]);
+
+  // Every handler below is delegated by React and so also fires for events that
+  // bubbled up from a descendant — the takeover button. Only keys aimed at the
+  // container itself belong to the PTY: without this guard, Enter/Space on that
+  // button would be swallowed (`encodeKeyEvent` maps them, and the
+  // `preventDefault` cancels the button's synthesized click), stranding
+  // keyboard-only users on the conflict overlay.
+  const ownEvent = (e: { target: EventTarget; currentTarget: EventTarget }) => e.target === e.currentTarget;
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!ownEvent(e)) return;
     const bytes = encodeKeyEvent(e);
     if (bytes === null) return;
     e.preventDefault();
@@ -350,22 +397,21 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   };
 
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (!ownEvent(e)) return;
     e.preventDefault();
     send(e.clipboardData.getData("text"));
   };
 
-  // React's focus handlers are delegated focusin/focusout, so they also fire for
-  // descendants (the takeover button). Only the container itself captures keys.
   const onFocus = (e: FocusEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return;
-    focused.current = true;
+    if (!ownEvent(e)) return;
+    elementFocused.current = true;
     cursorOn.current = true;
     scheduleDraw();
   };
 
   const onBlur = (e: FocusEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return;
-    focused.current = false;
+    if (!ownEvent(e)) return;
+    elementFocused.current = false;
     scheduleDraw();
   };
 
