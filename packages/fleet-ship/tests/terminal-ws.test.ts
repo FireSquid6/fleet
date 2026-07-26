@@ -5,6 +5,12 @@ import {
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
   MAX_CLIENT_FRAME_BYTES,
+  TERMINAL_CONFLICT_CLOSE_CODE,
+  TERMINAL_CONFLICT_CLOSE_REASON,
+  TERMINAL_TAKEOVER_CLOSE_CODE,
+  TERMINAL_TAKEOVER_CLOSE_REASON,
+  TERMINAL_TAKEOVER_QUERY,
+  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import type { ServerMsg } from "webterm/protocol";
 import { createApp } from "../src/api";
@@ -166,6 +172,99 @@ describe("ship terminal protocol", () => {
       await replacementClose;
     });
   }
+
+  describe("single-connection guard", () => {
+    const takeoverUrl = () => `${url}?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`;
+
+    test("refuses a second connection without disturbing the incumbent", async () => {
+      const first = new WebSocket(url);
+      await opened(first);
+      first.send('{"type":"init","cols":80,"rows":24}');
+
+      const second = new WebSocket(url);
+      const refused = closed(second);
+      expect(await refused).toMatchObject({
+        code: TERMINAL_CONFLICT_CLOSE_CODE,
+        reason: TERMINAL_CONFLICT_CLOSE_REASON,
+      });
+      await Bun.sleep(20);
+      expect({ creates, stops }).toEqual({ creates: 1, stops: 0 });
+      expect(first.readyState).toBe(WebSocket.OPEN);
+
+      first.send('{"type":"input","data":"still here"}');
+      await Bun.sleep(20);
+      expect(handled).toContainEqual({ type: "input", data: "still here" });
+
+      const close = closed(first);
+      first.close();
+      await close;
+    });
+
+    test("evicts the incumbent when a takeover is requested", async () => {
+      const first = new WebSocket(url);
+      await opened(first);
+      first.send('{"type":"init","cols":80,"rows":24}');
+      await Bun.sleep(20);
+
+      const evicted = closed(first);
+      const second = new WebSocket(takeoverUrl());
+      await opened(second);
+      expect(await evicted).toMatchObject({
+        code: TERMINAL_TAKEOVER_CLOSE_CODE,
+        reason: TERMINAL_TAKEOVER_CLOSE_REASON,
+      });
+      await Bun.sleep(20);
+      expect({ creates, stops }).toEqual({ creates: 2, stops: 1 });
+
+      second.send('{"type":"init","cols":100,"rows":40}');
+      await Bun.sleep(20);
+      expect(handled).toContainEqual({ type: "init", cols: 100, rows: 40 });
+      expect(second.readyState).toBe(WebSocket.OPEN);
+
+      const close = closed(second);
+      second.close();
+      await close;
+    });
+
+    test("leaves exactly one owner behind after a takeover", async () => {
+      const first = new WebSocket(url);
+      await opened(first);
+      const evicted = closed(first);
+      const second = new WebSocket(takeoverUrl());
+      await opened(second);
+      await evicted;
+      // The evicted socket's own close event must not release the guard the
+      // taker now holds.
+      await Bun.sleep(20);
+
+      const third = new WebSocket(url);
+      expect(await closed(third)).toMatchObject({ code: TERMINAL_CONFLICT_CLOSE_CODE });
+      expect(second.readyState).toBe(WebSocket.OPEN);
+
+      const released = closed(second);
+      second.close();
+      await released;
+      await Bun.sleep(20);
+
+      const fourth = new WebSocket(url);
+      await opened(fourth);
+      const close = closed(fourth);
+      fourth.close();
+      await close;
+    });
+
+    test("connects normally when a takeover finds no incumbent", async () => {
+      const socket = new WebSocket(takeoverUrl());
+      await opened(socket);
+      socket.send('{"type":"init","cols":80,"rows":24}');
+      await Bun.sleep(20);
+      expect({ creates, stops }).toEqual({ creates: 1, stops: 0 });
+      expect(handled).toEqual([{ type: "init", cols: 80, rows: 24 }]);
+      const close = closed(socket);
+      socket.close();
+      await close;
+    });
+  });
 
   test("uses the binary close code and fixed reason", async () => {
     const socket = new WebSocket(url);

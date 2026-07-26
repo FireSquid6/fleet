@@ -7,11 +7,24 @@ import {
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
   splitInput,
+  TERMINAL_CONFLICT_CLOSE_CODE,
+  TERMINAL_TAKEOVER_CLOSE_CODE,
+  TERMINAL_TAKEOVER_QUERY,
+  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import type { GridMsg } from "webterm/protocol";
 import { wsBridgeUrl } from "./client";
 
-export type WebtermStatus = "idle" | "connecting" | "open" | "closed" | "error";
+export type WebtermStatus =
+  | "idle"
+  | "connecting"
+  | "open"
+  | "closed"
+  /** Refused: the workspace's terminal is already attached elsewhere. */
+  | "conflict"
+  /** Evicted: another connection took this terminal over. */
+  | "superseded"
+  | "error";
 
 interface UseWebtermOptions {
   /** Called on every grid frame. Kept out of React state on purpose — the caller
@@ -38,14 +51,27 @@ export function handleServerFrame(
   }
 }
 
-export function terminalPath(repo: string, name: string): string {
-  return `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
+/** Status a closed socket leaves behind, derived from the ship's close code. */
+export function closeStatus(code: number): WebtermStatus {
+  if (code === TERMINAL_CONFLICT_CLOSE_CODE) return "conflict";
+  if (code === TERMINAL_TAKEOVER_CLOSE_CODE) return "superseded";
+  return "closed";
+}
+
+export function terminalPath(repo: string, name: string, takeover = false): string {
+  const path = `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
+  return takeover ? `${path}?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}` : path;
 }
 
 interface UseWebtermResult {
   status: WebtermStatus;
   /** Write keystroke/paste bytes to the PTY. */
   send: (data: string) => void;
+  /**
+   * Reconnect, evicting whichever connection currently owns the workspace's
+   * terminal. Meant for the `"conflict"` status.
+   */
+  takeover: () => void;
   /**
    * Report the terminal's current size in cells. The first call after the socket
    * opens sends `init` (which spawns the shell); every later call sends `resize`.
@@ -69,6 +95,11 @@ export function useWebterm(
   const wsRef = useRef<WebSocket | null>(null);
   const initializedRef = useRef(false);
   const pendingSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  // Bumping the attempt is what re-runs the socket effect; the flag rides in a
+  // ref that the effect consumes, so eviction applies to that attempt alone and
+  // never to a later reconnect.
+  const [attempt, setAttempt] = useState(0);
+  const takeoverRef = useRef(false);
 
   // Keep callbacks current without re-running the socket effect.
   const optsRef = useRef(opts);
@@ -83,6 +114,8 @@ export function useWebterm(
   }, []);
 
   useEffect(() => {
+    const requestTakeover = takeoverRef.current;
+    takeoverRef.current = false;
     if (!active) {
       setStatus("idle");
       return;
@@ -91,7 +124,7 @@ export function useWebterm(
     pendingSizeRef.current = null;
     setStatus("connecting");
 
-    const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name)));
+    const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name, requestTakeover)));
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -102,14 +135,19 @@ export function useWebterm(
     ws.onmessage = (ev) => {
       handleServerFrame(ev.data, optsRef.current, (code, reason) => ws.close(code, reason));
     };
-    ws.onclose = () => setStatus("closed");
-    ws.onerror = () => setStatus("error");
+    ws.onclose = (ev) => setStatus(closeStatus(ev.code));
+    // An error event can trail a close (e.g. the ship refusing the attach), and
+    // "connection failed" would hide the conflict UI that lets the user recover.
+    ws.onerror = () => setStatus((prev) => (prev === "conflict" || prev === "superseded" ? prev : "error"));
 
     return () => {
       wsRef.current = null;
+      // Detach first: this socket's close event would otherwise land after the
+      // next attempt has already set its own status.
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
       ws.close();
     };
-  }, [repo, name, active, sendSize]);
+  }, [repo, name, active, attempt, sendSize]);
 
   const send = useCallback((data: string) => {
     const ws = wsRef.current;
@@ -128,5 +166,10 @@ export function useWebterm(
     [sendSize],
   );
 
-  return { status, send, resize };
+  const takeover = useCallback(() => {
+    takeoverRef.current = true;
+    setAttempt((n) => n + 1);
+  }, []);
+
+  return { status, send, resize, takeover };
 }

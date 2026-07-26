@@ -4,14 +4,30 @@ import {
   BINARY_MESSAGE_CLOSE_REASON,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
+  TERMINAL_CONFLICT_CLOSE_CODE,
+  TERMINAL_TAKEOVER_CLOSE_CODE,
 } from "webterm/protocol";
-import { handleServerFrame, terminalPath } from "../src/data/useWebterm";
+import { closeStatus, handleServerFrame, terminalPath } from "../src/data/useWebterm";
 
 describe("browser server-message handling", () => {
   test("encodes each terminal identifier as one URL path segment", () => {
     expect(terminalPath("repo ?#% 雪", "work ?#% λ")).toBe(
       "/workspaces/repo%20%3F%23%25%20%E9%9B%AA/work%20%3F%23%25%20%CE%BB/terminal",
     );
+  });
+
+  test("appends the takeover flag after the encoded path segments", () => {
+    expect(terminalPath("repo ?#% 雪", "work ?#% λ", true)).toBe(
+      "/workspaces/repo%20%3F%23%25%20%E9%9B%AA/work%20%3F%23%25%20%CE%BB/terminal?takeover=1",
+    );
+    expect(terminalPath("repo", "work", false)).toBe("/workspaces/repo/work/terminal");
+  });
+
+  test("maps the ship's terminal close codes to recoverable statuses", () => {
+    expect(closeStatus(TERMINAL_CONFLICT_CLOSE_CODE)).toBe("conflict");
+    expect(closeStatus(TERMINAL_TAKEOVER_CLOSE_CODE)).toBe("superseded");
+    expect(closeStatus(1000)).toBe("closed");
+    expect(closeStatus(INVALID_MESSAGE_CLOSE_CODE)).toBe("closed");
   });
 
   test("dispatches valid grid and exit messages", () => {

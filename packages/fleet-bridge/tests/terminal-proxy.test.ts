@@ -19,6 +19,8 @@ import {
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
   MAX_CLIENT_FRAME_BYTES,
+  TERMINAL_TAKEOVER_QUERY,
+  TERMINAL_TAKEOVER_QUERY_VALUE,
 } from "webterm/protocol";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
@@ -57,7 +59,8 @@ describe("bridge terminal proxy", () => {
     upstream = Bun.serve({
       port: 0,
       fetch(req, server) {
-        upstreamPaths.push(new URL(req.url).pathname);
+        const url = new URL(req.url);
+        upstreamPaths.push(url.pathname + url.search);
         if (server.upgrade(req)) return undefined;
         return new Response("expected a websocket upgrade", { status: 400 });
       },
@@ -129,6 +132,32 @@ describe("bridge terminal proxy", () => {
 
     expect(upstreamPaths.at(-1)).toBe(
       "/workspaces/repo%20%3F%23%25%20%E9%9B%AA/work%20%3F%23%25%20%CE%BB/terminal",
+    );
+    const close = closed(client);
+    client.close();
+    await close;
+  });
+
+  test("forwards the takeover flag upstream, and only when asked", async () => {
+    const plain = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    await opened(plain);
+    const plainReply = nextMessage(plain);
+    plain.send('{"type":"init","cols":80,"rows":24}');
+    await plainReply;
+    expect(upstreamPaths.at(-1)).toBe("/workspaces/repo1/w1/terminal");
+    const plainClose = closed(plain);
+    plain.close();
+    await plainClose;
+
+    const client = new WebSocket(
+      `${bridgeUrl}/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`,
+    );
+    await opened(client);
+    const reply = nextMessage(client);
+    client.send('{"type":"init","cols":80,"rows":24}');
+    await reply;
+    expect(upstreamPaths.at(-1)).toBe(
+      `/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=${TERMINAL_TAKEOVER_QUERY_VALUE}`,
     );
     const close = closed(client);
     client.close();

@@ -26,6 +26,27 @@ export const BINARY_MESSAGE_CLOSE_REASON = "Binary terminal messages are not sup
 export const BUFFER_LIMIT_CLOSE_CODE = 1009;
 export const BUFFER_LIMIT_CLOSE_REASON = "Terminal buffer limit exceeded";
 
+// A workspace's tmux session accepts one terminal socket at a time. Both codes
+// sit in the 4000–4999 private range so every proxy in the chain forwards them
+// verbatim instead of collapsing them to 1011; reasons stay well under the
+// WebSocket 123-byte limit.
+/** Refused: another connection already owns this workspace's terminal. */
+export const TERMINAL_CONFLICT_CLOSE_CODE = 4409;
+export const TERMINAL_CONFLICT_CLOSE_REASON = "Terminal already attached by another connection";
+/** Evicted: another connection took this workspace's terminal over. */
+export const TERMINAL_TAKEOVER_CLOSE_CODE = 4410;
+export const TERMINAL_TAKEOVER_CLOSE_REASON = "Terminal taken over by another connection";
+
+/** Query param on the terminal ws URL asking to evict the incumbent connection. */
+export const TERMINAL_TAKEOVER_QUERY = "takeover";
+/** The value every hop writes for `TERMINAL_TAKEOVER_QUERY`. */
+export const TERMINAL_TAKEOVER_QUERY_VALUE = "1";
+
+/** Whether a `takeover` query value asks to evict the incumbent connection. */
+export function isTakeoverRequested(value: string | undefined): boolean {
+  return value === TERMINAL_TAKEOVER_QUERY_VALUE || value === "true";
+}
+
 const utf8 = new TextEncoder();
 const colsSchema = z.number().int().min(MIN_TERMINAL_COLS).max(MAX_TERMINAL_COLS);
 const rowsSchema = z.number().int().min(MIN_TERMINAL_ROWS).max(MAX_TERMINAL_ROWS);

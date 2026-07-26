@@ -3,8 +3,14 @@ import {
   clampTerminalSize,
   decodeClientMessage,
   decodeServerMessage,
+  isTakeoverRequested,
   MAX_INPUT_BYTES,
   splitInput,
+  TERMINAL_CONFLICT_CLOSE_CODE,
+  TERMINAL_CONFLICT_CLOSE_REASON,
+  TERMINAL_TAKEOVER_CLOSE_CODE,
+  TERMINAL_TAKEOVER_CLOSE_REASON,
+  TERMINAL_TAKEOVER_QUERY_VALUE,
   utf8ByteLength,
 } from "../protocol";
 import type { GridMsg } from "../protocol";
@@ -84,5 +90,27 @@ describe("browser protocol helpers", () => {
     expect(chunks).toHaveLength(2);
     expect(chunks.every((chunk) => utf8ByteLength(chunk) <= MAX_INPUT_BYTES)).toBe(true);
     expect(chunks[1]).toBe("éz");
+  });
+});
+
+describe("terminal takeover signalling", () => {
+  test("keeps the conflict codes proxy-safe and the reasons wire-legal", () => {
+    for (const code of [TERMINAL_CONFLICT_CLOSE_CODE, TERMINAL_TAKEOVER_CLOSE_CODE]) {
+      expect(code).toBeGreaterThanOrEqual(4000);
+      expect(code).toBeLessThanOrEqual(4999);
+    }
+    expect(TERMINAL_CONFLICT_CLOSE_CODE).not.toBe(TERMINAL_TAKEOVER_CLOSE_CODE);
+    for (const reason of [TERMINAL_CONFLICT_CLOSE_REASON, TERMINAL_TAKEOVER_CLOSE_REASON]) {
+      expect(utf8ByteLength(reason)).toBeLessThanOrEqual(123);
+    }
+  });
+
+  test("recognises only the agreed takeover query values", () => {
+    expect(isTakeoverRequested(TERMINAL_TAKEOVER_QUERY_VALUE)).toBe(true);
+    expect(isTakeoverRequested("true")).toBe(true);
+    expect(isTakeoverRequested(undefined)).toBe(false);
+    expect(isTakeoverRequested("")).toBe(false);
+    expect(isTakeoverRequested("0")).toBe(false);
+    expect(isTakeoverRequested("false")).toBe(false);
   });
 });
