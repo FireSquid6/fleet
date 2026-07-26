@@ -38,6 +38,18 @@ function baseFont(bold: boolean, italic: boolean): string {
   return `${italic ? "italic " : ""}${bold ? "bold " : ""}${FONT_SIZE}px ${FONT_FAMILY}`;
 }
 
+/**
+ * Whether a delegated React event was aimed at the handler's own element rather
+ * than bubbled up from a descendant — the takeover button. Only keys aimed at
+ * the container itself belong to the PTY: without this guard, Enter/Space on
+ * that button would be swallowed (`encodeKeyEvent` maps them, and the
+ * `preventDefault` cancels the button's synthesized click), stranding
+ * keyboard-only users on the conflict overlay.
+ */
+function ownEvent(e: { target: EventTarget; currentTarget: EventTarget }): boolean {
+  return e.target === e.currentTarget;
+}
+
 /** How the cursor cell should be painted this frame. */
 export type CursorRender = "hidden" | "solid" | "outline";
 
@@ -248,6 +260,10 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   // Keystrokes only reach the PTY when this element holds focus *and* the window
   // is the one the OS is delivering keys to; a focused element in a background
   // window is exactly the "where is my typing going?" case issue #14 is about.
+  //
+  // The two refs are independent and combined with AND, so browsers that *also*
+  // fire an element blur on window deactivation are handled by either path in
+  // whichever order the events arrive; the repaints coalesce into one frame.
   const focused = useCallback(() => elementFocused.current && windowFocused.current, []);
 
   const paint = useCallback(() => {
@@ -292,15 +308,15 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   // the background on mount, and window-level focus changes never surface as
   // focusin/focusout on the element. Seeding from the DOM also keeps the element
   // half honest if a future caller autofocuses the container before this runs.
-  //
-  // The two refs are independent and combined with AND, so browsers that *also*
-  // fire an element blur on window deactivation are handled by either path in
-  // whichever order the events arrive; the repaints coalesce into one frame.
   useEffect(() => {
     elementFocused.current = document.activeElement === containerRef.current;
     windowFocused.current = document.hasFocus();
 
     const onWindowFocus = () => {
+      // Re-read the element too: a browser that fires an element blur on window
+      // deactivation but no matching focus on reactivation would otherwise leave
+      // `elementFocused` stuck false. This is the only moment it can drift.
+      elementFocused.current = document.activeElement === containerRef.current;
       windowFocused.current = true;
       cursorOn.current = true;
       scheduleDraw();
@@ -380,16 +396,17 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     return () => clearInterval(id);
   }, [active, focused, scheduleDraw]);
 
-  // Every handler below is delegated by React and so also fires for events that
-  // bubbled up from a descendant — the takeover button. Only keys aimed at the
-  // container itself belong to the PTY: without this guard, Enter/Space on that
-  // button would be swallowed (`encodeKeyEvent` maps them, and the
-  // `preventDefault` cancels the button's synthesized click), stranding
-  // keyboard-only users on the conflict overlay.
-  const ownEvent = (e: { target: EventTarget; currentTarget: EventTarget }) => e.target === e.currentTarget;
+  // The conflict overlay owns the keyboard as well as the pointer: its button is
+  // the only way out, and swallowing keys here would trap focus on the container
+  // (`encodeKeyEvent` maps Tab and Shift-Tab, so `preventDefault` would cancel
+  // the browser's focus move and leave the button unreachable). Only `"conflict"`
+  // gets this — during `"connecting"` there is no competing control, and eating
+  // Tab is the correct terminal behaviour. The socket is closed in `"conflict"`,
+  // so `send` was already a no-op; the released `preventDefault` is the point.
+  const keysBelongToPty = status !== "conflict";
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!ownEvent(e)) return;
+    if (!ownEvent(e) || !keysBelongToPty) return;
     const bytes = encodeKeyEvent(e);
     if (bytes === null) return;
     e.preventDefault();
@@ -397,7 +414,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   };
 
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
-    if (!ownEvent(e)) return;
+    if (!ownEvent(e) || !keysBelongToPty) return;
     e.preventDefault();
     send(e.clipboardData.getData("text"));
   };
