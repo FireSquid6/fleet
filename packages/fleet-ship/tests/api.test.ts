@@ -86,6 +86,36 @@ describe("ship API", () => {
     expect(JSON.parse((await call("/workspaces/r/n/diff?includeUntracked=true")).text)).toEqual({
       includeUntracked: true,
     });
+    expect(JSON.parse((await call("/workspaces/r/n/diff?range=main&mergeBase=true")).text)).toEqual({
+      range: "main",
+      mergeBase: true,
+    });
+  });
+
+  test("GET /workspaces/:repo/:name/refs returns refs, passes the commit limit, maps 404", async () => {
+    const ok = await makeApp()("GET", "/workspaces/r/n/refs");
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ current: "main", defaultBranch: "main" });
+
+    // Stub echoes the parsed options back through `current`.
+    const echo = makeApp({
+      refs: async (_r: string, _n: string, opts: { commits?: number }) => ({
+        current: JSON.stringify(opts),
+        defaultBranch: null,
+        branches: [],
+        commits: [],
+      }),
+    });
+    expect((await echo("GET", "/workspaces/r/n/refs?commits=5")).body.current).toBe('{"commits":5}');
+
+    const missing = makeApp({
+      refs: async () => {
+        throw new WorkspaceError("workspace not found: r/n", 404);
+      },
+    });
+    const res = await missing("GET", "/workspaces/r/n/refs");
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: "workspace not found: r/n" });
   });
 
   test("POST /workspaces returns 201, maps 409, validates body (422)", async () => {

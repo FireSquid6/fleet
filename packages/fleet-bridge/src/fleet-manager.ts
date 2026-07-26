@@ -16,12 +16,14 @@ import {
   CreateRepoInputSchema,
   FleetIdentifierSchema,
   ShipSchema,
+  WorkspaceRefsSchema,
   WorkspaceSummarySchema,
   WorkspaceStatusSchema,
   type CreateRepoInput,
   type FleetEvent,
   type Repo,
   type SystemResources,
+  type WorkspaceRefs,
   type WorkspaceStatus,
   type WorkspaceSummary,
 } from "fleet-protocol";
@@ -351,6 +353,17 @@ export class FleetManager {
     return this.call<string>(conn, () =>
       conn.client.workspaces({ repo })({ name }).diff.get({ query: options }) as Promise<EdenResult<string>>,
     );
+  }
+
+  /** `GET /workspaces/:repo/:name/refs` — diffable branches/commits from the owning ship. */
+  async getWorkspaceRefs(repo: string, name: string, options: { commits?: number } = {}): Promise<WorkspaceRefs> {
+    const conn = this.routeFor(repo, name);
+    const response = await this.call<WorkspaceRefs>(conn, () =>
+      conn.client.workspaces({ repo })({ name }).refs.get({ query: options }) as Promise<EdenResult<WorkspaceRefs>>,
+    );
+    const parsed = WorkspaceRefsSchema.safeParse(response);
+    if (!parsed.success) throw new BridgeError(`ship "${conn.name}" returned invalid workspace refs`, 502);
+    return parsed.data;
   }
 
   /** `POST /workspaces {ship,repoName,name,branch}` — clones a registered repo. */

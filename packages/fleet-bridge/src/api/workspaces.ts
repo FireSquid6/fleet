@@ -56,6 +56,7 @@ export function workspacesPlugin(manager: FleetManager) {
             stat: query.stat,
             nameOnly: query.nameOnly,
             range: query.range,
+            mergeBase: query.mergeBase,
             paths: query.paths,
             includeUntracked: query.includeUntracked,
           });
@@ -71,8 +72,26 @@ export function workspacesPlugin(manager: FleetManager) {
           stat: t.Optional(t.Boolean()),
           nameOnly: t.Optional(t.Boolean()),
           range: t.Optional(t.String()),
+          mergeBase: t.Optional(t.Boolean()),
           paths: t.Optional(t.Array(t.String())),
           includeUntracked: t.Optional(t.Boolean()),
+        }),
+      },
+    )
+    .get(
+      "/workspaces/:repo/:name/refs",
+      async ({ params, query, set }) => {
+        try {
+          return await manager.getWorkspaceRefs(params.repo, params.name, { commits: query.commits });
+        } catch (err) {
+          const mapped = mapError(err);
+          set.status = mapped.status;
+          return mapped.body;
+        }
+      },
+      {
+        query: t.Object({
+          commits: t.Optional(t.Number()),
         }),
       },
     )

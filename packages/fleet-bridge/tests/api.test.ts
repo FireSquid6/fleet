@@ -117,6 +117,19 @@ describe("bridge API", () => {
     expect((await callText("/workspaces/nope/gone/diff")).status).toBe(404);
   });
 
+  test("GET /workspaces/:repo/:name/refs proxies the ship's diff targets (200) or 404s", async () => {
+    const ok = await call("GET", "/workspaces/repo1/one/refs");
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({
+      current: "main",
+      defaultBranch: "main",
+      branches: [{ name: "main", remote: false }],
+    });
+    expect(ok.body.commits[0]).toMatchObject({ subject: "commit for one" });
+
+    expect((await call("GET", "/workspaces/nope/gone/refs")).status).toBe(404);
+  });
+
   test("POST /workspaces: 201 create, 400 unknown ship/repo, 409 duplicate, 422 invalid", async () => {
     await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" });
     await call("POST", "/repos", { name: "repo3", url: "git@fake/repo3.git" });

@@ -18,6 +18,7 @@ import {
   type FleetEvent,
   type FleetShipConfig,
   type WorkspaceDiff,
+  type WorkspaceRefs,
   type WorkspaceStatus,
   type WorkspaceSummary,
 } from "fleet-protocol";
@@ -58,6 +59,21 @@ export interface InitAgentOptions {
   readonly model: string;
   readonly provider: string;
   readonly harness: string;
+}
+
+export interface RefsOptions {
+  /** How many recent commits to return. Defaults to {@link RECENT_COMMIT_COUNT}. */
+  readonly commits?: number;
+}
+
+/** Depth of the commit list in `refs` — deep enough to pick "last N" from. */
+export const RECENT_COMMIT_COUNT = 20;
+
+/** Branch names ranked by how likely they are to be the repo's integration branch. */
+const DEFAULT_BRANCH_CANDIDATES = ["main", "master", "origin/main", "origin/master"];
+
+function defaultBranch(names: readonly string[]): string | null {
+  return DEFAULT_BRANCH_CANDIDATES.find((candidate) => names.includes(candidate)) ?? null;
 }
 
 export class WorkspaceManager {
@@ -243,6 +259,43 @@ export class WorkspaceManager {
     const dir = await this.requireWorkspace(repoName, name);
     const git = new Git({ cwd: dir });
     return git.diff(options);
+  }
+
+  /**
+   * The branches and recent commits a caller can diff the workspace against.
+   * Remote-tracking branches are included so a workspace can be compared with an
+   * integration branch it has no local copy of.
+   */
+  async refs(repoName: string, name: string, options: RefsOptions = {}): Promise<WorkspaceRefs> {
+    const dir = await this.requireWorkspace(repoName, name);
+    const git = new Git({ cwd: dir });
+    const [current, local, remote, log] = await Promise.all([
+      git.currentBranch(),
+      git.branches(),
+      git.branches({ remote: true }),
+      git.log({ maxCount: options.commits ?? RECENT_COMMIT_COUNT }),
+    ]);
+
+    const branches = [
+      ...local.map((branch) => ({ name: branch.name, remote: false })),
+      // `origin/HEAD` is a symbolic alias, not a ref worth offering as a target.
+      // It shows up either as `origin/HEAD` or — when it is the remote's default
+      // ref — abbreviated all the way down to a bare `origin`.
+      ...remote
+        .filter((branch) => !branch.name.endsWith("/HEAD") && branch.name.includes("/"))
+        .map((branch) => ({ name: branch.name, remote: true })),
+    ].filter((branch) => branch.name.length > 0);
+
+    return {
+      current,
+      defaultBranch: defaultBranch(branches.map((b) => b.name)),
+      branches,
+      commits: log.map((commit) => ({
+        sha: commit.sha,
+        shortSha: commit.shortSha,
+        subject: commit.subject,
+      })),
+    };
   }
 
   /**

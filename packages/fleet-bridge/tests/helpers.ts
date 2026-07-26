@@ -158,6 +158,15 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
       diff: {
         get: () => wrap(() => `diff for ${params.repo}/${params2.name}`),
       },
+      refs: {
+        get: () =>
+          wrap(() => ({
+            current: "main",
+            defaultBranch: "main",
+            branches: [{ name: "main", remote: false }],
+            commits: [{ sha: "a".repeat(40), shortSha: "aaaaaaa", subject: `commit for ${params2.name}` }],
+          })),
+      },
     };
   };
   workspacesFn.get = () => wrap(() => ship()?.workspaceSnapshot ?? [...(ship()?.workspaces ?? [])]);
