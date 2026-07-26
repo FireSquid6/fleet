@@ -34,7 +34,7 @@ import {
 import type { DiffOptions } from "git-bun";
 import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
-import type { BridgeConfig } from "./config";
+import { defaultPublicUrl, type BridgeConfig } from "./config";
 import {
   workspaceKey,
   type BridgeWorkspaceEvent,
@@ -251,6 +251,9 @@ export class FleetManager {
     await this.persist();
     this.publishSnapshot();
 
+    // Fire-and-forget: registering a ship must not fail, or wait, on the armory.
+    void this.pushArmoryTo(probe);
+
     return { name, url, status: probe.status };
   }
 
@@ -441,6 +444,55 @@ export class FleetManager {
   /** Drop the cached scan — called when the armory directory changes on disk. */
   invalidateArmory(): void {
     this.armory.invalidate();
+  }
+
+  /**
+   * Tell every online ship to re-pull the armory. Never throws and never waits
+   * on one ship for another: a push is a notification, not a transaction, and a
+   * ship that is offline or that fails its pull must not break the bridge or
+   * hold up the rest of the fleet. Failures are warned about and dropped —
+   * whatever caused one will still be there at the next push or reconnect.
+   */
+  async pushArmory(): Promise<void> {
+    const revision = await this.currentArmoryRevision();
+    if (revision === undefined) return;
+    const online = [...this.connections.values()].filter(
+      (conn) => conn.member && conn.status === "online",
+    );
+    await Promise.allSettled(online.map((conn) => this.syncArmoryOn(conn, revision)));
+  }
+
+  /** The one-ship push, used when a ship joins the fleet or comes back online. */
+  private async pushArmoryTo(conn: ShipConnection): Promise<void> {
+    if (!conn.member || conn.status !== "online") return;
+    const revision = await this.currentArmoryRevision();
+    if (revision === undefined) return;
+    // The ship may have dropped while the armory was being scanned.
+    if (conn.status !== "online") return;
+    await this.syncArmoryOn(conn, revision);
+  }
+
+  /** The current revision, or `undefined` when the armory cannot be scanned. */
+  private async currentArmoryRevision(): Promise<string | undefined> {
+    try {
+      return (await this.armoryManifest()).revision;
+    } catch (error) {
+      console.warn(`fleet-bridge: could not read the armory to push it: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
+
+  private async syncArmoryOn(conn: ShipConnection, revision: string): Promise<void> {
+    const bridgeUrl = this.config.publicUrl ?? defaultPublicUrl(this.config.port);
+    try {
+      await this.call(conn, () =>
+        conn.client.armory.sync.post({ bridgeUrl, revision }) as Promise<EdenResult<unknown>>,
+      );
+    } catch (error) {
+      console.warn(
+        `fleet-bridge: could not push the armory to ship "${conn.name}": ${(error as Error).message}`,
+      );
+    }
   }
 
   private async mapArmoryErrors<T>(fn: () => Promise<T>): Promise<T> {
@@ -663,7 +715,11 @@ export class FleetManager {
     const conn = new ShipConnection({ url, name, deps: this.deps });
     conn.setHandlers({
       onEvent: (c, event) => this.onEvent(c, event),
-      onStatusChange: () => {},
+      // A ship that restarts or reconnects may have missed pushes, so every
+      // arrival at "online" re-syncs it. Fire-and-forget; `pushArmoryTo` warns.
+      onStatusChange: (c, status) => {
+        if (status === "online") void this.pushArmoryTo(c);
+      },
     });
     return conn;
   }

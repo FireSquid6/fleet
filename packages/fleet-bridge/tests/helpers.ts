@@ -23,6 +23,8 @@ export interface FakeShip {
   workspaceSnapshot?: unknown;
   /** Socket opens but never sends a `sync` (for waitForSync timeout tests). */
   neverSync?: boolean;
+  /** Every `POST /armory/sync` this ship received, in order. */
+  armorySyncs?: { bridgeUrl: string; revision: string }[];
   /** All Eden calls resolve to this error `{status, value:{error}}`. */
   errorResponse?: { status: number; message: string };
   /** All Eden calls throw (simulated network failure). */
@@ -190,6 +192,23 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
   return {
     workspaces: workspacesFn,
     "system-resources": { get: () => wrap(() => fakeResources(ship()?.name ?? "unknown")) },
+    armory: {
+      sync: {
+        post: (body: { bridgeUrl: string; revision: string }) => {
+          const s = ship();
+          // Recorded before `wrap`, so a ship configured to error or throw still
+          // shows what the bridge tried to push.
+          if (s) (s.armorySyncs ??= []).push(body);
+          return wrap(() => ({
+            revision: body.revision,
+            bridgeUrl: body.bridgeUrl,
+            syncedAt: "2026-01-01T00:00:00.000Z",
+            fileCount: 0,
+            lastError: null,
+          }));
+        },
+      },
+    },
   };
 }
 

@@ -141,3 +141,33 @@ export const ArmoryFileSchema = ArmoryFileFactsSchema.extend({
 });
 
 export type ArmoryFile = z.infer<typeof ArmoryFileSchema>;
+
+/**
+ * Body of the bridge's `POST /armory/sync` push to a ship.
+ *
+ * A ship holds no bridge address of its own, so `bridgeUrl` is how it learns
+ * where to pull from — and it only ever pulls from a bridge that has spoken to
+ * it. `revision` is a hint that something changed, not an instruction: the ship
+ * applies whatever revision the manifest it fetches reports, because the armory
+ * may change again between this push and that fetch.
+ */
+export const ArmorySyncRequestSchema = z.object({
+  bridgeUrl: z.url(),
+  revision: z.string().regex(/^[0-9a-f]{64}$/, "must be a lowercase hex sha256"),
+});
+
+export type ArmorySyncRequest = z.infer<typeof ArmorySyncRequestSchema>;
+
+/** What a ship reports about its armory cache. */
+export const ArmorySyncStateSchema = z.object({
+  /** The applied revision; `null` until the first successful sync. */
+  revision: z.string().nullable(),
+  bridgeUrl: z.string().nullable(),
+  /** ISO timestamp of the last successful sync. */
+  syncedAt: z.string().nullable(),
+  fileCount: z.number().int().nonnegative(),
+  /** Message of the most recent failed sync, cleared by the next success. */
+  lastError: z.string().nullable(),
+});
+
+export type ArmorySyncState = z.infer<typeof ArmorySyncStateSchema>;

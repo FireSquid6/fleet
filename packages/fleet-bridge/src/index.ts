@@ -1,8 +1,11 @@
 
 import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { Command, InvalidArgumentError } from "commander";
+import { ARMORY_DIRECTORY } from "fleet-protocol";
 import { type BridgeConfig, resolveBridgeConfig } from "./config";
 import { FleetManager } from "./fleet-manager";
+import { watchArmory, type ArmoryWatcher } from "./armory/armory-watcher";
 import { createApp } from "./api";
 
 export type { BridgeConfig } from "./config";
@@ -18,10 +21,13 @@ function parsePort(value: string): number {
 
 /**
  * Bring up a bridge: init the manager (loads the persisted ship roster and
- * connects to each ship), then serve the API. Returns the manager so callers
- * (e.g. `fleet launch`) can register additional ships. Throws on failure.
+ * connects to each ship), watch the armory, then serve the API. Returns the
+ * manager so callers (e.g. `fleet launch`) can register additional ships, and
+ * the armory watcher so they can close it. Throws on failure.
  */
-export async function startBridge(config: BridgeConfig): Promise<{ manager: FleetManager }> {
+export async function startBridge(
+  config: BridgeConfig,
+): Promise<{ manager: FleetManager; watcher: ArmoryWatcher }> {
   // The store persists ships.json/repos.json here; create it up front so a
   // first run against a fresh (default) data directory can persist its roster.
   await mkdir(config.dataDirectory, { recursive: true });
@@ -29,10 +35,17 @@ export async function startBridge(config: BridgeConfig): Promise<{ manager: Flee
   const manager = new FleetManager(config);
   await manager.init();
 
+  // Started after `init` — the ships that come online during it push themselves
+  // through the connection's status handler.
+  const watcher = watchArmory(join(config.dataDirectory, ARMORY_DIRECTORY), () => {
+    manager.invalidateArmory();
+    void manager.pushArmory();
+  });
+
   const app = createApp(manager, config);
   app.listen(config.port);
   console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
-  return { manager };
+  return { manager, watcher };
 }
 
 export const bridge = new Command()
@@ -41,12 +54,14 @@ export const bridge = new Command()
   .option("-p, --port <port>", "port the HTTP + WebSocket API listens on", parsePort, DEFAULT_BRIDGE_PORT)
   .option("-n, --name <name>", "human-facing name of this bridge", "bridge")
   .option("-d, --data-directory <dir>", "directory the bridge persists its ship roster to", "./.fleet-bridge")
-  .action(async (options: { port: number; name: string; dataDirectory: string }) => {
+  .option("--public-url <url>", "URL ships should use to reach this bridge")
+  .action(async (options: { port: number; name: string; dataDirectory: string; publicUrl?: string }) => {
     try {
       const config = resolveBridgeConfig({
         dataDirectory: options.dataDirectory,
         port: options.port,
         name: options.name,
+        publicUrl: options.publicUrl,
       });
       await startBridge(config);
     } catch (err) {

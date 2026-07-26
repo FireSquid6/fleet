@@ -48,11 +48,15 @@ export {
   DotfileMapSchema,
   ArmoryManifestSchema,
   ArmoryFileSchema,
+  ArmorySyncRequestSchema,
+  ArmorySyncStateSchema,
   type ArmorySection,
   type ArmoryEntry,
   type DotfileMap,
   type ArmoryManifest,
   type ArmoryFile,
+  type ArmorySyncRequest,
+  type ArmorySyncState,
 } from "./src/armory";
 
 export {
