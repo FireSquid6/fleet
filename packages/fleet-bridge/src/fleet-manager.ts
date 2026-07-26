@@ -12,13 +12,17 @@
  * routing and duplicate detection.
  */
 
+import { join } from "node:path";
 import {
+  ARMORY_DIRECTORY,
   CreateRepoInputSchema,
   FleetIdentifierSchema,
   ShipSchema,
   WorkspaceRefsSchema,
   WorkspaceSummarySchema,
   WorkspaceStatusSchema,
+  type ArmoryFile,
+  type ArmoryManifest,
   type CreateRepoInput,
   type FleetEvent,
   type Repo,
@@ -40,6 +44,13 @@ import {
   type ShipSystemResources,
 } from "./types";
 import { RepoAlreadyExistsError, Store } from "./store/store";
+import {
+  ArmoryMapError,
+  ArmoryNotFoundError,
+  ArmoryPathError,
+  ArmoryService,
+  ArmoryTooLargeError,
+} from "./armory/armory-service";
 import {
   providerFor,
   type CheckRun,
@@ -101,16 +112,24 @@ export class FleetManager {
   private readonly store: Store;
   /** Builds a `RepoProvider` for a registered repo; overridable in tests. */
   private readonly makeProvider: (repo: Repo) => RepoProvider;
+  /** The bridge-owned file factory served from `<dataDirectory>/armory`. */
+  private readonly armory: ArmoryService;
 
   constructor(
     private readonly config: BridgeConfig,
     deps?: Partial<ShipConnectionDeps>,
-    opts?: { syncTimeoutMs?: number; store?: Store; providerFor?: (repo: Repo) => RepoProvider },
+    opts?: {
+      syncTimeoutMs?: number;
+      store?: Store;
+      providerFor?: (repo: Repo) => RepoProvider;
+      armory?: ArmoryService;
+    },
   ) {
     this.deps = deps;
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
     this.store = opts?.store ?? new Store(config.dataDirectory);
     this.makeProvider = opts?.providerFor ?? providerFor;
+    this.armory = opts?.armory ?? new ArmoryService(join(config.dataDirectory, ARMORY_DIRECTORY));
   }
 
   /**
@@ -405,6 +424,36 @@ export class FleetManager {
     }
     if (target.ref !== undefined) return target.ref;
     throw new BridgeError("checks require a ref or pr", 400);
+  }
+
+  // --- armory (bridge-owned file factory) -----------------------------------
+
+  /** `GET /armory` — the content-addressed manifest of `<dataDirectory>/armory`. */
+  async armoryManifest(): Promise<ArmoryManifest> {
+    return this.mapArmoryErrors(() => this.armory.manifest());
+  }
+
+  /** `GET /armory/file?path=…` — one file the manifest lists. */
+  async armoryFile(path: string): Promise<ArmoryFile> {
+    return this.mapArmoryErrors(() => this.armory.readFile(path));
+  }
+
+  /** Drop the cached scan — called when the armory directory changes on disk. */
+  invalidateArmory(): void {
+    this.armory.invalidate();
+  }
+
+  private async mapArmoryErrors<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof ArmoryPathError || error instanceof ArmoryMapError) {
+        throw new BridgeError(error.message, 400);
+      }
+      if (error instanceof ArmoryNotFoundError) throw new BridgeError(error.message, 404);
+      if (error instanceof ArmoryTooLargeError) throw new BridgeError(error.message, 413);
+      throw error;
+    }
   }
 
   // --- workspace API (superset of the ship's) -------------------------------

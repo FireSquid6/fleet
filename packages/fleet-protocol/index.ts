@@ -39,6 +39,21 @@ export type {
 export type { SystemResources } from "./src/system";
 export { RepoSchema, CreateRepoInputSchema, type Repo, type CreateRepoInput } from "./src/repo";
 export { ShipSchema, type Ship } from "./src/ship";
+export {
+  ARMORY_SECTIONS,
+  ARMORY_DIRECTORY,
+  DOTFILE_MAP_FILENAME,
+  isSafeArmoryPath,
+  ArmoryEntrySchema,
+  DotfileMapSchema,
+  ArmoryManifestSchema,
+  ArmoryFileSchema,
+  type ArmorySection,
+  type ArmoryEntry,
+  type DotfileMap,
+  type ArmoryManifest,
+  type ArmoryFile,
+} from "./src/armory";
 
 export {
   SyncEventSchema,
