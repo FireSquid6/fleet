@@ -110,7 +110,10 @@ state. See [Events](/concepts/events/) and the
 | `fleet bridge` | run a bridge |
 | `fleet client` | drive a ship or the bridge; `fleet client serve` runs the GUI |
 | `fleet launch` | bring a whole fleet up in one process from `fleet-config.yaml` |
-| `fleet agent` | the reporting commands agents run from inside a workspace |
+
+Agents run a separate binary, `fagent`, from inside a workspace — for status
+reporting and for working with the repo's issues, PRs, and CI through the bridge.
+See the [fagent reference](/reference/fagent/).
 
 `fleet client` commands talk to a single ship by default (`--url`, default
 `http://localhost:4700`) and to the bridge for fleet-wide operations

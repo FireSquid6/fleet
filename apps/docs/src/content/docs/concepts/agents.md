@@ -41,18 +41,18 @@ is by walking up from its working directory until it finds the ship's
 [Ships](/concepts/ships/).
 
 ```bash
-fleet agent in-workspace
+fagent agent in-workspace
 # api-gateway/fix-auth      (exit 0)
 # no workspace              (exit 1)
 ```
 
-Every other `fleet agent` command does the same lookup first, and exits with an
+Every other `fagent agent` command does the same lookup first, and exits with an
 error if it isn't inside a workspace.
 
 ## Registering a session
 
 ```bash
-fleet agent init --model claude-opus-4-8 --provider anthropic --harness claude-code
+fagent agent init --model claude-opus-4-8 --provider anthropic --harness claude-code
 ```
 
 This posts to the ship's `agent/init` route for the workspace. It requires an
@@ -70,7 +70,7 @@ to run unconditionally at the start of a harness session.
 ## Reporting status
 
 ```bash
-fleet agent status building -d "Adding retry handling to the token refresh path"
+fagent agent status building -d "Adding retry handling to the token refresh path"
 ```
 
 This updates only the state and description; the model/provider/harness from
@@ -96,10 +96,15 @@ yourself when the work is ready. No Fleet process commits, pushes, or merges on
 an agent's behalf. A workspace whose branch is never pushed simply loses its
 work when it's removed.
 
-The skill also restricts agents to the `fleet agent` namespace. `fleet client`,
-`fleet ship`, and `fleet bridge` are for the human or process managing the
-fleet; an agent that can reconfigure the fleet it runs in is a problem, not a
-feature.
+The skill also keeps agents to the `fagent` CLI and off the fleet-management
+one. `fleet client`, `fleet ship`, and `fleet bridge` are for the human or
+process managing the fleet; an agent that can reconfigure the fleet it runs in
+is a problem, not a feature.
+
+Beyond status, `fagent repo` lets an agent work with the workspace's repository
+through the bridge — reading and commenting on issues and pull requests,
+submitting reviews, and pulling CI check results and failed-run logs. See the
+[fagent reference](/reference/fagent/).
 
 ## How the ship teaches agents the contract
 
@@ -120,7 +125,7 @@ A harness is only touched if its config root already exists — installing a shi
 does not create `~/.claude` for someone who doesn't use Claude Code.
 
 **A startup plugin** that makes the agent activate the skill. Each one runs
-`fleet agent in-workspace` when a session starts and, only if that succeeds and
+`fagent agent in-workspace` when a session starts and, only if that succeeds and
 prints a clean `repo/name`, injects an instruction to activate the
 `fleet-agent` skill before doing anything else. Outside a workspace they print
 nothing at all.

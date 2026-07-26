@@ -77,9 +77,12 @@ See [Web GUI](/guides/web-gui/).
 | `fleet bridge` | run a bridge |
 | `fleet client` | talk to a ship or bridge; `fleet client serve` runs the GUI |
 | `fleet launch` | bring up bridge + ships + GUI from `fleet-config.yaml` |
-| `fleet agent` | the reporting commands agents use from inside a workspace |
 
-The full surface is in the [CLI reference](/reference/cli/).
+Agents don't use `fleet` — they get their own binary, `fagent`, for reporting
+status and working with the repo's issues, PRs, and CI from inside a workspace.
+
+The full surface is in the [CLI reference](/reference/cli/), with the agent-facing
+commands in the [fagent reference](/reference/fagent/).
 
 ### The agent contract
 
@@ -93,8 +96,8 @@ the agent it owns its clone end to end — pull, commit, and push its own branch
 and that it must keep its status current with two commands:
 
 ```bash
-fleet agent init --model <model> --provider <provider> --harness <harness>
-fleet agent status <state> -d "<what you're doing right now>"
+fagent agent init --model <model> --provider <provider> --harness <harness>
+fagent agent status <state> -d "<what you're doing right now>"
 ```
 
 `<state>` is one of `idle`, `planning`, `building`, `verifying`, `awaiting`.

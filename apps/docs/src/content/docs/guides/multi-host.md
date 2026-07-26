@@ -171,7 +171,7 @@ a bridge or a ship to the internet.
 
 ## Agents stay local to their ship
 
-`fleet agent` finds its ship by walking up from the working directory to the
+`fagent` finds its ship by walking up from the working directory to the
 `atlas.json` the ship writes, and connects to `http://localhost:<port>`. It is
 deliberately local-only: an agent must run on the same host as the ship that owns
 its workspace. There is no remote form of these commands, and none is needed —

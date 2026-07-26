@@ -197,8 +197,8 @@ From there:
   terminal on the tmux session
 
 Start your agent harness in that terminal. Told to work in a fleet, it picks up
-the `fleet-agent` skill and reports its own status back with `fleet agent init`
-and `fleet agent status`, which shows up on the dashboard within the same
+the `fleet-agent` skill and reports its own status back with `fagent agent init`
+and `fagent agent status`, which shows up on the dashboard within the same
 event stream. See [Running agents](/guides/running-agents/).
 
 ## 8. Clean up

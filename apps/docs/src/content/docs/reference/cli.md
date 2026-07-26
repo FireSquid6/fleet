@@ -14,7 +14,10 @@ groups:
 | `fleet ship` | Run a Fleet Ship host, and manage agent integrations. |
 | `fleet bridge` | Run a Fleet Bridge. |
 | `fleet launch` | Bring a whole fleet up from a `fleet-config.yaml`. |
-| `fleet agent` | Workspace self-reporting, run by agents inside a workspace. |
+
+Agent self-reporting and the repo/PR/CI commands agents run from inside a
+workspace live in a separate, agent-facing binary, `fagent` — documented on its
+own [fagent CLI reference](/reference/fagent/) page.
 
 There is no terminal/WebSocket command; terminals are reached through the web
 GUI or the raw API (see [terminals](/concepts/terminals/)).
@@ -387,62 +390,9 @@ Without `--force`, an existing file causes
 `fleet launch init: refusing to overwrite existing <path> (pass --force to replace it)`
 and exit 1. On success it prints `wrote <path>`.
 
-## `fleet agent`
-
-Workspace self-reporting commands, meant to be run by an agent from inside a
-workspace directory. They locate the ship by walking up from the current
-directory to the nearest `atlas.json` and derive `(repo, name)` from the first
-two path segments below it, then POST to `http://localhost:<port>`. Nothing here
-uses `--url`.
-
-Every command except `in-workspace` prints
-`fleet agent: not inside a fleet workspace` and exits 1 when no workspace is
-found.
-
-### `fleet agent init`
-
-```bash
-fleet agent init --model <model> --provider <provider> --harness <harness>
-```
-
-| Option | Argument | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `--model` | `<model>` | yes | none | Model driving the agent, e.g. `claude-opus-4-8`. |
-| `--provider` | `<provider>` | yes | none | Model provider, e.g. `anthropic`. |
-| `--harness` | `<harness>` | yes | none | Agent harness, e.g. `claude-code`. |
-
-Starts an agent session and seeds its status to `idle`. Prints
-`agent session started on <repo>/<name> (<state>)`. Requires the workspace to be
-active; otherwise the ship returns 400 and the CLI exits 1.
-
-### `fleet agent status`
-
-```bash
-fleet agent status <state> -d <text>
-```
-
-| Argument | Meaning |
-| --- | --- |
-| `<state>` | One of `idle`, `planning`, `building`, `verifying`, `awaiting`. |
-
-| Option | Argument | Required | Default | Meaning |
-| --- | --- | --- | --- | --- |
-| `-d, --description` | `<text>` | yes | none | Short summary of what the agent is doing (100–200 characters). |
-
-An invalid state prints
-`fleet agent: invalid state "<state>"; expected one of: idle, planning, building, verifying, awaiting`
-and exits 1 before any request is made. On success it prints
-`status updated to <state> on <repo>/<name>`. `fleet agent init` must have run
-first; otherwise the ship returns 400.
-
-### `fleet agent in-workspace`
-
-```bash
-fleet agent in-workspace
-```
-
-Takes no arguments or options. Prints `<repo>/<name>` and exits 0 inside a
-workspace; prints `no workspace` and exits 1 anywhere else.
+The agent-facing `fagent agent` and `fagent repo` commands are not part of
+`fleet`; they ship as a separate binary with its own page — see the
+[fagent CLI reference](/reference/fagent/).
 
 ## Exit codes and error output
 
@@ -450,8 +400,6 @@ workspace; prints `no workspace` and exits 1 anywhere else.
 | --- | --- | --- |
 | HTTP request failed | `fleet: request failed (<status>): <message>` | 1 |
 | HTTP request succeeded with an empty body | `fleet: request succeeded but returned no data` | 1 |
-| Agent command could not reach the ship | `fleet agent: could not reach ship at <baseUrl>: <message>` | 1 |
-| Agent HTTP request failed | `fleet agent: request failed (<status>): <message>` | 1 |
 | Ship failed to start | `fleet-ship: <message>` | 1 |
 | Bridge failed to start | `fleet-bridge: <message>` | 1 |
 | Launch failed | `fleet launch: <message>` / `fleet launch init: <message>` | 1 |

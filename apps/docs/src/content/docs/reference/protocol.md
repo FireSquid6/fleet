@@ -319,7 +319,7 @@ const AtlasSchema = z.object({ port: z.number().int() });
 `fleetDirectory` on startup. Because workspaces live at
 `<fleetDirectory>/<repo>/<name>`, an agent inside a workspace can walk up two
 levels to find it and learn the local port to reach its ship — which is exactly
-what `fleet agent` does.
+what `fagent` does.
 
 ## Constants
 
