@@ -291,6 +291,38 @@ suite("git-bun end-to-end", () => {
     expect(full).toContain("new file");
   });
 
+  test("diff against a merge base covers the branch's commits plus uncommitted work", async () => {
+    const dir = join(root, "diff-merge-base-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+
+    await Bun.write(join(dir, "shared.txt"), "base\n");
+    await repo.add(".");
+    await repo.commit("initial commit");
+
+    await repo.switchBranch("feature", { create: true });
+    await Bun.write(join(dir, "committed.txt"), "from the branch\n");
+    await repo.add(".");
+    await repo.commit("branch commit");
+    await Bun.write(join(dir, "working.txt"), "not committed yet\n");
+
+    // A commit landing on main after the branch point must not leak into the diff.
+    await repo.switchBranch("main");
+    await Bun.write(join(dir, "on-main.txt"), "main moved on\n");
+    await repo.add(["on-main.txt"]);
+    await repo.commit("main commit");
+    await repo.switchBranch("feature");
+
+    const diff = await repo.diff({ range: "main", mergeBase: true, includeUntracked: true });
+    expect(diff).toContain("committed.txt");
+    expect(diff).toContain("working.txt");
+    expect(diff).not.toContain("on-main.txt");
+
+    // Without mergeBase, `main` is a plain two-dot diff, so main's own commit shows
+    // up as a deletion relative to the branch.
+    const twoDot = await repo.diff({ range: "main" });
+    expect(twoDot).toContain("on-main.txt");
+  });
+
   test("status reports a merge-conflicted path", async () => {
     const dir = join(root, "conflict-repo");
     const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });

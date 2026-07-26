@@ -58,6 +58,36 @@ export const WorkspaceDiffSchema = z.object({
 
 export type WorkspaceDiff = z.infer<typeof WorkspaceDiffSchema>;
 
+/**
+ * Refs a workspace can be diffed against, returned by
+ * `GET /workspaces/:repo/:name/refs`. Feeds the diff viewer's target picker:
+ * `branches` populates the "compare against" list and `commits` labels the
+ * "last N commits" choices.
+ */
+export const WorkspaceRefsSchema = z.object({
+  /** Checked-out branch, or `""` when HEAD is detached. */
+  current: z.string(),
+  /** The repo's integration branch (`main`/`master`), or `null` if neither exists. */
+  defaultBranch: z.string().nullable(),
+  branches: z.array(
+    z.object({
+      /** Branch name — `origin/main` style for remote-tracking branches. */
+      name: z.string(),
+      remote: z.boolean(),
+    }),
+  ),
+  /** Most recent commits on the current branch, newest first. */
+  commits: z.array(
+    z.object({
+      sha: z.string(),
+      shortSha: z.string(),
+      subject: z.string(),
+    }),
+  ),
+});
+
+export type WorkspaceRefs = z.infer<typeof WorkspaceRefsSchema>;
+
 /** Detailed status returned by `GET /workspaces/:repo/:name`. */
 export const WorkspaceStatusSchema = z.discriminatedUnion("state", [
   z.object({

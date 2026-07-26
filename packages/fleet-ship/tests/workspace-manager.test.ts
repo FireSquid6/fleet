@@ -397,6 +397,33 @@ suite("WorkspaceManager end-to-end", () => {
     await manager.remove(summary.repoName, "ws-diff");
   });
 
+  test("refs lists local and remote branches, the default branch, and recent commits", async () => {
+    const summary = await manager.create({ url: sourceRepo, repoName: "repo", name: "ws-refs", branch: "main" });
+    const wsDir = manager.workspaceDir(summary.repoName, "ws-refs");
+    const git = new Git({ cwd: wsDir });
+    await git.setConfig("user.email", "test@example.com");
+    await git.setConfig("user.name", "Test");
+    await git.switchBranch("feature", { create: true });
+    await Bun.write(join(wsDir, "feature.txt"), "work\n");
+    await git.add();
+    await git.commit("feature commit");
+
+    const refs = await manager.refs(summary.repoName, "ws-refs");
+    expect(refs.current).toBe("feature");
+    expect(refs.defaultBranch).toBe("main");
+    expect(refs.branches).toContainEqual({ name: "main", remote: false });
+    expect(refs.branches).toContainEqual({ name: "feature", remote: false });
+    expect(refs.branches).toContainEqual({ name: "origin/main", remote: true });
+    // The remote's HEAD alias is not a diffable target, under either spelling.
+    expect(refs.branches.some((b) => b.name.endsWith("/HEAD") || b.name === "origin")).toBe(false);
+    expect(refs.commits[0]).toMatchObject({ subject: "feature commit" });
+    expect(refs.commits[0]?.shortSha.length).toBeGreaterThan(0);
+
+    expect((await manager.refs(summary.repoName, "ws-refs", { commits: 1 })).commits).toHaveLength(1);
+
+    await manager.remove(summary.repoName, "ws-refs");
+  });
+
   test("create places the clone under the given repoName, not the URL basename", async () => {
     const base = await mkdtemp(join(tmpdir(), "fleet-ship-proj-"));
     const projRepo = join(base, "proj.git");

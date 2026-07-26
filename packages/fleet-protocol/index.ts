@@ -20,6 +20,7 @@ export {
   WorkspaceSummarySchema,
   WorkspaceStatusSchema,
   WorkspaceDiffSchema,
+  WorkspaceRefsSchema,
   AgentStatusSchema,
   CreateWorkspaceRequestSchema,
   AGENT_STATES,
@@ -27,6 +28,7 @@ export {
 } from "./src/workspace";
 export type {
   WorkspaceDiff,
+  WorkspaceRefs,
   WorkspaceStatus,
   AgentStatus,
   AgentState,

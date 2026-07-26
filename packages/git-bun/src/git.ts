@@ -166,13 +166,23 @@ export class Git {
     return parseLog(await this.command.run(args));
   }
 
+  /** Best common ancestor of two commits (`merge-base`). */
+  async mergeBase(a: string, b = "HEAD"): Promise<string> {
+    return (await this.command.run(["merge-base", a, b])).trim();
+  }
+
   /** Raw diff text (`diff`). Returns the working-tree diff unless options narrow it. */
   async diff(options: DiffOptions = {}): Promise<string> {
+    const range =
+      options.mergeBase && options.range !== undefined
+        ? await this.mergeBase(options.range)
+        : options.range;
+
     const args = ["diff"];
     if (options.staged) args.push("--staged");
     if (options.stat) args.push("--stat");
     if (options.nameOnly) args.push("--name-only");
-    if (options.range !== undefined) args.push(options.range);
+    if (range !== undefined) args.push(range);
     if (options.paths !== undefined && options.paths.length > 0) args.push("--", ...options.paths);
     let out = await this.command.run(args);
 

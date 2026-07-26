@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import type { WorkspaceRefs } from "fleet-protocol";
+import type { DiffQuery } from "@/lib/diff/diff-target";
 import { bridge } from "./bridge";
 import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
 import { applyWorkspaceEvent } from "./workspace-events";
@@ -19,8 +21,10 @@ interface FleetValue {
   /** Delete a workspace, then refresh the workspace list. Rejects on failure. */
   deleteWorkspace: (repo: string, name: string) => Promise<void>;
   getWorkspace: (repo: string, name: string) => Promise<WorkspaceDetail>;
-  /** Raw `git diff` text (incl. untracked files) for a workspace. */
-  getWorkspaceDiff: (repo: string, name: string) => Promise<string>;
+  /** Raw `git diff` text for a workspace, narrowed by the caller's diff query. */
+  getWorkspaceDiff: (repo: string, name: string, query: DiffQuery) => Promise<string>;
+  /** Branches and recent commits a workspace's diff can be taken against. */
+  getWorkspaceRefs: (repo: string, name: string) => Promise<WorkspaceRefs>;
   /** Create a workspace, then refresh the workspace list. Rejects on failure. */
   createWorkspace: (input: { ship: string; repoName: string; name: string; branch: string }) => Promise<void>;
   /** Register a repo, then refresh the repo list. Rejects on failure. */
@@ -109,7 +113,12 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const getWorkspace = useCallback((repo: string, name: string) => bridge.getWorkspace(repo, name), []);
 
-  const getWorkspaceDiff = useCallback((repo: string, name: string) => bridge.getWorkspaceDiff(repo, name), []);
+  const getWorkspaceDiff = useCallback(
+    (repo: string, name: string, query: DiffQuery) => bridge.getWorkspaceDiff(repo, name, query),
+    [],
+  );
+
+  const getWorkspaceRefs = useCallback((repo: string, name: string) => bridge.getWorkspaceRefs(repo, name), []);
 
   // Repo/ship mutations rethrow so the calling modal can show the failure inline,
   // rather than swallowing it into the global banner like activate/deactivate.
@@ -187,6 +196,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     deleteWorkspace,
     getWorkspace,
     getWorkspaceDiff,
+    getWorkspaceRefs,
     createRepo,
     deleteRepo,
     createShip,
