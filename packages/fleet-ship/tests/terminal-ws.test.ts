@@ -120,16 +120,20 @@ describe("ship terminal protocol", () => {
     app.server?.stop(true);
   });
 
-  test("accepts one init before input and resize", async () => {
+  test("accepts one init before input, paste, and resize", async () => {
     const socket = new WebSocket(url);
     await opened(socket);
     socket.send('{"type":"init","cols":80,"rows":24}');
     socket.send('{"type":"input","data":"x"}');
+    socket.send('{"type":"paste","data":"a\\nb"}');
     socket.send('{"type":"resize","cols":81,"rows":25}');
     await Bun.sleep(20);
+    // The init-first guard is written against the message type, not a list of
+    // allowed follow-ups, so a new protocol message needs no change here.
     expect(handled).toEqual([
       { type: "init", cols: 80, rows: 24 },
       { type: "input", data: "x" },
+      { type: "paste", data: "a\nb" },
       { type: "resize", cols: 81, rows: 25 },
     ]);
     const close = closed(socket);

@@ -71,6 +71,10 @@ export class Screen {
   cursorColor: Color = DEFAULT_COLOR;
   autowrap = true;
   originMode = false;
+  // Set by the *application* (DECSET 2004) to say it understands bracketed
+  // paste. Nothing in this emulator reads it — it exists so whoever feeds the
+  // PTY can ask whether to wrap a paste in the ESC [ 200~ / 201~ markers.
+  bracketedPaste = false;
   onAlt = false;
 
   tabStops: boolean[];
@@ -535,6 +539,7 @@ export class Screen {
     this.cursorColor = DEFAULT_COLOR;
     this.autowrap = true;
     this.originMode = false;
+    this.bracketedPaste = false;
     this.tabStops = this.#defaultTabStops(this.cols);
     this.#saved = null;
     this.cursor.x = 0;

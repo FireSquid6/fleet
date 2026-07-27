@@ -215,6 +215,35 @@ describe("alternate screen (mode 1049)", () => {
   });
 });
 
+describe("bracketed paste (mode 2004)", () => {
+  test("?2004h enables and ?2004l disables, defaulting to off", () => {
+    const t = new Terminal({ cols: 10, rows: 3 });
+    expect(t.bracketedPaste).toBe(false);
+    t.write("\x1b[?2004h");
+    expect(t.bracketedPaste).toBe(true);
+    t.write("\x1b[?2004l");
+    expect(t.bracketedPaste).toBe(false);
+  });
+
+  test("RIS clears it", () => {
+    const t = new Terminal({ cols: 10, rows: 3 });
+    t.write("\x1b[?2004h");
+    t.write("\x1bc");
+    expect(t.bracketedPaste).toBe(false);
+  });
+
+  // An app that enables bracketed paste and then opens the alt screen (an editor,
+  // a TUI) must still get bracketed pastes while it is there and after it leaves.
+  test("survives an alternate-screen round trip", () => {
+    const t = new Terminal({ cols: 10, rows: 3 });
+    t.write("\x1b[?2004h");
+    t.write("\x1b[?1049h");
+    expect(t.bracketedPaste).toBe(true);
+    t.write("\x1b[?1049l");
+    expect(t.bracketedPaste).toBe(true);
+  });
+});
+
 describe("RIS (ESC c)", () => {
   test("full reset clears content and homes the cursor, keeping dimensions", () => {
     const t = new Terminal({ cols: 10, rows: 3 });

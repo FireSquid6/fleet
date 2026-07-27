@@ -50,8 +50,9 @@ const inputSchema = z.string().refine((data) => utf8.encode(data).byteLength <= 
 
 const InitMsgSchema = z.strictObject({ type: z.literal("init"), cols: colsSchema, rows: rowsSchema });
 const InputMsgSchema = z.strictObject({ type: z.literal("input"), data: inputSchema });
+const PasteMsgSchema = z.strictObject({ type: z.literal("paste"), data: inputSchema });
 const ResizeMsgSchema = z.strictObject({ type: z.literal("resize"), cols: colsSchema, rows: rowsSchema });
-const ClientMsgSchema = z.discriminatedUnion("type", [InitMsgSchema, InputMsgSchema, ResizeMsgSchema]);
+const ClientMsgSchema = z.discriminatedUnion("type", [InitMsgSchema, InputMsgSchema, PasteMsgSchema, ResizeMsgSchema]);
 
 // ---------------------------------------------------------------------------
 // Client → server
@@ -64,9 +65,28 @@ export interface InitMsg {
   readonly rows: number;
 }
 
-/** Keystrokes / paste bytes to write to the PTY. */
+/** Keystrokes to write to the PTY. */
 export interface InputMsg {
   readonly type: "input";
+  readonly data: string;
+}
+
+/**
+ * Clipboard text the user pasted. Distinct from `input` because the client must
+ * not decide the bytes: only the server holds the VT and therefore knows whether
+ * the application enabled bracketed paste, so it converts the text via
+ * `pasteBytes`.
+ *
+ * Every message is one *complete* paste. `data` is bounded by `MAX_INPUT_BYTES`
+ * like `input`, so a larger clipboard is split by the client into several
+ * consecutive complete pastes, each independently bracketed. That keeps the
+ * server stateless — no half-open bracketed region can survive a mid-paste
+ * disconnect and leave the application swallowing subsequent keystrokes — at the
+ * cost of a >256 KiB clipboard arriving as more than one paste, which
+ * applications handle as ordinary consecutive pastes.
+ */
+export interface PasteMsg {
+  readonly type: "paste";
   readonly data: string;
 }
 
@@ -77,7 +97,33 @@ export interface ResizeMsg {
   readonly rows: number;
 }
 
-export type ClientMsg = InitMsg | InputMsg | ResizeMsg;
+export type ClientMsg = InitMsg | InputMsg | PasteMsg | ResizeMsg;
+
+/** DECSET 2004 bracketed-paste markers, sent around a paste when the app asked for them. */
+export const PASTE_START = "\x1b[200~";
+export const PASTE_END = "\x1b[201~";
+
+/**
+ * The bytes to write to the PTY for a paste of `data`. `bracketed` is whether the
+ * application enabled DEC private mode 2004 (`Terminal.bracketedPaste`).
+ *
+ * Two normalizations apply either way. Line breaks become CR because that is what
+ * a terminal delivers for Enter; leaving LF would make a pasted line break behave
+ * differently from a typed one in readline-style applications. And any embedded
+ * copy of the closing marker is dropped: it would otherwise end the bracketed
+ * region early, so the clipboard's remaining bytes would be read as keystrokes
+ * and escape sequences — a command-injection route for anything that can write to
+ * the user's clipboard. Stripping it unconditionally keeps the bracketed and
+ * unbracketed paths from diverging on what the payload may contain.
+ */
+export function pasteBytes(data: string, bracketed: boolean): string {
+  let payload = data.replace(/\r\n|\n/g, "\r");
+  // Repeat until clean: one `replaceAll` pass does not rescan the text it joins,
+  // so `ESC[20` + `ESC[201~` + `1~` would collapse into a fresh closing marker.
+  // Each pass strictly shortens the string, so this terminates.
+  while (payload.includes(PASTE_END)) payload = payload.replaceAll(PASTE_END, "");
+  return bracketed ? PASTE_START + payload + PASTE_END : payload;
+}
 
 // ---------------------------------------------------------------------------
 // Server → client

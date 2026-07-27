@@ -36,11 +36,12 @@ there is a dedicated close code for them.
 | Message | Shape | Meaning |
 | --- | --- | --- |
 | `init` | `{ type: "init", cols, rows }` | First message. Allocate a terminal and spawn the PTY at this size. |
-| `input` | `{ type: "input", data }` | Keystrokes or paste bytes to write to the PTY. |
+| `input` | `{ type: "input", data }` | Keystrokes to write to the PTY. |
+| `paste` | `{ type: "paste", data }` | Clipboard text the user pasted. The server converts it to bytes. |
 | `resize` | `{ type: "resize", cols, rows }` | Resize both the VT parser and the PTY. |
 
 `cols` must be an integer in `[1, 1024]`, `rows` in `[1, 512]`, and `data` at
-most 256 KiB **measured as UTF-8**, not as JavaScript string length. All three
+most 256 KiB **measured as UTF-8**, not as JavaScript string length. All four
 schemas are strict objects: an unknown extra field is a decode failure.
 
 ### Server to client
@@ -68,6 +69,25 @@ interface WireCursor {
   color?: WireColor;   // omitted when the cursor uses the terminal default
 }
 ```
+
+### Why paste is its own message
+
+A paste is not a fast run of keystrokes. A shell or an agent TUI submits on every
+newline, so a ten-line clipboard delivered as `input` runs ten commands. Real
+terminals solve this with **bracketed paste** (DEC private mode 2004): once the
+application enables it, the terminal wraps pasted text in `ESC [ 200~` …
+`ESC [ 201~` and the application takes the whole blob as one insertion.
+
+Only the server can know whether mode 2004 is on — it owns the emulator — so the
+client reports the *text* and the server decides the bytes, with `pasteBytes`.
+When the application never enabled 2004 the text goes through unbracketed.
+
+Each `paste` message is one **complete** paste. `data` is bounded by
+`MAX_INPUT_BYTES` like `input`, so a larger clipboard becomes several consecutive
+complete pastes, each independently bracketed, rather than one paste spanning
+several frames. That keeps the server stateless: a disconnect mid-clipboard can
+never leave a bracketed region open, which would otherwise leave the application
+swallowing everything typed afterwards.
 
 ## Cell encoding
 
@@ -149,6 +169,21 @@ Three close reasons are defined so both ends agree on why a socket died:
 | `utf8ByteLength` | `(value: string) => number` | UTF-8 byte length of a string. |
 | `clampTerminalSize` | `(cols: number, rows: number) => { cols, rows }` | Truncate and clamp into the legal range; `NaN`/`Infinity` become the minimum. |
 | `splitInput` | `(data: string) => string[]` | Split a paste into chunks of at most `MAX_INPUT_BYTES`, never breaking a multi-byte character. |
+| `pasteBytes` | `(data: string, bracketed: boolean) => string` | The PTY bytes for one paste. Normalizes `\r\n` and `\n` to `\r`, strips embedded `ESC [ 201~`, and wraps in `PASTE_START`/`PASTE_END` when `bracketed`. |
+
+`PASTE_START` (`"\x1b[200~"`) and `PASTE_END` (`"\x1b[201~"`) are exported too.
+`pasteBytes` is pure, so the server's only decision is the `bracketed` argument —
+it passes `term.bracketedPaste`. Two normalizations happen regardless of it:
+
+- **Line breaks become CR.** A terminal delivers Enter as CR, so a pasted line
+  break must be CR as well; an LF would make pasted and typed newlines behave
+  differently in readline-style applications.
+- **Embedded closing markers are removed.** A clipboard containing `ESC [ 201~`
+  would otherwise end the bracketed region early, leaving the rest of the payload
+  to be read as keystrokes and escape sequences — a command-injection route for
+  anything that can write to the user's clipboard. Stripping happens in
+  unbracketed mode too, so the two paths cannot diverge on what a payload may
+  contain.
 
 Both decoders accept either a JSON string or an already-parsed object, and both
 reject `ArrayBuffer`/typed-array frames outright with
@@ -182,8 +217,9 @@ new TerminalBridge(options: TerminalBridgeOptions)
 | --- | --- | --- |
 | `start` | `(cols: number, rows: number) => void` | Allocate the VT parser and spawn the PTY. Idempotent. |
 | `input` | `(data: string) => void` | Write to the PTY. |
+| `paste` | `(data: string) => void` | Write one complete paste, bracketed when the application enabled mode 2004. |
 | `resize` | `(cols: number, rows: number) => void` | Resize the PTY and the parser, then repaint. |
-| `handle` | `(msg: ClientMsg) => void` | Dispatch a decoded client message to the three methods above. |
+| `handle` | `(msg: ClientMsg) => void` | Dispatch a decoded client message to the four methods above. |
 | `stop` | `() => void` | Kill the PTY and free the parser. Idempotent; does **not** emit `exit`. |
 
 Bytes arriving from the PTY are written into the VT parser and schedule a frame;
@@ -253,7 +289,8 @@ See [Terminals](/concepts/terminals/) for the end-to-end path.
 ## Driving it from a client
 
 The client's job is small: send `init` once, then `resize` on every size change,
-`input` on every keystroke, and repaint on every `grid`.
+`input` on every keystroke, `paste` on every clipboard paste, and repaint on every
+`grid`.
 
 ```ts
 import {
@@ -276,9 +313,16 @@ function sendSize(cols: number, rows: number) {
 }
 
 function sendInput(data: string) {
-  // A large paste is split so no single frame exceeds MAX_INPUT_BYTES.
   for (const chunk of splitInput(data)) {
     ws.send(JSON.stringify({ type: "input", data: chunk }));
+  }
+}
+
+function sendPaste(data: string) {
+  // An oversized clipboard becomes several consecutive complete pastes, each of
+  // which the server brackets on its own.
+  for (const chunk of splitInput(data)) {
+    ws.send(JSON.stringify({ type: "paste", data: chunk }));
   }
 }
 
@@ -321,6 +365,12 @@ this shape and adds the things a real UI needs:
   never re-renders the component tree.
 - The socket is opened only while the terminal is actually visible, and closed on
   unmount — which is what releases the ship's single-terminal guard.
+- Its keydown encoder returns `null` for `Ctrl+Shift+V` and `Cmd+V` instead of
+  bytes. That is deliberate: the terminal is a focusable `<div>` that calls
+  `preventDefault()` on every key it encodes, so encoding the chord would suppress
+  the browser's own `paste` event. Left unencoded, the native event fires and its
+  `clipboardData` goes out as a `paste` message. Plain `Ctrl+V` is not a paste
+  chord outside macOS and still sends `\x16`.
 
 Cell dimensions come from measuring the canvas font, so `cols`/`rows` are derived
 from the container size via a `ResizeObserver` and pushed with `resize`.
@@ -332,9 +382,11 @@ cd packages/webterm
 bun test
 ```
 
-The suite covers the decoders (dimension boundaries, UTF-8 input measurement,
-malformed/unknown/extra-field/scalar/array/binary frames, grid dimension and
-cursor cross-checks), the browser helpers (`clampTerminalSize`, `splitInput`
-across a multi-byte boundary), and the encoder against a real `bun-vt` terminal —
+The suite covers the decoders (dimension boundaries, UTF-8 input and paste
+measurement, malformed/unknown/extra-field/scalar/array/binary frames, grid
+dimension and cursor cross-checks), the browser helpers (`clampTerminalSize`,
+`splitInput` across a multi-byte boundary), `pasteBytes` (line-break
+normalization, marker stripping including the overlapping case, bracketed vs
+unbracketed output), and the encoder against a real `bun-vt` terminal —
 including that a blank cell serializes to `0` and that the default cursor color
 is omitted.

@@ -285,7 +285,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     });
   }, [paint]);
 
-  const { status, send, resize, takeover } = useWebterm(repo, name, active, {
+  const { status, send, paste, resize, takeover } = useWebterm(repo, name, active, {
     onGrid: (grid) => {
       latestGrid.current = grid;
       cursorOn.current = true;
@@ -416,7 +416,7 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
     if (!ownEvent(e) || !keysBelongToPty) return;
     e.preventDefault();
-    send(e.clipboardData.getData("text"));
+    paste(e.clipboardData.getData("text"));
   };
 
   const onFocus = (e: FocusEvent<HTMLDivElement>) => {

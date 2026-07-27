@@ -58,7 +58,8 @@ frames are text; a binary frame closes the connection.
 | Message | Payload | Meaning |
 |---|---|---|
 | `init` | `cols`, `rows` | first message: allocate the emulator and spawn the PTY at this size |
-| `input` | `data` | keystrokes or pasted bytes to write to the PTY |
+| `input` | `data` | keystrokes to write to the PTY |
+| `paste` | `data` | clipboard text the user pasted; the ship turns it into bytes |
 | `resize` | `cols`, `rows` | resize both the PTY and the emulator |
 
 **Server → client**
@@ -73,9 +74,33 @@ twice, or sending anything else first, closes the socket. If it doesn't arrive
 within five seconds the ship closes the connection with `1008 terminal init
 timeout`, so an idle socket can't hold a workspace's terminal slot open.
 
-Sizes are bounded (1–1024 columns, 1–512 rows) and a single `input` is capped at
-256 KiB, which the client-side helper handles by splitting large pastes into
-chunks on UTF-8 character boundaries.
+Sizes are bounded (1–1024 columns, 1–512 rows) and a single `input` or `paste` is
+capped at 256 KiB, which the client-side helper handles by splitting an oversized
+payload into chunks on UTF-8 character boundaries.
+
+### Paste is not a run of keystrokes
+
+`paste` is separate from `input` because a shell or an agent TUI submits on every
+newline: a ten-line clipboard sent as keystrokes would run ten commands. Terminals
+avoid this with **bracketed paste** (DEC private mode 2004) — once the application
+turns it on, the terminal wraps the pasted text in `ESC [ 200~` … `ESC [ 201~` and
+the application inserts the whole blob at once.
+
+Deciding that belongs on the ship, which owns the emulator and therefore knows
+whether the running application enabled mode 2004; the browser only reports the
+text. Newlines become CR either way, so a pasted line break matches a typed
+Enter, and any `ESC [ 201~` inside the clipboard is stripped — otherwise it would
+close the bracket early and hand the rest of the clipboard to the shell as live
+keystrokes.
+
+Each `paste` message is one *complete* paste, so an oversized clipboard arrives as
+several consecutive pastes rather than one spanning frames. The ship therefore
+keeps no paste state, and a disconnect mid-clipboard cannot leave a bracketed
+region open.
+
+In the browser the terminal is a focusable `<div>` that encodes keydowns itself,
+so the paste chords (`Ctrl+Shift+V`, `Cmd+V`) are deliberately left unencoded —
+that is what lets the browser's native paste event fire and supply the clipboard.
 
 ### Frames are full snapshots
 

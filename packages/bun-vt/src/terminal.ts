@@ -92,6 +92,17 @@ export class Terminal implements Handler {
     return this.#screen.rows;
   }
 
+  /**
+   * Whether the application has enabled bracketed paste (DECSET 2004). Only the
+   * side writing to the PTY can act on this, so it is surfaced rather than used
+   * internally: when true, a paste should be wrapped in ESC [ 200~ / ESC [ 201~
+   * so the application takes it as one insertion instead of a run of keystrokes.
+   */
+  get bracketedPaste(): boolean {
+    this.#assertAlive();
+    return this.#screen.bracketedPaste;
+  }
+
   /** Feed raw VT bytes (or a UTF-8 string). Never throws on malformed input. */
   write(data: string | Uint8Array): void {
     this.#assertAlive();
@@ -392,6 +403,9 @@ export class Terminal implements Handler {
       case 1049:
         if (set) s.enterAlt(true, true);
         else s.leaveAlt(true);
+        break;
+      case 2004: // bracketed paste
+        s.bracketedPaste = set;
         break;
       default:
         break;

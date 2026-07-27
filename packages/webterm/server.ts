@@ -13,6 +13,7 @@
 
 import { Terminal as VtTerminal } from "bun-vt";
 import { serializeGrid } from "./encode";
+import { pasteBytes } from "./protocol";
 import type { ClientMsg, ServerMsg } from "./protocol";
 
 export interface TerminalBridgeOptions {
@@ -75,6 +76,15 @@ export class TerminalBridge {
     this.proc?.terminal?.write(data);
   }
 
+  /**
+   * Write one complete paste. The VT is consulted here rather than on the client
+   * because only this side knows whether the application enabled mode 2004; with
+   * no VT yet (paste before `init`) the unbracketed form is the safe assumption.
+   */
+  paste(data: string): void {
+    this.proc?.terminal?.write(pasteBytes(data, this.vt?.bracketedPaste ?? false));
+  }
+
   /** Resize both the PTY and the VT parser, then repaint. */
   resize(cols: number, rows: number): void {
     if (this.stopped) return;
@@ -90,6 +100,9 @@ export class TerminalBridge {
         break;
       case "input":
         this.input(msg.data);
+        break;
+      case "paste":
+        this.paste(msg.data);
         break;
       case "resize":
         this.resize(msg.cols, msg.rows);

@@ -9,6 +9,14 @@
  * back-tab (CBT) sequence `CSI Z`, which apps like Claude Code read to cycle
  * modes — without it, Shift-Tab would collapse to a plain Tab.
  *
+ * The paste chords are deliberately *not* encoded. Returning `null` is what lets
+ * the caller skip `preventDefault`, so the browser still fires its native `paste`
+ * event and the clipboard reaches the PTY as a `PasteMsg` (bracketed by the
+ * server) instead of as a run of keystrokes. `Cmd+V` falls out of the blanket
+ * meta bail-out; `Ctrl+Shift+V` needs its own case ahead of the control-byte
+ * branch, which would otherwise claim it as SYN. Plain `Ctrl+V` is not a paste
+ * chord on Linux/Windows and keeps sending `\x16` (literal-next).
+ *
  * Known gap: no IME/composition handling (`compositionstart`/`end`), so composed
  * CJK input won't work. Acceptable for an ASCII-dominated agent/ops console.
  */
@@ -62,6 +70,10 @@ export function encodeKeyEvent(e: KeyEventLike): string | null {
 
   // Back-tab (CBT). Checked before the plain-Tab byte below, which ignores Shift.
   if (e.key === "Tab" && e.shiftKey) return "\x1b[Z";
+
+  // `key` is the shifted character, so this is "V" in practice; matched
+  // case-insensitively because CapsLock inverts it.
+  if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) return null;
 
   if (e.ctrlKey && e.key.length === 1) {
     // Ctrl-Space sends NUL — its key is a literal space, below the range below.

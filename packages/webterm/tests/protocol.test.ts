@@ -4,6 +4,9 @@ import {
   decodeClientMessage,
   decodeServerMessage,
   MAX_INPUT_BYTES,
+  PASTE_END,
+  PASTE_START,
+  pasteBytes,
   splitInput,
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_CONFLICT_CLOSE_REASON,
@@ -37,12 +40,25 @@ describe("terminal protocol decoders", () => {
     expect(() => decodeClientMessage(JSON.stringify({ type: "input", data: `${atLimit}a` }))).toThrow();
   });
 
+  test("accepts paste frames under the same byte bound as input", () => {
+    expect(decodeClientMessage('{"type":"paste","data":"a\\nb"}')).toEqual({ type: "paste", data: "a\nb" });
+    const atLimit = "é".repeat(MAX_INPUT_BYTES / 2);
+    expect(decodeClientMessage(JSON.stringify({ type: "paste", data: atLimit }))).toEqual({
+      type: "paste",
+      data: atLimit,
+    });
+    expect(() => decodeClientMessage(JSON.stringify({ type: "paste", data: `${atLimit}a` }))).toThrow();
+  });
+
   test("rejects malformed, unknown, missing, extra, scalar, array, and binary frames", () => {
     for (const frame of [
       "{",
       '{"type":"wat"}',
       '{"type":"input"}',
       '{"type":"input","data":"x","extra":true}',
+      '{"type":"paste"}',
+      '{"type":"paste","data":"x","extra":true}',
+      '{"type":"paste","data":"x","cols":80}',
       "null",
       "42",
       "[]",
@@ -88,6 +104,35 @@ describe("browser protocol helpers", () => {
     expect(chunks).toHaveLength(2);
     expect(chunks.every((chunk) => utf8ByteLength(chunk) <= MAX_INPUT_BYTES)).toBe(true);
     expect(chunks[1]).toBe("éz");
+  });
+});
+
+describe("pasteBytes", () => {
+  test("normalizes CRLF and LF line breaks to CR", () => {
+    expect(pasteBytes("a\r\nb", true)).toBe(`${PASTE_START}a\rb${PASTE_END}`);
+    expect(pasteBytes("a\nb", false)).toBe("a\rb");
+    expect(pasteBytes("a\r\n\nb\r", false)).toBe("a\r\rb\r");
+  });
+
+  test("wraps in the markers only when the application asked for bracketing", () => {
+    expect(pasteBytes("plain", true)).toBe(`${PASTE_START}plain${PASTE_END}`);
+    expect(pasteBytes("plain", false)).toBe("plain");
+    expect(pasteBytes("", true)).toBe(`${PASTE_START}${PASTE_END}`);
+    expect(pasteBytes("", false)).toBe("");
+  });
+
+  test("strips embedded closing markers in both modes", () => {
+    expect(pasteBytes(`a${PASTE_END}b`, true)).toBe(`${PASTE_START}ab${PASTE_END}`);
+    expect(pasteBytes(`a${PASTE_END}b`, false)).toBe("ab");
+    // Overlapping payload: removing the inner marker must not splice a new one
+    // out of the surrounding text.
+    expect(pasteBytes(`\x1b[20${PASTE_END}1~`, false)).toBe("");
+    expect(pasteBytes(`x${PASTE_END}${PASTE_END}y`, false)).toBe("xy");
+  });
+
+  test("leaves other escape sequences alone — the bracketing is what makes them inert", () => {
+    expect(pasteBytes(`${PASTE_START}hi`, false)).toBe(`${PASTE_START}hi`);
+    expect(pasteBytes("\x1b[31m", false)).toBe("\x1b[31m");
   });
 });
 

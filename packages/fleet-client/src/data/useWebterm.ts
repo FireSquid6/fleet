@@ -64,8 +64,17 @@ export function terminalPath(repo: string, name: string, takeover = false): stri
 
 interface UseWebtermResult {
   status: WebtermStatus;
-  /** Write keystroke/paste bytes to the PTY. */
+  /** Write keystroke bytes to the PTY. */
   send: (data: string) => void;
+  /**
+   * Report clipboard text the user pasted. The server turns it into PTY bytes,
+   * because only it knows whether the application enabled bracketed paste.
+   *
+   * Each frame is one *complete* paste, so an oversized clipboard becomes several
+   * consecutive pastes rather than one spanning several frames — a mid-paste
+   * disconnect can then never leave a bracketed region open on the server.
+   */
+  paste: (data: string) => void;
   /**
    * Reconnect, evicting whichever connection currently owns the workspace's
    * terminal. Meant for the `"conflict"` status.
@@ -166,6 +175,13 @@ export function useWebterm(
     }
   }, []);
 
+  const paste = useCallback((data: string) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      for (const chunk of splitInput(data)) ws.send(JSON.stringify({ type: "paste", data: chunk }));
+    }
+  }, []);
+
   const resize = useCallback(
     (cols: number, rows: number) => {
       ({ cols, rows } = clampTerminalSize(cols, rows));
@@ -181,5 +197,5 @@ export function useWebterm(
     setAttempt((n) => n + 1);
   }, []);
 
-  return { status, send, resize, takeover };
+  return { status, send, paste, resize, takeover };
 }

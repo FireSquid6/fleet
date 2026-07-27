@@ -57,3 +57,14 @@ test("Meta shortcuts and unmapped keys are left to the browser", () => {
   expect(encodeKeyEvent(ev({ key: "Shift" }))).toBeNull();
   expect(encodeKeyEvent(ev({ key: "F5" }))).toBeNull();
 });
+
+// Returning null is what leaves `preventDefault` uncalled, so the browser fires
+// its native paste event and the clipboard reaches the PTY as a bracketed paste.
+test("paste chords are left to the browser but plain Ctrl-V still sends SYN", () => {
+  expect(encodeKeyEvent(ev({ key: "V", ctrlKey: true, shiftKey: true }))).toBeNull();
+  expect(encodeKeyEvent(ev({ key: "v", ctrlKey: true, shiftKey: true }))).toBeNull();
+  expect(encodeKeyEvent(ev({ key: "v", metaKey: true }))).toBeNull();
+  expect(encodeKeyEvent(ev({ key: "v", ctrlKey: true }))).toBe("\x16");
+  // Neighbouring Ctrl+Shift chords are unaffected.
+  expect(encodeKeyEvent(ev({ key: "C", ctrlKey: true, shiftKey: true }))).toBe("\x03");
+});

@@ -40,6 +40,7 @@ defaults to `1000` lines.
 | Member | Signature | Behavior |
 | --- | --- | --- |
 | `cols` / `rows` | `number` (getters) | Current dimensions. |
+| `bracketedPaste` | `boolean` (getter) | Whether the application enabled DEC private mode 2004. Nothing in the emulator acts on it; whoever writes to the PTY reads it to decide whether to wrap a paste in `ESC [ 200~` … `ESC [ 201~`. |
 | `title` | `string` | Last window/icon title set via OSC 0/2. Informational. |
 | `write` | `(data: string \| Uint8Array) => void` | Feed raw VT bytes (strings are UTF-8 encoded first). Never throws on malformed input. |
 | `resize` | `(cols: number, rows: number, cellWidthPx?, cellHeightPx?) => void` | Resize the grid. The pixel arguments exist for API compatibility and are ignored. |
@@ -196,6 +197,7 @@ Other CSI prefixes (`<`, `=`, `>`) are parsed and ignored.
 | 47 / 1047 | Alternate screen |
 | 1048 | Save/restore cursor |
 | 1049 | Alternate screen with save/restore and clear |
+| 2004 | Bracketed paste — recorded and exposed as `term.bracketedPaste`; the emulator itself does not act on it |
 
 **SGR.** Bold, faint, italic, blink, inverse, invisible, strikethrough,
 overline, and underline styles (including `4:n` for curly/dotted/dashed and code
