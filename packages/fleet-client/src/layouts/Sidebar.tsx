@@ -58,6 +58,16 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           )}
         </NavLink>
 
+        <NavLink to="/armory" className={navItemClass}>
+          {({ isActive }) => (
+            <>
+              {isActive && <ActiveFill />}
+              <span className="relative z-[1] text-[13px] text-text">▤</span>
+              <span className="relative z-[1] text-[12px] font-semibold tracking-[.06em] text-text">Armory</span>
+            </>
+          )}
+        </NavLink>
+
         <div className="px-[10px] pb-[7px] pt-[15px] font-mono text-[9.5px] font-semibold tracking-[.18em] text-dim2">
           REPOS
         </div>

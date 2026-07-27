@@ -419,7 +419,16 @@ async function atomicWrite(target: string, bytes: Uint8Array, mode: number): Pro
 
 async function hashFile(target: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
-  for await (const chunk of Bun.file(target).stream()) hasher.update(chunk);
+  // Streamed rather than read whole: armory files run to megabytes. Driven
+  // through the reader instead of `for await`, because the DOM lib's
+  // `ReadableStream` declares no `[Symbol.asyncIterator]` and this module is
+  // compiled under that lib by the web client.
+  const reader = Bun.file(target).stream().getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    hasher.update(value);
+  }
   return hasher.digest("hex");
 }
 

@@ -23,6 +23,7 @@ import {
   WorkspaceStatusSchema,
   type ArmoryFile,
   type ArmoryManifest,
+  type ArmorySyncState,
   type CreateRepoInput,
   type FleetEvent,
   type Repo,
@@ -40,6 +41,7 @@ import {
   type BridgeWorkspaceEvent,
   type BridgeWorkspaceStatus,
   type BridgeWorkspaceSummary,
+  type ShipArmoryState,
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
@@ -439,6 +441,32 @@ export class FleetManager {
   /** `GET /armory/file?path=…` — one file the manifest lists. */
   async armoryFile(path: string): Promise<ArmoryFile> {
     return this.mapArmoryErrors(() => this.armory.readFile(path));
+  }
+
+  /**
+   * `GET /armory/ships` — what each member ship reports having applied. An
+   * offline ship, or one whose call fails, reports `state: null` rather than
+   * failing the aggregate: one unreachable ship must not blank the page.
+   */
+  async armoryShipStates(): Promise<ShipArmoryState[]> {
+    return Promise.all(
+      [...this.connections.values()]
+        .filter((conn) => conn.member)
+        .map(async (conn) => {
+          if (conn.status !== "online") return { ship: conn.name, status: conn.status, state: null };
+          try {
+            const state = await this.call<ArmorySyncState>(
+              conn,
+              () => conn.client.armory.get() as Promise<EdenResult<ArmorySyncState>>,
+            );
+            return { ship: conn.name, status: conn.status, state };
+          } catch {
+            // `call` flips the connection offline on a network failure, so the
+            // status is read back afterwards rather than captured above.
+            return { ship: conn.name, status: conn.status, state: null };
+          }
+        }),
+    );
   }
 
   /** Drop the cached scan — called when the armory directory changes on disk. */

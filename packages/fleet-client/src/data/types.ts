@@ -7,9 +7,17 @@
  * instead read them straight off `treaty<App>`'s inferred types.
  */
 
-import type { WorkspaceSummary, WorkspaceStatus } from "fleet-protocol";
+import type { ArmorySyncState, WorkspaceSummary, WorkspaceStatus } from "fleet-protocol";
 
 export type { Repo } from "fleet-protocol";
+export type {
+  ArmoryEntry,
+  ArmoryFile,
+  ArmoryInstallSummary,
+  ArmoryManifest,
+  ArmorySection,
+  ArmorySyncState,
+} from "fleet-protocol";
 
 /** Whether the bridge currently has a live connection to a ship. */
 export type ShipStatus = "online" | "offline";
@@ -43,3 +51,13 @@ export type WorkspaceEvent =
 
 /** Detail: `WorkspaceStatus` with `ship` guaranteed on both variants. */
 export type WorkspaceDetail = WorkspaceStatus & { readonly ship: string };
+
+/**
+ * A row of `GET /armory/ships`: what one ship has pulled and installed. `state`
+ * is null when the bridge could not ask the ship — offline, or the call failed.
+ */
+export interface ArmoryShipState {
+  readonly ship: string;
+  readonly status: ShipStatus;
+  readonly state: ArmorySyncState | null;
+}

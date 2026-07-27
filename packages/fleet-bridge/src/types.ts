@@ -8,7 +8,7 @@
  * they are plain types, not zod schemas.
  */
 
-import type { SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
+import type { ArmorySyncState, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
 
 /** Whether the bridge currently has a live `/events` connection to a ship. */
 export type ShipStatus = "online" | "offline";
@@ -54,6 +54,18 @@ export interface ShipSystemResources {
   readonly status: ShipStatus;
   readonly resources: SystemResources | null;
   readonly error: string | null;
+}
+
+/**
+ * One ship's entry in the aggregate `GET /armory/ships`. `state` is what the
+ * ship reports it has pulled and installed; it is `null` for an offline ship and
+ * for one whose call failed, so a single unreachable ship never fails the whole
+ * aggregate.
+ */
+export interface ShipArmoryState {
+  readonly ship: string;
+  readonly status: ShipStatus;
+  readonly state: ArmorySyncState | null;
 }
 
 /** Fleet-wide identity of a workspace: `<repoName>/<name>` (unique across all ships). */

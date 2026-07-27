@@ -8,7 +8,7 @@
  * sync, to return an Eden error, or to throw (network failure).
  */
 
-import type { FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
+import type { ArmorySyncState, FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
 import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 
 /** A ship the fakes pretend exists at a given base URL. */
@@ -25,6 +25,8 @@ export interface FakeShip {
   neverSync?: boolean;
   /** Every `POST /armory/sync` this ship received, in order. */
   armorySyncs?: { bridgeUrl: string; revision: string }[];
+  /** What `GET /armory` reports; defaults to a ship that has never synced. */
+  armoryState?: ArmorySyncState;
   /** All Eden calls resolve to this error `{status, value:{error}}`. */
   errorResponse?: { status: number; message: string };
   /** All Eden calls throw (simulated network failure). */
@@ -193,6 +195,18 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
     workspaces: workspacesFn,
     "system-resources": { get: () => wrap(() => fakeResources(ship()?.name ?? "unknown")) },
     armory: {
+      get: () =>
+        wrap(
+          () =>
+            ship()?.armoryState ?? {
+              revision: null,
+              bridgeUrl: null,
+              syncedAt: null,
+              fileCount: 0,
+              install: null,
+              lastError: null,
+            },
+        ),
       sync: {
         post: (body: { bridgeUrl: string; revision: string }) => {
           const s = ship();

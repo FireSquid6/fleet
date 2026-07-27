@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "bun --hot dev.ts",
     "start": "NODE_ENV=production bun src/index.ts",
-    "test": "bun test tests"
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@elysiajs/eden": "latest",
