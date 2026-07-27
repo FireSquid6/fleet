@@ -9,13 +9,18 @@
  * back-tab (CBT) sequence `CSI Z`, which apps like Claude Code read to cycle
  * modes — without it, Shift-Tab would collapse to a plain Tab.
  *
- * The paste chords are deliberately *not* encoded. Returning `null` is what lets
- * the caller skip `preventDefault`, so the browser still fires its native `paste`
- * event and the clipboard reaches the PTY as a `PasteMsg` (bracketed by the
- * server) instead of as a run of keystrokes. `Cmd+V` falls out of the blanket
- * meta bail-out; `Ctrl+Shift+V` needs its own case ahead of the control-byte
- * branch, which would otherwise claim it as SYN. Plain `Ctrl+V` is not a paste
- * chord on Linux/Windows and keeps sending `\x16` (literal-next).
+ * The clipboard chords are deliberately *not* encoded. Returning `null` is what
+ * lets the caller skip `preventDefault`, so the browser still handles the chord
+ * itself. For `Ctrl+Shift+V` (and `Cmd+V`, which falls out of the blanket meta
+ * bail-out) that means a native `paste` event fires and the clipboard reaches the
+ * PTY as a `PasteMsg`, bracketed by the server, instead of as a run of keystrokes.
+ * `Ctrl+Shift+C` is excluded for a blunter reason: the control-byte branch below
+ * would encode it as `\x03`, so the copy chord would send SIGINT and interrupt
+ * whatever the pane is running — no terminal maps it that way. Both cases must
+ * therefore sit ahead of that branch.
+ *
+ * The unshifted forms are unaffected: plain `Ctrl+V` (`\x16`, literal-next) and
+ * `Ctrl+C` (`\x03`, SIGINT) are real terminal control bytes and not the chords.
  *
  * Known gap: no IME/composition handling (`compositionstart`/`end`), so composed
  * CJK input won't work. Acceptable for an ASCII-dominated agent/ops console.
@@ -59,6 +64,9 @@ const SIMPLE: Record<string, string> = {
   Tab: "\t",
 };
 
+/** Keys that form a clipboard chord with Ctrl+Shift, left to the browser. */
+const CLIPBOARD_CHORD_KEYS = new Set(["V", "C"]);
+
 /** xterm modifier code: 1 + Shift(1) + Alt(2) + Ctrl(4). Meta never reaches here. */
 function modCode(e: KeyEventLike): number {
   return 1 + (e.shiftKey ? 1 : 0) + (e.altKey ? 2 : 0) + (e.ctrlKey ? 4 : 0);
@@ -71,9 +79,9 @@ export function encodeKeyEvent(e: KeyEventLike): string | null {
   // Back-tab (CBT). Checked before the plain-Tab byte below, which ignores Shift.
   if (e.key === "Tab" && e.shiftKey) return "\x1b[Z";
 
-  // `key` is the shifted character, so this is "V" in practice; matched
-  // case-insensitively because CapsLock inverts it.
-  if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) return null;
+  // `key` is the shifted character, so these are "V"/"C" in practice; matched
+  // case-insensitively because CapsLock inverts them.
+  if (e.ctrlKey && e.shiftKey && CLIPBOARD_CHORD_KEYS.has(e.key.toUpperCase())) return null;
 
   if (e.ctrlKey && e.key.length === 1) {
     // Ctrl-Space sends NUL — its key is a literal space, below the range below.

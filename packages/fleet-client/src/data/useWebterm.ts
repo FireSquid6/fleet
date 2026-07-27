@@ -11,7 +11,7 @@ import {
   TERMINAL_TAKEOVER_CLOSE_CODE,
   TERMINAL_TAKEOVER_QUERY,
 } from "webterm/protocol";
-import type { GridMsg } from "webterm/protocol";
+import type { GridMsg, InitMsg, InputMsg, PasteMsg, ResizeMsg } from "webterm/protocol";
 import { wsBridgeUrl } from "./client";
 
 export type WebtermStatus =
@@ -126,7 +126,7 @@ export function useWebterm(
     ({ cols, rows } = clampTerminalSize(cols, rows));
     const type = initializedRef.current ? "resize" : "init";
     initializedRef.current = true;
-    ws.send(JSON.stringify({ type, cols, rows }));
+    ws.send(JSON.stringify({ type, cols, rows } satisfies InitMsg | ResizeMsg));
   }, []);
 
   useEffect(() => {
@@ -171,14 +171,22 @@ export function useWebterm(
   const send = useCallback((data: string) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      for (const chunk of splitInput(data)) ws.send(JSON.stringify({ type: "input", data: chunk }));
+      for (const chunk of splitInput(data)) {
+        ws.send(JSON.stringify({ type: "input", data: chunk } satisfies InputMsg));
+      }
     }
   }, []);
 
   const paste = useCallback((data: string) => {
+    // `splitInput("")` yields one empty chunk, which would become a real paste an
+    // application can render a placeholder for (Claude Code prints `[Pasted text
+    // …]`). A real terminal sends nothing for an empty clipboard.
+    if (data === "") return;
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      for (const chunk of splitInput(data)) ws.send(JSON.stringify({ type: "paste", data: chunk }));
+      for (const chunk of splitInput(data)) {
+        ws.send(JSON.stringify({ type: "paste", data: chunk } satisfies PasteMsg));
+      }
     }
   }, []);
 

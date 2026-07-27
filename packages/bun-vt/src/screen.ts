@@ -71,9 +71,8 @@ export class Screen {
   cursorColor: Color = DEFAULT_COLOR;
   autowrap = true;
   originMode = false;
-  // Set by the *application* (DECSET 2004) to say it understands bracketed
-  // paste. Nothing in this emulator reads it — it exists so whoever feeds the
-  // PTY can ask whether to wrap a paste in the ESC [ 200~ / 201~ markers.
+  // Recorded but never consumed here: only whoever writes to the PTY can act on
+  // it. Surfaced as `Terminal.bracketedPaste`.
   bracketedPaste = false;
   onAlt = false;
 

@@ -82,25 +82,10 @@ payload into chunks on UTF-8 character boundaries.
 
 `paste` is separate from `input` because a shell or an agent TUI submits on every
 newline: a ten-line clipboard sent as keystrokes would run ten commands. Terminals
-avoid this with **bracketed paste** (DEC private mode 2004) — once the application
-turns it on, the terminal wraps the pasted text in `ESC [ 200~` … `ESC [ 201~` and
-the application inserts the whole blob at once.
-
-Deciding that belongs on the ship, which owns the emulator and therefore knows
-whether the running application enabled mode 2004; the browser only reports the
-text. Newlines become CR either way, so a pasted line break matches a typed
-Enter, and any `ESC [ 201~` inside the clipboard is stripped — otherwise it would
-close the bracket early and hand the rest of the clipboard to the shell as live
-keystrokes.
-
-Each `paste` message is one *complete* paste, so an oversized clipboard arrives as
-several consecutive pastes rather than one spanning frames. The ship therefore
-keeps no paste state, and a disconnect mid-clipboard cannot leave a bracketed
-region open.
-
-In the browser the terminal is a focusable `<div>` that encodes keydowns itself,
-so the paste chords (`Ctrl+Shift+V`, `Cmd+V`) are deliberately left unencoded —
-that is what lets the browser's native paste event fire and supply the clipboard.
+avoid that with **bracketed paste** (DEC private mode 2004), and deciding whether
+to use it belongs on the ship, which owns the emulator and therefore knows whether
+the running application asked for it — the browser only reports the text. The
+[webterm reference](/packages/webterm/) has the byte-level rules.
 
 ### Frames are full snapshots
 

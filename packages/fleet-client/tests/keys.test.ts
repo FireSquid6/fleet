@@ -58,13 +58,21 @@ test("Meta shortcuts and unmapped keys are left to the browser", () => {
   expect(encodeKeyEvent(ev({ key: "F5" }))).toBeNull();
 });
 
-// Returning null is what leaves `preventDefault` uncalled, so the browser fires
-// its native paste event and the clipboard reaches the PTY as a bracketed paste.
-test("paste chords are left to the browser but plain Ctrl-V still sends SYN", () => {
-  expect(encodeKeyEvent(ev({ key: "V", ctrlKey: true, shiftKey: true }))).toBeNull();
-  expect(encodeKeyEvent(ev({ key: "v", ctrlKey: true, shiftKey: true }))).toBeNull();
+// Returning null is what leaves `preventDefault` uncalled, so the browser handles
+// the chord: for paste that means a native paste event whose clipboard reaches the
+// PTY as a bracketed paste, and for copy it means Ctrl+Shift+C no longer encodes
+// to \x03 and interrupts whatever the pane is running.
+test("clipboard chords are left to the browser", () => {
+  for (const key of ["V", "v", "C", "c"]) {
+    expect(encodeKeyEvent(ev({ key, ctrlKey: true, shiftKey: true }))).toBeNull();
+  }
   expect(encodeKeyEvent(ev({ key: "v", metaKey: true }))).toBeNull();
-  expect(encodeKeyEvent(ev({ key: "v", ctrlKey: true }))).toBe("\x16");
-  // Neighbouring Ctrl+Shift chords are unaffected.
-  expect(encodeKeyEvent(ev({ key: "C", ctrlKey: true, shiftKey: true }))).toBe("\x03");
+});
+
+test("the unshifted control bytes and other Ctrl+Shift chords still encode", () => {
+  expect(encodeKeyEvent(ev({ key: "v", ctrlKey: true }))).toBe("\x16"); // literal-next
+  expect(encodeKeyEvent(ev({ key: "c", ctrlKey: true }))).toBe("\x03"); // SIGINT
+  // Only V and C are excluded — the branch must not swallow Ctrl+Shift generally.
+  expect(encodeKeyEvent(ev({ key: "A", ctrlKey: true, shiftKey: true }))).toBe("\x01");
+  expect(encodeKeyEvent(ev({ key: "D", ctrlKey: true, shiftKey: true }))).toBe("\x04");
 });

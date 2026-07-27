@@ -104,6 +104,32 @@ export const PASTE_START = "\x1b[200~";
 export const PASTE_END = "\x1b[201~";
 
 /**
+ * Delete every closing marker, including ones a previous deletion exposes:
+ * `ESC[20` + `ESC[201~` + `1~` must not join into a fresh marker.
+ *
+ * One left-to-right pass with suffix deletion, deliberately not "replace until
+ * clean". Re-scanning the payload once per nesting level is quadratic, and a
+ * payload under `MAX_INPUT_BYTES` can nest ~43k markers — measured at ~1.4s,
+ * which is 1.4s of synchronous CPU inside a WebSocket message handler, so a
+ * single crafted clipboard would stall every other terminal and route on the
+ * process. This pass reaches the same fixpoint: `PASTE_END` has no proper prefix
+ * that is also a suffix, so a payload's fully-reduced form is unique and the
+ * order deletions are found in cannot change it.
+ */
+function stripPasteEnd(data: string): string {
+  const out: string[] = [];
+  for (const character of data) {
+    out.push(character);
+    const start = out.length - PASTE_END.length;
+    if (start < 0) continue;
+    let matched = true;
+    for (let i = 0; matched && i < PASTE_END.length; i++) matched = out[start + i] === PASTE_END[i];
+    if (matched) out.length = start;
+  }
+  return out.join("");
+}
+
+/**
  * The bytes to write to the PTY for a paste of `data`. `bracketed` is whether the
  * application enabled DEC private mode 2004 (`Terminal.bracketedPaste`).
  *
@@ -115,13 +141,16 @@ export const PASTE_END = "\x1b[201~";
  * and escape sequences — a command-injection route for anything that can write to
  * the user's clipboard. Stripping it unconditionally keeps the bracketed and
  * unbracketed paths from diverging on what the payload may contain.
+ *
+ * The asymmetry is deliberate: only the *closing* marker is removed, because only
+ * it can escape the region. An embedded opening marker cannot — it stays inside
+ * the brackets and reaches the application as literal payload, which is also what
+ * happens to every other escape sequence in a paste. Nothing here neutralizes
+ * control bytes in general; unbracketed, the payload reaches the application raw,
+ * exactly as it did when pastes travelled as `input`.
  */
 export function pasteBytes(data: string, bracketed: boolean): string {
-  let payload = data.replace(/\r\n|\n/g, "\r");
-  // Repeat until clean: one `replaceAll` pass does not rescan the text it joins,
-  // so `ESC[20` + `ESC[201~` + `1~` would collapse into a fresh closing marker.
-  // Each pass strictly shortens the string, so this terminates.
-  while (payload.includes(PASTE_END)) payload = payload.replaceAll(PASTE_END, "");
+  const payload = stripPasteEnd(data.replace(/\r\n|\n/g, "\r"));
   return bracketed ? PASTE_START + payload + PASTE_END : payload;
 }
 

@@ -78,8 +78,17 @@ export class TerminalBridge {
 
   /**
    * Write one complete paste. The VT is consulted here rather than on the client
-   * because only this side knows whether the application enabled mode 2004; with
-   * no VT yet (paste before `init`) the unbracketed form is the safe assumption.
+   * because only this side knows whether the application enabled mode 2004.
+   *
+   * Until it is known, the paste goes out unbracketed — not because that is the
+   * safer form (it is the more permissive one: inside a bracketed region tmux
+   * ignores its own prefix key, so an unbracketed paste of prefix sequences acts
+   * on tmux where a bracketed one could not) but because it is the only thing we
+   * can write without inventing a mode the application never asked for. The window
+   * is wider than "before `init`": after it the VT exists but reads `false` until
+   * the attach output carrying `?2004h` has been parsed, and it reopens on every
+   * reconnect, each of which builds a fresh `Terminal`. Dropping pastes for that
+   * interval would be worse than sending them plain.
    */
   paste(data: string): void {
     this.proc?.terminal?.write(pasteBytes(data, this.vt?.bracketedPaste ?? false));

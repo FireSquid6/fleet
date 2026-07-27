@@ -44,6 +44,42 @@ there is a dedicated close code for them.
 most 256 KiB **measured as UTF-8**, not as JavaScript string length. All four
 schemas are strict objects: an unknown extra field is a decode failure.
 
+#### Why paste is not just `input`
+
+A paste is not a fast run of keystrokes. A shell or an agent TUI submits on every
+newline, so a ten-line clipboard delivered as `input` runs ten commands. Real
+terminals solve this with **bracketed paste** (DEC private mode 2004): once the
+application enables it, the terminal wraps pasted text in `ESC [ 200~` …
+`ESC [ 201~`, and the application inserts the whole blob at once instead of acting
+on each line.
+
+Only the server can know whether mode 2004 is on — it owns the emulator — so the
+client reports the *text* and the server turns it into bytes with `pasteBytes`,
+passing `term.bracketedPaste`. Two normalizations happen either way:
+
+- **Line breaks become CR.** A terminal delivers Enter as CR, so a pasted line
+  break must be CR as well; an LF would make pasted and typed newlines behave
+  differently in readline-style applications.
+- **Embedded closing markers are removed.** A clipboard containing `ESC [ 201~`
+  would otherwise end the bracketed region early, leaving the rest of the payload
+  to be read as keystrokes and escape sequences — a command-injection route for
+  anything that can write to the user's clipboard. Only the *closing* marker is
+  removed, because only it can escape the region: an embedded `ESC [ 200~` stays
+  inside the brackets as literal payload. Stripping happens in unbracketed mode
+  too, so the two paths cannot diverge on what a payload may contain.
+
+Nothing else is filtered. Escape sequences in a paste are passed through, and in
+unbracketed mode they reach the application raw — deliberately, since that is what
+pastes did when they travelled as `input`, but more permissive than xterm, which
+screens control bytes through its `disallowedPasteControls` resource by default.
+
+Each `paste` message is one **complete** paste. `data` is bounded by
+`MAX_INPUT_BYTES` like `input`, so a larger clipboard becomes several consecutive
+complete pastes, each independently bracketed, rather than one paste spanning
+several frames. That keeps the server stateless: a disconnect mid-clipboard can
+never leave a bracketed region open, which would otherwise leave the application
+swallowing everything typed afterwards.
+
 ### Server to client
 
 | Message | Shape | Meaning |
@@ -69,25 +105,6 @@ interface WireCursor {
   color?: WireColor;   // omitted when the cursor uses the terminal default
 }
 ```
-
-### Why paste is its own message
-
-A paste is not a fast run of keystrokes. A shell or an agent TUI submits on every
-newline, so a ten-line clipboard delivered as `input` runs ten commands. Real
-terminals solve this with **bracketed paste** (DEC private mode 2004): once the
-application enables it, the terminal wraps pasted text in `ESC [ 200~` …
-`ESC [ 201~` and the application takes the whole blob as one insertion.
-
-Only the server can know whether mode 2004 is on — it owns the emulator — so the
-client reports the *text* and the server decides the bytes, with `pasteBytes`.
-When the application never enabled 2004 the text goes through unbracketed.
-
-Each `paste` message is one **complete** paste. `data` is bounded by
-`MAX_INPUT_BYTES` like `input`, so a larger clipboard becomes several consecutive
-complete pastes, each independently bracketed, rather than one paste spanning
-several frames. That keeps the server stateless: a disconnect mid-clipboard can
-never leave a bracketed region open, which would otherwise leave the application
-swallowing everything typed afterwards.
 
 ## Cell encoding
 
@@ -172,18 +189,9 @@ Three close reasons are defined so both ends agree on why a socket died:
 | `pasteBytes` | `(data: string, bracketed: boolean) => string` | The PTY bytes for one paste. Normalizes `\r\n` and `\n` to `\r`, strips embedded `ESC [ 201~`, and wraps in `PASTE_START`/`PASTE_END` when `bracketed`. |
 
 `PASTE_START` (`"\x1b[200~"`) and `PASTE_END` (`"\x1b[201~"`) are exported too.
-`pasteBytes` is pure, so the server's only decision is the `bracketed` argument —
-it passes `term.bracketedPaste`. Two normalizations happen regardless of it:
-
-- **Line breaks become CR.** A terminal delivers Enter as CR, so a pasted line
-  break must be CR as well; an LF would make pasted and typed newlines behave
-  differently in readline-style applications.
-- **Embedded closing markers are removed.** A clipboard containing `ESC [ 201~`
-  would otherwise end the bracketed region early, leaving the rest of the payload
-  to be read as keystrokes and escape sequences — a command-injection route for
-  anything that can write to the user's clipboard. Stripping happens in
-  unbracketed mode too, so the two paths cannot diverge on what a payload may
-  contain.
+`pasteBytes` is pure — the server's only decision is the `bracketed` argument. See
+[why paste is not just `input`](#why-paste-is-not-just-input) for what it
+normalizes and why.
 
 Both decoders accept either a JSON string or an already-parsed object, and both
 reject `ArrayBuffer`/typed-array frames outright with
@@ -365,12 +373,15 @@ this shape and adds the things a real UI needs:
   never re-renders the component tree.
 - The socket is opened only while the terminal is actually visible, and closed on
   unmount — which is what releases the ship's single-terminal guard.
-- Its keydown encoder returns `null` for `Ctrl+Shift+V` and `Cmd+V` instead of
-  bytes. That is deliberate: the terminal is a focusable `<div>` that calls
-  `preventDefault()` on every key it encodes, so encoding the chord would suppress
-  the browser's own `paste` event. Left unencoded, the native event fires and its
-  `clipboardData` goes out as a `paste` message. Plain `Ctrl+V` is not a paste
-  chord outside macOS and still sends `\x16`.
+- Its keydown encoder returns `null` for the clipboard chords instead of bytes.
+  The terminal is a focusable `<div>` that calls `preventDefault()` on every key
+  it encodes, so encoding `Ctrl+Shift+V` (or `Cmd+V`) would suppress the browser's
+  own `paste` event; left unencoded, that event fires and its `clipboardData` goes
+  out as a `paste` message. `Ctrl+Shift+C` is excluded for a different reason —
+  the control-byte rule would encode it as `\x03` and the copy chord would send
+  SIGINT. The unshifted `Ctrl+V` and `Ctrl+C` still send `\x16` and `\x03`.
+- An empty clipboard sends no frame at all, matching a real terminal; otherwise an
+  application that renders a paste placeholder would show an empty one.
 
 Cell dimensions come from measuring the canvas font, so `cols`/`rows` are derived
 from the container size via a `ResizeObserver` and pushed with `resize`.

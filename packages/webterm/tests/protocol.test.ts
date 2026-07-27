@@ -130,9 +130,25 @@ describe("pasteBytes", () => {
     expect(pasteBytes(`x${PASTE_END}${PASTE_END}y`, false)).toBe("xy");
   });
 
-  test("leaves other escape sequences alone — the bracketing is what makes them inert", () => {
+  // The size is the point of this test, not the value: nesting is what a
+  // re-scan-until-clean stripper pays quadratically for, and at this depth (a
+  // payload still under MAX_INPUT_BYTES, so the schema accepts it) that costs
+  // ~1.4s of blocking CPU in the server's message handler versus ~5ms here.
+  test("collapses deeply nested closing markers without rescanning per level", () => {
+    const depth = 43_000;
+    const nested = "\x1b[20".repeat(depth) + PASTE_END + "1~".repeat(depth);
+    expect(utf8ByteLength(nested)).toBeLessThan(MAX_INPUT_BYTES);
+    expect(pasteBytes(nested, false)).toBe("");
+    expect(pasteBytes(nested, true)).toBe(`${PASTE_START}${PASTE_END}`);
+  });
+
+  test("passes every other escape sequence through unmodified, opening marker included", () => {
+    // Only the closing marker can escape the bracketed region, so only it is
+    // removed; an embedded opening marker is literal payload.
     expect(pasteBytes(`${PASTE_START}hi`, false)).toBe(`${PASTE_START}hi`);
+    expect(pasteBytes(`${PASTE_START}hi`, true)).toBe(`${PASTE_START}${PASTE_START}hi${PASTE_END}`);
     expect(pasteBytes("\x1b[31m", false)).toBe("\x1b[31m");
+    expect(pasteBytes("\x1b[31m", true)).toBe(`${PASTE_START}\x1b[31m${PASTE_END}`);
   });
 });
 
