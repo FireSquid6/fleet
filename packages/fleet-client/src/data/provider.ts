@@ -1,6 +1,15 @@
 import type { WorkspaceRefs } from "fleet-protocol";
 import type { DiffQuery } from "@/lib/diff/diff-target";
-import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
+import type {
+  ArmoryFile,
+  ArmoryManifest,
+  ArmoryShipState,
+  Repo,
+  Ship,
+  Workspace,
+  WorkspaceDetail,
+  WorkspaceEvent,
+} from "./types";
 
 /**
  * The data our UI needs from the fleet bridge, expressed as one async surface.
@@ -50,4 +59,10 @@ export interface FleetBridge {
   switchBranch(repo: string, name: string, branch: string): Promise<void>;
   /** `DELETE /workspaces/:repo/:name` — remove a workspace. */
   deleteWorkspace(repo: string, name: string): Promise<void>;
+  /** `GET /armory` — the bridge's armory manifest. */
+  getArmory(): Promise<ArmoryManifest>;
+  /** `GET /armory/file?path=` — one armory file's contents. */
+  getArmoryFile(path: string): Promise<ArmoryFile>;
+  /** `GET /armory/ships` — what each ship has applied. */
+  listArmoryShips(): Promise<ArmoryShipState[]>;
 }

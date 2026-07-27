@@ -2,7 +2,16 @@ import { WorkspaceRefsSchema, WorkspaceSummarySchema, type SystemResources, type
 import type { DiffQuery } from "@/lib/diff/diff-target";
 import { makeBridgeClient, wsBridgeUrl, type BridgeClient } from "./client";
 import type { FleetBridge } from "./provider";
-import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
+import type {
+  ArmoryFile,
+  ArmoryManifest,
+  ArmoryShipState,
+  Repo,
+  Ship,
+  Workspace,
+  WorkspaceDetail,
+  WorkspaceEvent,
+} from "./types";
 
 const CHANGE_TYPES = new Set([
   "workspace.created",
@@ -203,5 +212,27 @@ export class EdenFleetBridge implements FleetBridge {
   async deleteWorkspace(repo: string, name: string): Promise<void> {
     const { error } = await this.client.workspaces({ repo })({ name }).delete();
     if (error) throw edenError(error);
+  }
+
+  async getArmory(): Promise<ArmoryManifest> {
+    const { data, error } = await this.client.armory.get();
+    if (error) throw edenError(error);
+    // The handler can also surface an in-band `{ error }` body on a 200.
+    if (!data || "error" in data) throw edenError({ value: data });
+    return data;
+  }
+
+  async getArmoryFile(path: string): Promise<ArmoryFile> {
+    const { data, error } = await this.client.armory.file.get({ query: { path } });
+    if (error) throw edenError(error);
+    if (!data || "error" in data) throw edenError({ value: data });
+    return data;
+  }
+
+  async listArmoryShips(): Promise<ArmoryShipState[]> {
+    const { data, error } = await this.client.armory.ships.get();
+    if (error) throw edenError(error);
+    if (!Array.isArray(data)) throw edenError({ value: data });
+    return data;
   }
 }

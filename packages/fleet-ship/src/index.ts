@@ -4,20 +4,24 @@ import { canonicalizeFleetDirectory, resolveFleetShipConfig } from "./config";
 import { writeAtlas } from "./atlas";
 import { installFleetSkill } from "./skill-installer";
 import { installFleetPlugin } from "./plugin-installer";
+import { installArmory } from "./armory/armory-installer";
 import { pluginCommand } from "./plugin-command";
 
 export async function installStartupIntegrations(options: {
   homeDirectory?: string;
   skillSourcePath?: string;
   pluginsDirectory?: string;
+  /** A caller that supplies its own installers opts out of the ones it omits. */
   installers?: {
     skill: typeof installFleetSkill;
     plugin: typeof installFleetPlugin;
+    armory?: typeof installArmory;
   };
 } = {}): Promise<void> {
   const installers = options.installers ?? {
     skill: installFleetSkill,
     plugin: installFleetPlugin,
+    armory: installArmory,
   };
   let skills: Awaited<ReturnType<typeof installFleetSkill>> = [];
   let plugins: Awaited<ReturnType<typeof installFleetPlugin>> = [];
@@ -41,6 +45,37 @@ export async function installStartupIntegrations(options: {
     console.warn(
       `Fleet startup could not install startup plugins: ${formatInstallerError(error)}. ` +
         "Fix the reported path, then run fleet ship plugin install all.",
+    );
+  }
+  try {
+    // Re-apply whatever the ship already has cached, so a restart does not wait
+    // for the bridge's next push.
+    const report = await installers.armory?.({ homeDirectory: options.homeDirectory });
+    for (const warning of report?.warnings ?? []) console.warn(`Fleet armory: ${warning}.`);
+    // Dotfile targets are in `conflicts` too, but the remedy differs enough to
+    // be worth its own message.
+    const dotfileConflicts = new Set(
+      (report?.dotfiles ?? [])
+        .filter(({ status }) => status === "conflict")
+        .map(({ target }) => target),
+    );
+    for (const path of dotfileConflicts) {
+      console.warn(
+        `Fleet startup preserved a conflicting dotfile: ${path}. ` +
+          "Move or delete it to let the armory's symlink take that path on the next sync or ship restart.",
+      );
+    }
+    for (const path of report?.conflicts ?? []) {
+      if (dotfileConflicts.has(path)) continue;
+      console.warn(
+        `Fleet startup preserved a conflicting armory file: ${path}. ` +
+          "Delete it to let the armory install over that path.",
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `Fleet startup could not install the armory: ${formatInstallerError(error)}. ` +
+        "Fix the reported path; the ship keeps running with what it already had.",
     );
   }
   const conflicts = [
@@ -111,12 +146,17 @@ export const ship = new Command()
   .option("-p, --port <port>", "port the HTTP + WebSocket API listens on", parsePort, DEFAULT_PORT)
   .option("-n, --name <name>", "human-facing name of this ship", "ship")
   .option("-f, --fleet-directory <dir>", "directory holding all workspaces (<dir>/<repo>/<name>)", "./fleet")
-  .action(async (options: { port: number; name: string; fleetDirectory: string }) => {
+  .option(
+    "--bridge-url <url>",
+    "only bridge whose armory pushes this ship accepts (default: whichever bridge pushes first)",
+  )
+  .action(async (options: { port: number; name: string; fleetDirectory: string; bridgeUrl?: string }) => {
     try {
       const config = resolveFleetShipConfig({
         fleetDirectory: options.fleetDirectory,
         port: options.port,
         name: options.name,
+        bridgeUrl: options.bridgeUrl,
       });
       await startShip(config);
     } catch (err) {

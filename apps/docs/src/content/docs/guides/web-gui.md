@@ -92,6 +92,18 @@ resources. Offline ships show `offline` in place of the blurb. **New Ship** take
 just a URL; the bridge discovers the ship's name itself. See [Managing
 ships](/guides/managing-ships/).
 
+### Armory
+
+Everything the bridge distributes to its ships, in three parts: a **SHIPS** table
+giving each ship's applied revision, when it last synced, and whether it is in
+sync, behind, or erroring, with any install conflicts and warnings beneath it; a
+**FILES** browser grouped by section, where selecting a file opens its contents;
+and the **DOTFILE MAP**, source next to destination.
+
+The page is read-only, like [`fleet client armory`](/reference/cli/) — armory
+content is edited in the bridge's data directory on the bridge host. See [The
+Armory](/guides/the-armory/).
+
 ### Repo detail
 
 Every workspace for one repo, in a wide table: workspace, branch, ship, session

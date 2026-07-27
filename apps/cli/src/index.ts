@@ -8,10 +8,22 @@
  */
 
 import { Command } from "commander";
-import { DEFAULT_PORT, type Repo, type WorkspaceStatus, type WorkspaceSummary } from "fleet-protocol";
-import type { ShipInfo, BridgeWorkspaceSummary } from "fleet-bridge/types";
+import {
+  ARMORY_SECTIONS,
+  DEFAULT_PORT,
+  type ArmoryFile,
+  type ArmoryManifest,
+  type ArmorySection,
+  type Repo,
+  type WorkspaceStatus,
+  type WorkspaceSummary,
+} from "fleet-protocol";
+import type { ShipInfo, BridgeWorkspaceSummary, ShipArmoryState } from "fleet-bridge/types";
 import { makeBridgeClient, makeClient, normalizeUrl, unwrap } from "./client";
 import {
+  abbreviateRevision,
+  formatArmoryShipTable,
+  formatArmoryTable,
   formatFleetWorkspaceTable,
   formatRepoTable,
   formatShipTable,
@@ -254,6 +266,94 @@ reposCommand
   });
 
 clientCommand.addCommand(reposCommand);
+
+const armoryCommand = new Command()
+  .name("armory")
+  .description("inspect the fleet's armory (via the bridge); read-only");
+
+armoryCommand
+  .command("ls")
+  .description("list the files the bridge's armory holds")
+  .option("--json", "output as JSON")
+  .option("--section <section>", `only files in one section (${ARMORY_SECTIONS.join(", ")})`)
+  .action(async (options: { json?: boolean; section?: string }) => {
+    const section = options.section;
+    if (section !== undefined && !ARMORY_SECTIONS.includes(section as ArmorySection)) {
+      console.error(`fleet: unknown section "${section}"; expected one of: ${ARMORY_SECTIONS.join(", ")}`);
+      process.exit(1);
+    }
+
+    const manifest = unwrap(await bridgeClient().armory.get()) as ArmoryManifest;
+    const entries = section
+      ? manifest.entries.filter((entry) => entry.section === section)
+      : manifest.entries;
+
+    if (options.json) {
+      console.log(JSON.stringify({ ...manifest, entries }, null, 2));
+    } else if (entries.length === 0) {
+      console.log("no armory files");
+    } else {
+      console.log(
+        `revision ${abbreviateRevision(manifest.revision)} (${entries.length} file${entries.length === 1 ? "" : "s"})`,
+      );
+      console.log(formatArmoryTable(entries));
+    }
+  });
+
+armoryCommand
+  .command("cat")
+  .description("print an armory file's contents")
+  .argument("<path>", "armory-relative path, e.g. skills/my-skill/SKILL.md")
+  .action(async (path: string) => {
+    const file = unwrap(await bridgeClient().armory.file.get({ query: { path } })) as ArmoryFile;
+
+    // Binary bytes re-encoded through stdout would arrive mangled, and a
+    // redirect would capture that silently — refuse rather than hand back a
+    // corrupt file.
+    if (file.encoding === "base64") {
+      console.error(
+        `fleet: ${file.path} is binary (${file.size} bytes, sha256 ${file.sha256}); not writing it to stdout`,
+      );
+      process.exit(1);
+    }
+
+    process.stdout.write(file.contents);
+  });
+
+armoryCommand
+  .command("ships")
+  .description("show what each ship has pulled and installed from the armory")
+  .option("--json", "output as JSON")
+  .action(async (options: { json?: boolean }) => {
+    const rows = unwrap(await bridgeClient().armory.ships.get()) as ShipArmoryState[];
+    if (options.json) {
+      console.log(JSON.stringify(rows, null, 2));
+      return;
+    }
+    if (rows.length === 0) {
+      console.log("no ships");
+      return;
+    }
+
+    const manifest = unwrap(await bridgeClient().armory.get()) as ArmoryManifest;
+    console.log(formatArmoryShipTable(manifest.revision, rows));
+
+    for (const row of rows) {
+      const install = row.state?.install;
+      const problems = [
+        ...(row.state?.lastError ? [`error: ${row.state.lastError}`] : []),
+        ...(install?.conflicts ?? []).map((conflict) => `conflict: ${conflict}`),
+        ...(install?.warnings ?? []).map((warning) => `warning: ${warning}`),
+      ];
+      if (problems.length === 0) continue;
+
+      console.log("");
+      console.log(`${row.ship}:`);
+      for (const problem of problems) console.log(`  ${problem}`);
+    }
+  });
+
+clientCommand.addCommand(armoryCommand);
 
 clientCommand
   .command("serve")

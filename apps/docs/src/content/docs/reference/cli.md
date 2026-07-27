@@ -48,7 +48,7 @@ Which endpoint a subcommand talks to is fixed per subcommand:
 
 | Talks to `--url` (ship) | Talks to `--bridge-url` (bridge) |
 | --- | --- |
-| `ls` (without `--wide`), `status`, `create`, `branch`, `activate`, `deactivate`, `rm` | `ls --wide`, `ships …`, `repos …` |
+| `ls` (without `--wide`), `status`, `create`, `branch`, `activate`, `deactivate`, `rm` | `ls --wide`, `ships …`, `repos …`, `armory …` |
 
 ### `fleet client ls`
 
@@ -239,6 +239,98 @@ fleet client repos rm <name>
 
 Prints `removed repo <name>`.
 
+### `fleet client armory`
+
+Read-only inspection of the [armory](/guides/the-armory/), always via the bridge
+(`--bridge-url`). There is no command to add, change, or delete armory content —
+it is edited in the bridge's data directory.
+
+#### `fleet client armory ls`
+
+```bash
+fleet client armory ls [--json] [--section <section>]
+```
+
+| Option | Argument | Default | Meaning |
+| --- | --- | --- | --- |
+| `--json` | — | off | Print the manifest as JSON — revision, entries, and `dotfileMap`. |
+| `--section` | `<section>` | none | Only files in one section: `skills`, `plugins`, or `dotfiles`. |
+
+Without `--json`, prints a header line
+`revision <first 12 hex chars> (<n> file(s))` followed by a table with columns
+`SECTION  PATH  SIZE  MODE`. `PATH` keeps its section prefix, so a row can be
+pasted straight into `armory cat`; `SIZE` is in bytes and `MODE` is octal
+(`0644` or `0755`).
+
+`--section` filters both the table and the JSON `entries`. An unrecognized value
+prints
+`fleet: unknown section "<value>"; expected one of: skills, plugins, dotfiles`
+and exits 1.
+
+With no matching files and no `--json`, prints `no armory files`.
+
+#### `fleet client armory cat`
+
+```bash
+fleet client armory cat <path>
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<path>` | Armory-relative path as shown by `armory ls`, e.g. `skills/reviewer/SKILL.md`. |
+
+Takes no options. Writes the file's contents to stdout with no trailing newline
+added, so `fleet client armory cat <path> > file` reproduces it exactly.
+
+A binary file is refused rather than printed, because a terminal (or a redirect)
+would capture mangled bytes without saying so:
+
+```
+fleet: dotfiles/blob.bin is binary (12 bytes, sha256 2a44e2e6…); not writing it to stdout
+```
+
+That goes to stderr and exits 1. An unknown path is a `404` from the bridge:
+`fleet: request failed (404): armory file not found: <path>`.
+
+#### `fleet client armory ships`
+
+```bash
+fleet client armory ships [--json]
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--json` | off | Print the raw `ShipArmoryState[]` array instead of a table. |
+
+Table columns are `SHIP  STATUS  REVISION  SYNCED  STATE`, where `STATUS` is the
+ship's connection state (`online`/`offline`), `REVISION` is the ship's applied
+revision abbreviated to 12 characters, and `SYNCED` is an ISO-8601 timestamp.
+A value the ship has not reported renders as `-`.
+
+`STATE` compares the ship against the bridge's current revision:
+
+| State | Meaning |
+| --- | --- |
+| `in sync` | The ship holds the bridge's current revision. |
+| `behind` | The ship holds an older revision. |
+| `never` | The ship has never applied a revision. |
+| `error` | The ship's last sync or install failed. |
+| `unknown` | The bridge could not reach the ship. |
+
+`error` takes precedence over the revision comparison: a ship whose sync failed
+is stuck on a revision it could not replace.
+
+After the table, each ship's `lastError`, install conflicts, and install warnings
+are printed under its name:
+
+```
+orca:
+  conflict: /home/you/.vimrc
+  warning: skipped dotfile bashrc: destination "/etc/bashrc" is outside /home/you
+```
+
+With no ships registered and no `--json`, prints `no ships`.
+
 ### `fleet client serve`
 
 ```bash
@@ -278,9 +370,19 @@ and writes `atlas.json` into the fleet directory root.
 | `-p, --port` | `<port>` | `4700` | Port the HTTP + WebSocket API listens on. Must parse as an integer. |
 | `-n, --name` | `<name>` | `ship` | Human-facing name of this ship. Must be a valid [fleet identifier](/reference/protocol/). |
 | `-f, --fleet-directory` | `<dir>` | `./fleet` | Directory holding all workspaces, laid out as `<dir>/<repo>/<name>`. Resolved to an absolute path. |
+| `--bridge-url` | `<url>` | none — the first bridge to push wins | The only bridge whose armory pushes this ship accepts. Must be a URL. |
+
+`--bridge-url` pins the ship: a `POST /armory/sync` naming any other bridge is
+refused with `403` and nothing is fetched. Set it to the same URL the bridge
+pushes with — its `--public-url` / `bridge.publicUrl`, or `http://localhost:<bridge port>`
+when that is unset. Comparison is on scheme, host, port, and path, so a trailing
+slash or a difference in case does not matter. Left unset, the ship pins whichever
+bridge pushes to it first. `fleet launch` sets this for every ship it spawns. See
+[the Armory](/guides/the-armory/).
 
 A non-integer `--port` is rejected by Commander with `must be an integer`. Any
-other startup failure prints `fleet-ship: <message>` and exits 1.
+other startup failure prints `fleet-ship: <message>` and exits 1, which includes
+a `--bridge-url` that is not a URL.
 
 On success it prints
 `fleet-ship "<name>" listening on http://localhost:<port>`.
@@ -344,7 +446,8 @@ loads the persisted ship roster, connects to every ship, and serves the API.
 | --- | --- | --- | --- |
 | `-p, --port` | `<port>` | `4800` | Port the HTTP + WebSocket API listens on. Must parse as an integer. |
 | `-n, --name` | `<name>` | `bridge` | Human-facing name of this bridge. Any non-empty string. |
-| `-d, --data-directory` | `<dir>` | `./.fleet-bridge` | Directory the bridge persists `ships.json` and `repos.json` to. Resolved to an absolute path. |
+| `-d, --data-directory` | `<dir>` | `./.fleet-bridge` | Directory the bridge persists `ships.json` and `repos.json` to, and holds the `armory/` it distributes. Resolved to an absolute path. |
+| `--public-url` | `<url>` | `http://localhost:<port>` | URL ships should use to reach this bridge. Handed to each ship so it can pull the [armory](/guides/the-armory/), so it must resolve from the ships' hosts. |
 
 If two reachable ships hold the same `<repo>/<name>` at startup, the bridge
 prints the conflicting keys and exits 1. Any other startup failure prints

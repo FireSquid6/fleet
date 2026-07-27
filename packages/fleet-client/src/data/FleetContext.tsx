@@ -2,7 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { WorkspaceRefs } from "fleet-protocol";
 import type { DiffQuery } from "@/lib/diff/diff-target";
 import { bridge } from "./bridge";
-import type { Repo, Ship, Workspace, WorkspaceDetail } from "./types";
+import type {
+  ArmoryFile,
+  ArmoryManifest,
+  ArmoryShipState,
+  Repo,
+  Ship,
+  Workspace,
+  WorkspaceDetail,
+} from "./types";
 import { applyWorkspaceEvent } from "./workspace-events";
 
 interface FleetValue {
@@ -35,6 +43,12 @@ interface FleetValue {
   createShip: (url: string) => Promise<void>;
   /** Deregister a ship, then refresh the ship list. Rejects on failure. */
   deleteShip: (name: string) => Promise<void>;
+  /** The bridge's armory manifest. Fetched on demand — the armory is not part of the boot snapshot. */
+  getArmory: () => Promise<ArmoryManifest>;
+  /** One armory file's contents. */
+  getArmoryFile: (path: string) => Promise<ArmoryFile>;
+  /** What each ship has pulled and installed from the armory. */
+  listArmoryShips: () => Promise<ArmoryShipState[]>;
 }
 
 const FleetContext = createContext<FleetValue | null>(null);
@@ -120,6 +134,12 @@ export function FleetProvider({ children }: { children: ReactNode }) {
 
   const getWorkspaceRefs = useCallback((repo: string, name: string) => bridge.getWorkspaceRefs(repo, name), []);
 
+  // The armory is only ever read by its own page, so it stays out of the boot
+  // snapshot: no eager state, no entry in the mount `Promise.all`.
+  const getArmory = useCallback(() => bridge.getArmory(), []);
+  const getArmoryFile = useCallback((path: string) => bridge.getArmoryFile(path), []);
+  const listArmoryShips = useCallback(() => bridge.listArmoryShips(), []);
+
   // Repo/ship mutations rethrow so the calling modal can show the failure inline,
   // rather than swallowing it into the global banner like activate/deactivate.
   const refreshRepos = useCallback(async () => setRepos(await bridge.listRepos()), []);
@@ -202,6 +222,9 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     createShip,
     deleteShip,
     createWorkspace,
+    getArmory,
+    getArmoryFile,
+    listArmoryShips,
   };
 
   return <FleetContext.Provider value={value}>{children}</FleetContext.Provider>;

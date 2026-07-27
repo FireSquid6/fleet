@@ -1,7 +1,18 @@
 import type { AgentState, AgentStatus, WorkspaceDiff, WorkspaceRefs } from "fleet-protocol";
 import type { DiffQuery } from "@/lib/diff/diff-target";
 import type { FleetBridge } from "./provider";
-import type { Repo, Ship, Workspace, WorkspaceDetail, WorkspaceEvent } from "./types";
+import type {
+  ArmoryFile,
+  ArmoryManifest,
+  ArmorySection,
+  ArmoryShipState,
+  ArmorySyncState,
+  Repo,
+  Ship,
+  Workspace,
+  WorkspaceDetail,
+  WorkspaceEvent,
+} from "./types";
 
 /**
  * In-memory implementation of {@link FleetBridge}. Seed data is ported from the
@@ -118,6 +129,212 @@ const MOCK_COMMITS: WorkspaceRefs["commits"] = [
   { sha: "6c8970ab1c2d3e4f50617283a4b5c6d7e8f90122", shortSha: "6c8970a", subject: "Wire up the config loader" },
 ];
 
+/**
+ * A seed armory file. `contents` is what the viewer renders; everything the
+ * manifest reports about the file (size, hash, section) is derived from it, so
+ * the mock manifest and the mock file reads can never drift apart.
+ */
+interface SeedArmoryFile {
+  readonly path: string;
+  readonly contents: string;
+  readonly encoding?: "utf8" | "base64";
+  readonly mode?: number;
+}
+
+const SEED_ARMORY_FILES: SeedArmoryFile[] = [
+  {
+    path: "skills/pr-review/SKILL.md",
+    contents: `---
+name: pr-review
+description: Review a pull request against the fleet's checklist.
+---
+
+Read the diff, then walk the checklist in \`checklist.md\` top to bottom.
+Report findings as a list; do not push commits.
+`,
+  },
+  {
+    path: "skills/pr-review/checklist.md",
+    contents: `- [ ] tests cover the new branch of behaviour
+- [ ] no secrets or hostnames committed
+- [ ] error paths return a mapped status, not a bare 500
+`,
+  },
+  {
+    path: "skills/deploy/SKILL.md",
+    contents: `---
+name: deploy
+description: Roll a service out to the fleet.
+---
+
+Run \`scripts/rollout.sh <service>\`. It is idempotent and safe to re-run.
+`,
+  },
+  {
+    path: "skills/deploy/scripts/rollout.sh",
+    contents: `#!/usr/bin/env bash
+set -euo pipefail
+service="\${1:?usage: rollout.sh <service>}"
+echo "rolling out \${service}"
+`,
+    mode: 0o755,
+  },
+  {
+    path: "plugins/opencode/plugin.json",
+    contents: `{
+  "name": "fleet-opencode",
+  "version": "0.4.1",
+  "entry": "src/index.ts"
+}
+`,
+  },
+  {
+    path: "plugins/opencode/src/index.ts",
+    contents: `export default {
+  name: "fleet-opencode",
+  hooks: {
+    "session.start": () => console.log("fleet armory plugin loaded"),
+  },
+};
+`,
+  },
+  {
+    // Binary on purpose: the viewer must show a placeholder, never the bytes.
+    path: "plugins/opencode/assets/icon.png",
+    contents:
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    encoding: "base64",
+  },
+  {
+    path: "plugins/claude-code/settings.json",
+    contents: `{
+  "permissions": { "allow": ["Bash(bun test)", "Bash(bun run typecheck)"] }
+}
+`,
+  },
+  {
+    path: "dotfiles/tmux.conf",
+    contents: `set -g mouse on
+set -g history-limit 50000
+set -g status-style bg=default
+`,
+  },
+  {
+    path: "dotfiles/gitconfig",
+    contents: `[user]
+  name = fleet agent
+[pull]
+  rebase = true
+`,
+  },
+  {
+    path: "dotfiles/nvim/init.lua",
+    contents: `vim.opt.number = true
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 2
+`,
+  },
+];
+
+const SEED_DOTFILE_MAP: Record<string, string> = {
+  "tmux.conf": "~/.tmux.conf",
+  gitconfig: "~/.gitconfig",
+  "nvim/init.lua": "~/.config/nvim/init.lua",
+};
+
+/**
+ * A deterministic stand-in for a content hash. The mock never sees real bytes on
+ * a real filesystem, and the UI only ever displays or compares these, so the one
+ * property that matters is that the same input always yields the same 64 hex
+ * characters.
+ */
+function fakeSha256(seed: string): string {
+  let hash = 0x811c9dc5;
+  let out = "";
+  for (let round = 0; out.length < 64; round++) {
+    for (const char of `${seed}#${round}`) {
+      hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
+    }
+    out += hash.toString(16).padStart(8, "0");
+  }
+  return out.slice(0, 64);
+}
+
+function armoryFile(seed: SeedArmoryFile): ArmoryFile {
+  const encoding = seed.encoding ?? "utf8";
+  return {
+    path: seed.path,
+    section: seed.path.split("/")[0] as ArmorySection,
+    size: encoding === "base64" ? atob(seed.contents).length : new TextEncoder().encode(seed.contents).length,
+    sha256: fakeSha256(seed.path),
+    mode: seed.mode ?? 0o644,
+    encoding,
+    contents: seed.contents,
+  };
+}
+
+/** The manifest revision, and the value an "in sync" ship reports. */
+const ARMORY_REVISION = fakeSha256("armory-revision");
+/** A revision from before the last edit, so a ship holding it reads as behind. */
+const STALE_ARMORY_REVISION = fakeSha256("armory-revision-previous");
+
+/**
+ * Per-ship armory state, keyed by ship name: one in sync, one behind with an
+ * install that hit a conflict, one that has never synced, and one whose last
+ * sync failed. A ship added during the session has no seed and reports `null`,
+ * which is also what the bridge returns for a ship it could not reach.
+ */
+const SEED_ARMORY_SHIP_STATES: Record<string, ArmorySyncState> = {
+  "forge-01": {
+    revision: ARMORY_REVISION,
+    bridgeUrl: "http://bridge.local:4800",
+    syncedAt: "2026-07-26T09:14:02.000Z",
+    fileCount: SEED_ARMORY_FILES.length,
+    install: {
+      skillCount: 4,
+      pluginCount: 4,
+      dotfileCount: 3,
+      removedCount: 0,
+      conflicts: [],
+      warnings: [],
+      installedAt: "2026-07-26T09:14:03.000Z",
+    },
+    lastError: null,
+  },
+  "forge-02": {
+    revision: STALE_ARMORY_REVISION,
+    bridgeUrl: "http://bridge.local:4800",
+    syncedAt: "2026-07-24T18:02:41.000Z",
+    fileCount: SEED_ARMORY_FILES.length - 1,
+    install: {
+      skillCount: 4,
+      pluginCount: 3,
+      dotfileCount: 2,
+      removedCount: 1,
+      conflicts: ["~/.gitconfig"],
+      warnings: ["plugins/opencode/assets/icon.png: skipped, unreadable on this host"],
+      installedAt: "2026-07-24T18:02:44.000Z",
+    },
+    lastError: null,
+  },
+  "atlas-7": {
+    revision: null,
+    bridgeUrl: null,
+    syncedAt: null,
+    fileCount: 0,
+    install: null,
+    lastError: null,
+  },
+  nimbus: {
+    revision: STALE_ARMORY_REVISION,
+    bridgeUrl: "http://bridge.local:4800",
+    syncedAt: "2026-07-20T11:47:12.000Z",
+    fileCount: SEED_ARMORY_FILES.length - 1,
+    install: null,
+    lastError: "armory pull failed: bridge unreachable (502)",
+  },
+};
+
 /** Seed the repo registry from the distinct repo names in the seed workspaces. */
 function seedRepos(): Repo[] {
   const names: string[] = [];
@@ -135,6 +352,7 @@ export class MockFleetBridge implements FleetBridge {
   private readonly workspaces: Workspace[] = SEED_WORKSPACES.map((w) => ({ ...w }));
   private readonly ships: Ship[] = SHIPS.map((s) => ({ ...s }));
   private readonly repos: Repo[] = seedRepos();
+  private readonly armory: ArmoryFile[] = SEED_ARMORY_FILES.map(armoryFile);
   private readonly workspaceListeners = new Set<(event: WorkspaceEvent) => void>();
 
   private emit(event: WorkspaceEvent): void {
@@ -284,5 +502,30 @@ export class MockFleetBridge implements FleetBridge {
     const workspace = this.workspaces[i]!;
     this.workspaces.splice(i, 1);
     this.emit({ type: "workspace.removed", at: new Date().toISOString(), workspace: { ...workspace } });
+  }
+
+  async getArmory(): Promise<ArmoryManifest> {
+    return {
+      revision: ARMORY_REVISION,
+      entries: this.armory
+        .map((f) => ({ path: f.path, section: f.section, size: f.size, sha256: f.sha256, mode: f.mode }))
+        // Codepoint order, matching how the bridge's scanner sorts a manifest.
+        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      dotfileMap: { ...SEED_DOTFILE_MAP },
+    };
+  }
+
+  async getArmoryFile(path: string): Promise<ArmoryFile> {
+    const file = this.armory.find((f) => f.path === path);
+    if (!file) throw new Error(`armory file not found: ${path}`);
+    return { ...file };
+  }
+
+  async listArmoryShips(): Promise<ArmoryShipState[]> {
+    return this.ships.map((s) => ({
+      ship: s.name,
+      status: s.status,
+      state: SEED_ARMORY_SHIP_STATES[s.name] ?? null,
+    }));
   }
 }

@@ -12,13 +12,18 @@
  * routing and duplicate detection.
  */
 
+import { join } from "node:path";
 import {
+  ARMORY_DIRECTORY,
   CreateRepoInputSchema,
   FleetIdentifierSchema,
   ShipSchema,
   WorkspaceRefsSchema,
   WorkspaceSummarySchema,
   WorkspaceStatusSchema,
+  type ArmoryFile,
+  type ArmoryManifest,
+  type ArmorySyncState,
   type CreateRepoInput,
   type FleetEvent,
   type Repo,
@@ -30,16 +35,24 @@ import {
 import type { DiffOptions } from "git-bun";
 import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
-import type { BridgeConfig } from "./config";
+import { defaultPublicUrl, type BridgeConfig } from "./config";
 import {
   workspaceKey,
   type BridgeWorkspaceEvent,
   type BridgeWorkspaceStatus,
   type BridgeWorkspaceSummary,
+  type ShipArmoryState,
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
 import { RepoAlreadyExistsError, Store } from "./store/store";
+import {
+  ArmoryMapError,
+  ArmoryNotFoundError,
+  ArmoryPathError,
+  ArmoryService,
+  ArmoryTooLargeError,
+} from "./armory/armory-service";
 import {
   providerFor,
   type CheckRun,
@@ -101,16 +114,24 @@ export class FleetManager {
   private readonly store: Store;
   /** Builds a `RepoProvider` for a registered repo; overridable in tests. */
   private readonly makeProvider: (repo: Repo) => RepoProvider;
+  /** The bridge-owned file factory served from `<dataDirectory>/armory`. */
+  private readonly armory: ArmoryService;
 
   constructor(
     private readonly config: BridgeConfig,
     deps?: Partial<ShipConnectionDeps>,
-    opts?: { syncTimeoutMs?: number; store?: Store; providerFor?: (repo: Repo) => RepoProvider },
+    opts?: {
+      syncTimeoutMs?: number;
+      store?: Store;
+      providerFor?: (repo: Repo) => RepoProvider;
+      armory?: ArmoryService;
+    },
   ) {
     this.deps = deps;
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
     this.store = opts?.store ?? new Store(config.dataDirectory);
     this.makeProvider = opts?.providerFor ?? providerFor;
+    this.armory = opts?.armory ?? new ArmoryService(join(config.dataDirectory, ARMORY_DIRECTORY));
   }
 
   /**
@@ -231,6 +252,9 @@ export class FleetManager {
     for (const key of probe.workspaces.keys()) this.claim(key, name);
     await this.persist();
     this.publishSnapshot();
+
+    // Fire-and-forget: registering a ship must not fail, or wait, on the armory.
+    void this.pushArmoryTo(probe);
 
     return { name, url, status: probe.status };
   }
@@ -405,6 +429,111 @@ export class FleetManager {
     }
     if (target.ref !== undefined) return target.ref;
     throw new BridgeError("checks require a ref or pr", 400);
+  }
+
+  // --- armory (bridge-owned file factory) -----------------------------------
+
+  /** `GET /armory` — the content-addressed manifest of `<dataDirectory>/armory`. */
+  async armoryManifest(): Promise<ArmoryManifest> {
+    return this.mapArmoryErrors(() => this.armory.manifest());
+  }
+
+  /** `GET /armory/file?path=…` — one file the manifest lists. */
+  async armoryFile(path: string): Promise<ArmoryFile> {
+    return this.mapArmoryErrors(() => this.armory.readFile(path));
+  }
+
+  /**
+   * `GET /armory/ships` — what each member ship reports having applied. An
+   * offline ship, or one whose call fails, reports `state: null` rather than
+   * failing the aggregate: one unreachable ship must not blank the page.
+   */
+  async armoryShipStates(): Promise<ShipArmoryState[]> {
+    return Promise.all(
+      [...this.connections.values()]
+        .filter((conn) => conn.member)
+        .map(async (conn) => {
+          if (conn.status !== "online") return { ship: conn.name, status: conn.status, state: null };
+          try {
+            const state = await this.call<ArmorySyncState>(
+              conn,
+              () => conn.client.armory.get() as Promise<EdenResult<ArmorySyncState>>,
+            );
+            return { ship: conn.name, status: conn.status, state };
+          } catch {
+            // `call` flips the connection offline on a network failure, so the
+            // status is read back afterwards rather than captured above.
+            return { ship: conn.name, status: conn.status, state: null };
+          }
+        }),
+    );
+  }
+
+  /** Drop the cached scan — called when the armory directory changes on disk. */
+  invalidateArmory(): void {
+    this.armory.invalidate();
+  }
+
+  /**
+   * Tell every online ship to re-pull the armory. Never throws and never waits
+   * on one ship for another: a push is a notification, not a transaction, and a
+   * ship that is offline or that fails its pull must not break the bridge or
+   * hold up the rest of the fleet. Failures are warned about and dropped —
+   * whatever caused one will still be there at the next push or reconnect.
+   */
+  async pushArmory(): Promise<void> {
+    const revision = await this.currentArmoryRevision();
+    if (revision === undefined) return;
+    const online = [...this.connections.values()].filter(
+      (conn) => conn.member && conn.status === "online",
+    );
+    await Promise.allSettled(online.map((conn) => this.syncArmoryOn(conn, revision)));
+  }
+
+  /** The one-ship push, used when a ship joins the fleet or comes back online. */
+  private async pushArmoryTo(conn: ShipConnection): Promise<void> {
+    if (!conn.member || conn.status !== "online") return;
+    const revision = await this.currentArmoryRevision();
+    if (revision === undefined) return;
+    // The ship may have dropped while the armory was being scanned.
+    if (conn.status !== "online") return;
+    await this.syncArmoryOn(conn, revision);
+  }
+
+  /** The current revision, or `undefined` when the armory cannot be scanned. */
+  private async currentArmoryRevision(): Promise<string | undefined> {
+    try {
+      return (await this.armoryManifest()).revision;
+    } catch (error) {
+      console.warn(`fleet-bridge: could not read the armory to push it: ${(error as Error).message}`);
+      return undefined;
+    }
+  }
+
+  private async syncArmoryOn(conn: ShipConnection, revision: string): Promise<void> {
+    const bridgeUrl = this.config.publicUrl ?? defaultPublicUrl(this.config.port);
+    try {
+      await this.call(conn, () =>
+        conn.client.armory.sync.post({ bridgeUrl, revision }) as Promise<EdenResult<unknown>>,
+      );
+    } catch (error) {
+      console.warn(
+        `fleet-bridge: could not push the armory to ship "${conn.name}": ${(error as Error).message}`,
+      );
+    }
+  }
+
+  private async mapArmoryErrors<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof ArmoryPathError || error instanceof ArmoryMapError) {
+        throw new BridgeError(error.message, 400);
+      }
+      if (error instanceof ArmoryNotFoundError) throw new BridgeError(error.message, 404);
+      if (error instanceof ArmoryTooLargeError) throw new BridgeError(error.message, 413);
+      throw error;
+    }
   }
 
   // --- workspace API (superset of the ship's) -------------------------------
@@ -614,7 +743,11 @@ export class FleetManager {
     const conn = new ShipConnection({ url, name, deps: this.deps });
     conn.setHandlers({
       onEvent: (c, event) => this.onEvent(c, event),
-      onStatusChange: () => {},
+      // A ship that restarts or reconnects may have missed pushes, so every
+      // arrival at "online" re-syncs it. Fire-and-forget; `pushArmoryTo` warns.
+      onStatusChange: (c, status) => {
+        if (status === "online") void this.pushArmoryTo(c);
+      },
     });
     return conn;
   }

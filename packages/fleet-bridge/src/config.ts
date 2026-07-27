@@ -19,13 +19,29 @@ export const BridgeConfigSchema = z.object({
   port: z.number().int(),
   /** Human-facing name of this bridge. */
   name: z.string().min(1),
+  /**
+   * URL *ships* use to reach this bridge — it is handed to each ship so it can
+   * pull the armory, so it has to resolve from the ships' hosts, not just from
+   * the bridge's own machine. Optional here because a config assembled outside
+   * `resolveBridgeConfig` may omit it; `defaultPublicUrl` fills the gap.
+   */
+  publicUrl: z.string().min(1).optional(),
 });
 
 /** The bridge configuration, inferred from the schema. */
 export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
 
+/** Where ships are told to reach a bridge that was not given a `publicUrl`. */
+export function defaultPublicUrl(port: number): string {
+  return `http://localhost:${port}`;
+}
+
 /** Validate a raw (flag-assembled) config, resolving `dataDirectory` to an absolute path. */
 export function resolveBridgeConfig(raw: unknown): BridgeConfig {
   const config = BridgeConfigSchema.parse(raw);
-  return { ...config, dataDirectory: resolve(config.dataDirectory) };
+  return {
+    ...config,
+    dataDirectory: resolve(config.dataDirectory),
+    publicUrl: config.publicUrl ?? defaultPublicUrl(config.port),
+  };
 }

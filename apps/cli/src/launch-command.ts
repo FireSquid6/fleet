@@ -11,21 +11,49 @@ import { startBridge } from "fleet-bridge";
 import { startShip } from "fleet-ship";
 import { startClientServer } from "fleet-client";
 import { normalizeUrl } from "./client";
-import { CONFIG_TEMPLATE, loadLaunchConfig } from "./launch-config";
+import { CONFIG_TEMPLATE, loadLaunchConfig, publicUrlWarning } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";
 
 async function runLaunch(configPath: string): Promise<void> {
   const config = await loadLaunchConfig(configPath);
 
+  const warning = publicUrlWarning(config);
+  if (warning) {
+    console.warn(`fleet launch: ${warning}`);
+  }
+
   let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
   if (config.bridge) {
     ({ manager } = await startBridge(config.bridge));
   }
 
+  // A launch knows both sides, so it can pin each ship it spawns to the bridge
+  // it just started rather than leaving it to trust whoever pushes first. The
+  // value must be the one the bridge pushes with, not the one this process would
+  // dial, hence `publicUrl` and the same fallback the bridge uses.
+  const launchedBridgeUrl = config.bridge
+    ? (config.bridge.publicUrl ?? `http://localhost:${config.bridge.port}`)
+    : undefined;
+  if (launchedBridgeUrl && !isHttpUrl(launchedBridgeUrl)) {
+    // A ship refuses a pin that is not an http(s) URL. Failing the whole launch
+    // over a `bridge.publicUrl` that previously only broke the armory would be a
+    // worse trade than starting unpinned and saying so.
+    console.warn(
+      `fleet launch: bridge.publicUrl "${launchedBridgeUrl}" is not an http(s) URL, so ships are ` +
+        "started unpinned and will accept the first armory push they receive",
+    );
+  }
+  const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
+
   for (const ship of config.ships) {
     if (ship.source === "local") {
-      await startShip({ fleetDirectory: ship.fleetDirectory, port: ship.port, name: ship.name });
+      await startShip({
+        fleetDirectory: ship.fleetDirectory,
+        port: ship.port,
+        name: ship.name,
+        bridgeUrl: shipBridgeUrl,
+      });
     }
 
     const url = ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
@@ -45,6 +73,15 @@ async function runLaunch(configPath: string): Promise<void> {
     // parseLaunchConfig guarantees a bridge exists when no explicit bridgeUrl is set.
     const bridgeUrl = config.gui.bridgeUrl ?? `http://localhost:${config.bridge!.port}`;
     startClientServer(normalizeUrl(bridgeUrl), config.gui.port);
+  }
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
   }
 }
 

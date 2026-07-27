@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { FleetProvider } from "./data/FleetContext";
 import { Shell } from "./layouts/Shell";
+import { ArmoryRoute } from "./routes/ArmoryRoute";
 import { BridgeRoute } from "./routes/BridgeRoute";
 import { ReposRoute } from "./routes/ReposRoute";
 import { RepoRoute } from "./routes/RepoRoute";
@@ -24,6 +25,7 @@ export function App() {
             <Route index element={<BridgeRoute />} />
             <Route path="repos" element={<ReposRoute />} />
             <Route path="ships" element={<ShipsRoute />} />
+            <Route path="armory" element={<ArmoryRoute />} />
             <Route path="repos/:repo" element={<RepoRoute />} />
             <Route path="repos/:repo/workspaces/:name" element={<WorkspaceRoute />} />
           </Route>

@@ -2,9 +2,10 @@ import { useLocation } from "react-router-dom";
 import { Menu } from "lucide-react";
 import type { Theme } from "@/App";
 
-/** `bridge` / `bridge / {repo}` / `bridge / {repo} / {name}` from the URL. */
+/** `bridge` / `bridge / armory` / `bridge / {repo}` / `bridge / {repo} / {name}` from the URL. */
 function breadcrumb(pathname: string): string {
   const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === "armory") return "bridge / armory";
   if (parts[0] === "repos" && parts[1]) {
     if (parts[2] === "workspaces" && parts[3]) return `bridge / ${parts[1]} / ${parts[3]}`;
     return `bridge / ${parts[1]}`;
