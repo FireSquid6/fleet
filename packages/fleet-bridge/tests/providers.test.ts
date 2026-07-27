@@ -216,7 +216,7 @@ describe("GitHubProvider", () => {
 
     expect(issues).toHaveLength(1);
     expect(issues[0]!.number).toBe(1);
-    expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/issues?state=open");
+    expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/issues?state=open&per_page=100");
   });
 
   test("listIssues passes through an explicit state", async () => {
@@ -225,7 +225,16 @@ describe("GitHubProvider", () => {
 
     await provider.listIssues({ state: "all" });
 
-    expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/issues?state=all");
+    expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/issues?state=all&per_page=100");
+  });
+
+  test("listIssues asks for a full page, not GitHub's default 30", async () => {
+    const { fetch, calls } = fakeFetch(Response.json([]));
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", fetch });
+
+    await provider.listIssues();
+
+    expect(new URL(calls[0]!.url).searchParams.get("per_page")).toBe("100");
   });
 
   test("a 404 upstream response surfaces as a ProviderError with status 404", async () => {
@@ -447,20 +456,28 @@ describe("GitHubProvider", () => {
     }
   });
 
+  /** The GraphQL operation a fake saw, so a test can answer per operation. */
+  interface GraphQLCall {
+    query: string;
+    variables: Record<string, unknown>;
+  }
+
   /**
-   * Drive the three REST reads `linkBranchToIssue` makes, then hand the GraphQL
-   * mutation whatever `graphqlResponse` returns.
+   * Drive every REST read `linkBranchToIssue` makes, and route each GraphQL
+   * operation to `graphql`. Refs other than `main` 404 unless `extraRefs` names
+   * them — that is how the "branch exists but was never linked" path is set up.
    */
-  function linkBranchFetch(graphqlResponse: () => Response): { fetch: typeof fetch; calls: FetchCall[] } {
+  function linkBranchFetch(
+    graphql: (call: GraphQLCall) => Response,
+    extraRefs: Record<string, string> = {},
+  ): { fetch: typeof fetch; calls: FetchCall[] } {
     const calls: FetchCall[] = [];
+    const refs: Record<string, string> = { main: "basesha", ...extraRefs };
     const fn = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      calls.push({
-        url,
-        method: init?.method ?? "GET",
-        headers: new Headers(init?.headers),
-        body: typeof init?.body === "string" ? init.body : undefined,
-      });
+      const body = typeof init?.body === "string" ? init.body : undefined;
+      calls.push({ url, method: init?.method ?? "GET", headers: new Headers(init?.headers), body });
+
       if (url.endsWith("/issues/12")) {
         return Response.json({
           number: 12,
@@ -476,24 +493,48 @@ describe("GitHubProvider", () => {
         });
       }
       if (url.endsWith("/repos/owner/repo")) return Response.json(repoPayload);
-      if (url.endsWith("/git/ref/heads/main")) return Response.json({ object: { sha: "basesha" } });
-      if (url.endsWith("/graphql")) return graphqlResponse();
+
+      const ref = /\/git\/ref\/heads\/(.+)$/.exec(url)?.[1];
+      if (ref !== undefined) {
+        const sha = refs[ref];
+        return sha === undefined
+          ? Response.json({ message: "Not Found" }, { status: 404 })
+          : Response.json({ object: { sha } });
+      }
+      if (url.endsWith("/graphql")) return graphql(JSON.parse(body!) as GraphQLCall);
       throw new Error(`unexpected fetch: ${url}`);
     }) as unknown as typeof globalThis.fetch;
     return { fetch: fn, calls };
   }
 
-  const linkedBranchPayload = () =>
+  const isMutation = (call: GraphQLCall) => call.query.includes("createLinkedBranch(");
+
+  const createdRef = (name: string, oid: string) =>
+    Response.json({ data: { createLinkedBranch: { linkedBranch: { ref: { name, target: { oid } } } } } });
+
+  const linkedRefs = (...refs: { name: string; oid: string }[]) =>
     Response.json({
       data: {
-        createLinkedBranch: {
-          linkedBranch: { ref: { name: "12-a-bug", target: { oid: "newsha" } } },
+        repository: {
+          issue: {
+            linkedBranches: {
+              nodes: refs.map((ref) => ({ ref: { name: ref.name, target: { oid: ref.oid } } })),
+            },
+          },
         },
       },
     });
 
+  /** The documented duplicate reply: HTTP 200, no `errors`, null `linkedBranch`. */
+  const duplicateByNull = () =>
+    Response.json({ data: { createLinkedBranch: { clientMutationId: null, issue: null, linkedBranch: null } } });
+
+  /** The other duplicate reply: a populated `errors` array. */
+  const duplicateByError = () =>
+    Response.json({ errors: [{ message: "A ref named 12-a-bug already exists in the repository" }] });
+
   test("linkBranchToIssue posts the mutation with the issue node id, base oid and name", async () => {
-    const { fetch, calls } = linkBranchFetch(linkedBranchPayload);
+    const { fetch, calls } = linkBranchFetch(() => createdRef("12-a-bug", "newsha"));
     const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
 
     const linked = await provider.linkBranchToIssue(12, "12-a-bug");
@@ -510,15 +551,7 @@ describe("GitHubProvider", () => {
   });
 
   test("linkBranchToIssue returns the name GitHub actually created, not the requested one", async () => {
-    const { fetch } = linkBranchFetch(() =>
-      Response.json({
-        data: {
-          createLinkedBranch: {
-            linkedBranch: { ref: { name: "12-a-bug-1", target: { oid: "newsha" } } },
-          },
-        },
-      }),
-    );
+    const { fetch } = linkBranchFetch(() => createdRef("12-a-bug-1", "newsha"));
     const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
 
     expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug-1", sha: "newsha" });
@@ -554,22 +587,64 @@ describe("GitHubProvider", () => {
     }
   });
 
-  test("a GraphQL 'already exists' error becomes a ProviderError(422)", async () => {
-    const { fetch } = linkBranchFetch(() =>
-      Response.json({ errors: [{ message: "A branch with that name already exists" }] }),
+  // GitHub reports "that issue already has this branch" in two different ways
+  // depending on the case, and neither is a failure the caller can act on, so
+  // both have to resolve to the branch that is already there.
+  test.each([
+    ["a null linkedBranch with no errors", duplicateByNull],
+    ["an 'already exists' error", duplicateByError],
+  ])("a duplicate reported as %s resolves to the issue's existing linked branch", async (_label, duplicate) => {
+    const { fetch, calls } = linkBranchFetch((call) =>
+      isMutation(call) ? duplicate() : linkedRefs({ name: "12-a-bug", oid: "existingsha" }),
     );
     const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
 
-    try {
-      await provider.linkBranchToIssue(12, "12-a-bug");
-      throw new Error("expected linkBranchToIssue to throw");
-    } catch (error) {
-      expect((error as ProviderError).status).toBe(422);
-    }
+    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug", sha: "existingsha" });
+
+    const query = calls.filter((c) => c.url.endsWith("/graphql")).at(-1)!;
+    const body = JSON.parse(query.body!) as GraphQLCall;
+    expect(body.query).toContain("linkedBranches");
+    expect(body.variables).toEqual({ owner: "owner", repo: "repo", number: 12 });
   });
 
-  test("a GraphQL payload missing the created ref becomes a ProviderError(502)", async () => {
-    const { fetch } = linkBranchFetch(() => Response.json({ data: { createLinkedBranch: null } }));
+  test.each([
+    ["a null linkedBranch with no errors", duplicateByNull],
+    ["an 'already exists' error", duplicateByError],
+  ])("a duplicate reported as %s prefers the requested name among several links", async (_label, duplicate) => {
+    const { fetch } = linkBranchFetch((call) =>
+      isMutation(call)
+        ? duplicate()
+        : linkedRefs({ name: "12-something-else", oid: "othersha" }, { name: "12-a-bug", oid: "existingsha" }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug", sha: "existingsha" });
+  });
+
+  test("a duplicate falls back to any branch the issue is linked to", async () => {
+    const { fetch } = linkBranchFetch((call) =>
+      isMutation(call) ? duplicateByNull() : linkedRefs({ name: "12-renamed-by-hand", oid: "handsha" }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({
+      name: "12-renamed-by-hand",
+      sha: "handsha",
+    });
+  });
+
+  test("a duplicate with no linked branch falls back to the branch of that name", async () => {
+    const { fetch } = linkBranchFetch(
+      (call) => (isMutation(call) ? duplicateByError() : linkedRefs()),
+      { "12-a-bug": "unlinkedsha" },
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug", sha: "unlinkedsha" });
+  });
+
+  test("a refused create with nothing to fall back on is a ProviderError(409) naming the branch", async () => {
+    const { fetch } = linkBranchFetch((call) => (isMutation(call) ? duplicateByNull() : linkedRefs()));
     const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
 
     try {
@@ -577,8 +652,8 @@ describe("GitHubProvider", () => {
       throw new Error("expected linkBranchToIssue to throw");
     } catch (error) {
       expect(error).toBeInstanceOf(ProviderError);
-      expect((error as ProviderError).status).toBe(502);
-      expect((error as ProviderError).message).toContain("no branch");
+      expect((error as ProviderError).status).toBe(409);
+      expect((error as ProviderError).message).toContain("12-a-bug");
     }
   });
 

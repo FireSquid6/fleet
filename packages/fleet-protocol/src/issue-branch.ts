@@ -23,11 +23,13 @@ const MAX_LENGTH = 60;
  * `-`; a title with no Latin alphanumerics at all yields just `<number>`.
  *
  * The result is always a legal git branch name and a valid `FleetIdentifier`.
- * Throws when `number` is not a positive integer — nothing downstream can make
- * sense of a branch pointing at an issue that cannot exist.
+ * Throws when `number` is not a positive *safe* integer — nothing downstream can
+ * make sense of a branch pointing at an issue that cannot exist, and past
+ * `Number.MAX_SAFE_INTEGER` the number stringifies to exponential notation
+ * (`1e+21`), which is not the documented `<number>-<slug>` shape at all.
  */
 export function issueBranchName(issue: { number: number; title: string }): string {
-  if (!Number.isInteger(issue.number) || issue.number < 1) {
+  if (!Number.isSafeInteger(issue.number) || issue.number < 1) {
     throw new Error(`issue number must be a positive integer, got ${issue.number}`);
   }
 

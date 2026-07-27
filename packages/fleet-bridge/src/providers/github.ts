@@ -53,6 +53,26 @@ const CREATE_LINKED_BRANCH = `mutation CreateLinkedBranch($issueId: ID!, $oid: G
 }`;
 
 /**
+ * The branches already attached to an issue, used to make `linkBranchToIssue`
+ * idempotent. `first: 10` is generous: GitHub's own UI links one branch per
+ * issue, and only a human linking branches by hand pushes it past that.
+ */
+const LINKED_BRANCHES = `query LinkedBranches($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      linkedBranches(first: 10) {
+        nodes {
+          ref {
+            name
+            target { oid }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+/**
  * Extract `{ owner, repo }` from a git clone URL. Handles the https web form
  * (with or without a `.git` suffix or trailing slash) and the `git@host:o/r.git`
  * SSH form. Throws `ProviderError` (400) when neither shape matches.
@@ -169,12 +189,30 @@ interface GraphQLResponse<T> {
   errors?: { message?: unknown }[];
 }
 
+/** The `{ name, target { oid } }` selection both linked-branch operations share. */
+interface GraphQLRef {
+  name?: string;
+  target?: { oid?: string } | null;
+}
+
 interface CreateLinkedBranchResult {
   createLinkedBranch?: {
-    linkedBranch?: {
-      ref?: { name?: string; target?: { oid?: string } | null } | null;
+    linkedBranch?: { ref?: GraphQLRef | null } | null;
+  } | null;
+}
+
+interface LinkedBranchesResult {
+  repository?: {
+    issue?: {
+      linkedBranches?: { nodes?: ({ ref?: GraphQLRef | null } | null)[] | null } | null;
     } | null;
   } | null;
+}
+
+/** A ref selection that carries both fields, or `undefined` if it does not. */
+function toLinkedBranch(ref: GraphQLRef | null | undefined): LinkedBranch | undefined {
+  if (!ref?.name || !ref.target?.oid) return undefined;
+  return { name: ref.name, sha: ref.target.oid };
 }
 
 export class GitHubProvider implements RepoProvider {
@@ -208,8 +246,11 @@ export class GitHubProvider implements RepoProvider {
 
   async listIssues(options?: ListOptions): Promise<IssueSummary[]> {
     const state = options?.state ?? "open";
+    // GitHub pages at 30 by default and says nothing about the truncation. The
+    // list feeds a search-over-all-issues picker, so 100 — the maximum a single
+    // page allows — is the difference between "no matches" and the issue.
     const issues = await this.request<GitHubIssue[]>(
-      `/repos/${this.owner}/${this.repo}/issues?state=${state}`,
+      `/repos/${this.owner}/${this.repo}/issues?state=${state}&per_page=100`,
     );
     return issues
       .filter((issue) => issue.pull_request === undefined)
@@ -343,6 +384,13 @@ export class GitHubProvider implements RepoProvider {
    * Three reads precede the write because the mutation is addressed by GraphQL
    * node id and a commit oid, neither of which the caller has: the issue's
    * `node_id`, the repo's default branch, and that branch's head SHA.
+   *
+   * Idempotent by design — asking twice for the same branch is ordinary (a
+   * second workspace off one issue, a retry after a failed clone, or a branch
+   * someone already made with `gh issue develop`). GitHub signals "that is
+   * already linked" in two different ways depending on the case, and neither is
+   * a real failure, so both fall back to {@link linkedBranch}: whatever is
+   * attached to the issue now is what the caller wanted.
    */
   async linkBranchToIssue(issueNumber: number, branch: string): Promise<LinkedBranch> {
     this.requireToken();
@@ -357,27 +405,68 @@ export class GitHubProvider implements RepoProvider {
     const { defaultBranch } = await this.getInfo();
     // Not URL-encoded: a default branch may legitimately contain "/", which is a
     // path separator in the ref endpoint rather than data.
-    const ref = await this.request<GitHubRef>(
+    const base = await this.request<GitHubRef>(
       `/repos/${this.owner}/${this.repo}/git/ref/heads/${defaultBranch}`,
     );
-    if (!ref.object?.sha) {
+    if (!base.object?.sha) {
       throw new ProviderError(`GitHub returned no head commit for branch ${defaultBranch}`, 502);
     }
 
-    const result = await this.graphql<CreateLinkedBranchResult>(CREATE_LINKED_BRANCH, {
-      issueId: issue.node_id,
-      oid: ref.object.sha,
-      name: branch,
-    });
-
-    const created = result.createLinkedBranch?.linkedBranch?.ref;
-    if (!created?.name || !created.target?.oid) {
-      throw new ProviderError(
-        `GitHub createLinkedBranch returned no branch for issue ${issueNumber}`,
-        502,
-      );
+    let result: CreateLinkedBranchResult;
+    try {
+      result = await this.graphql<CreateLinkedBranchResult>(CREATE_LINKED_BRANCH, {
+        issueId: issue.node_id,
+        oid: base.object.sha,
+        name: branch,
+      });
+    } catch (error) {
+      // Shape 1: a populated `errors` array saying the name is taken.
+      if (error instanceof ProviderError && error.status === 422) {
+        return this.linkedBranch(issueNumber, branch);
+      }
+      throw error;
     }
-    return { name: created.name, sha: created.target.oid };
+
+    const created = toLinkedBranch(result.createLinkedBranch?.linkedBranch?.ref);
+    // Shape 2: HTTP 200, no `errors` at all, and a null `linkedBranch`.
+    return created ?? (await this.linkedBranch(issueNumber, branch));
+  }
+
+  /**
+   * The branch already standing in for a failed `createLinkedBranch`: whichever
+   * branch the issue is linked to (preferring `requested`, since a second caller
+   * asking for the same name should get that one back), or — for a branch that
+   * exists but was never linked — the ref itself.
+   *
+   * Only when neither turns anything up has nothing actually been created, and
+   * the 409 says which name collided rather than blaming the upstream.
+   */
+  private async linkedBranch(issueNumber: number, requested: string): Promise<LinkedBranch> {
+    const result = await this.graphql<LinkedBranchesResult>(LINKED_BRANCHES, {
+      owner: this.owner,
+      repo: this.repo,
+      number: issueNumber,
+    });
+    const linked = (result.repository?.issue?.linkedBranches?.nodes ?? [])
+      .map((node) => toLinkedBranch(node?.ref))
+      .filter((ref): ref is LinkedBranch => ref !== undefined);
+    const match = linked.find((ref) => ref.name === requested) ?? linked[0];
+    if (match) return match;
+
+    try {
+      const ref = await this.request<GitHubRef>(
+        `/repos/${this.owner}/${this.repo}/git/ref/heads/${requested}`,
+      );
+      if (ref.object?.sha) return { name: requested, sha: ref.object.sha };
+    } catch {
+      // A 404 here just means the branch is not there either; fall through to
+      // the collision report, which is the more useful message.
+    }
+
+    throw new ProviderError(
+      `GitHub would not create branch "${requested}" for issue ${issueNumber}, and neither that branch nor a branch linked to the issue exists`,
+      409,
+    );
   }
 
   private async postComment(number: number, body: string): Promise<IssueComment> {
@@ -471,8 +560,9 @@ export class GitHubProvider implements RepoProvider {
     const first = payload.errors?.[0];
     if (first !== undefined) {
       const message = typeof first.message === "string" ? first.message : "unknown GraphQL error";
-      // GraphQL has no status of its own, so a name collision — the one failure a
-      // caller can act on — has to be recognized from the message text.
+      // GraphQL has no status of its own, so a name collision has to be
+      // recognized from the message text. 422 is what `linkBranchToIssue` reads
+      // as "already there, go and find it"; it never reaches a client.
       const status = /already exists/i.test(message) ? 422 : 502;
       throw new ProviderError(`GitHub GraphQL request failed: ${message}`, status);
     }

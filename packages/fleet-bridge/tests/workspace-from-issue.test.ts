@@ -16,10 +16,19 @@ import { Store } from "../src/store/store";
 import { ProviderError, type Issue, type RepoProvider } from "../src/providers";
 import { FakeSocket, makeDeps, type FakeShip } from "./helpers";
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 /** Records what the fake provider was asked to do. */
 interface Recorder {
   getIssueNumber?: number;
   linkBranch?: { issueNumber: number; branch: string };
+  linkCalls: number;
 }
 
 const issue: Issue = {
@@ -44,6 +53,8 @@ describe("POST /workspaces from an issue", () => {
   let linkFailsWith: ProviderError | undefined;
   /** Name the provider claims to have created; defaults to the requested one. */
   let linkReturns: string | undefined;
+  /** When set, `linkBranchToIssue` reports arrival and blocks until released. */
+  let linkGate: { entered: () => void; wait: Promise<void> } | undefined;
 
   function makeProvider(_repo: Repo): RepoProvider {
     const unused = () => {
@@ -65,10 +76,13 @@ describe("POST /workspaces from an issue", () => {
       },
       async linkBranchToIssue(issueNumber: number, branch: string) {
         recorder.linkBranch = { issueNumber, branch };
+        recorder.linkCalls += 1;
+        linkGate?.entered();
+        await linkGate?.wait;
         if (linkFailsWith) throw linkFailsWith;
         return { name: linkReturns ?? branch, sha: "sha-of-linked-branch" };
       },
-    } as RepoProvider;
+    };
   }
 
   async function call(method: string, path: string, body?: unknown) {
@@ -91,9 +105,10 @@ describe("POST /workspaces from an issue", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "fleet-bridge-issue-ws-"));
     FakeSocket.byBase.clear();
-    recorder = {};
+    recorder = { linkCalls: 0 };
     linkFailsWith = undefined;
     linkReturns = undefined;
+    linkGate = undefined;
     ships = new Map<string, FakeShip>([["http://ship-a", { name: "ship-a", workspaces: [] }]]);
     const config = { dataDirectory: dir, port: 4902, name: "bridge" };
     const store = new Store(dir);
@@ -162,7 +177,7 @@ describe("POST /workspaces from an issue", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.branch).toBe("main");
-    expect(recorder).toEqual({});
+    expect(recorder).toEqual({ linkCalls: 0 });
   });
 
   test.each([
@@ -171,6 +186,7 @@ describe("POST /workspaces from an issue", () => {
     ["a blank branch", { branch: "   " }],
     ["a non-integer issue number", { issueNumber: 1.5 }],
     ["a zero issue number", { issueNumber: 0 }],
+    ["an issue number past the safe integer range", { issueNumber: 1e21 }],
   ])("rejects %s with 400", async (_label, extra) => {
     const res = await call("POST", "/workspaces", {
       ship: "ship-a",
@@ -180,7 +196,7 @@ describe("POST /workspaces from an issue", () => {
     });
 
     expect(res.status).toBe(400);
-    expect(recorder).toEqual({});
+    expect(recorder).toEqual({ linkCalls: 0 });
     expect(ships.get("http://ship-a")!.createCalls).toBeUndefined();
   });
 
@@ -208,5 +224,26 @@ describe("POST /workspaces from an issue", () => {
     const retry = await call("POST", "/workspaces", body);
     expect(retry.status).toBe(201);
     expect(retry.body.branch).toBe("12-better-create-workspace-issue");
+  });
+
+  test("the reservation is taken before the provider call, so a concurrent create links once", async () => {
+    const entered = deferred();
+    const release = deferred();
+    linkGate = { entered: entered.resolve, wait: release.promise };
+    const body = { ship: "ship-a", repoName: "repo1", name: "twelve", issueNumber: 12 };
+
+    const first = call("POST", "/workspaces", body);
+    await entered.promise;
+    const second = await call("POST", "/workspaces", body);
+
+    expect(second.status).toBe(409);
+    expect(second.body.error).toContain("already in progress");
+    // The second request must have been turned away before reaching the provider:
+    // two linked branches for one workspace is exactly what the ordering prevents.
+    expect(recorder.linkCalls).toBe(1);
+
+    release.resolve();
+    expect((await first).status).toBe(201);
+    expect(recorder.linkCalls).toBe(1);
   });
 });

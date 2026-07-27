@@ -33,7 +33,7 @@ import {
   type WorkspaceStatus,
   type WorkspaceSummary,
 } from "fleet-protocol";
-import { Git, type DiffOptions, type RemoteRef } from "git-bun";
+import { Git, GitError, type DiffOptions, type RemoteRef } from "git-bun";
 import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import { defaultPublicUrl, type BridgeConfig } from "./config";
@@ -86,10 +86,60 @@ export class BridgeError extends Error {
 /** How long to wait for a ship's first `sync` before treating it as offline. */
 const SYNC_TIMEOUT_MS = 5000;
 
+/** How long a remote ref probe may run before the bridge stops waiting on it. */
+const LS_REMOTE_TIMEOUT_MS = 15000;
+
+/**
+ * Environment for every git invocation the bridge makes.
+ *
+ * git asks for credentials, ssh passphrases and unknown host keys by opening
+ * `/dev/tty` directly, which bypasses the pipes it was given — and the bridge
+ * normally runs in an operator's foreground terminal, so that tty exists. Left
+ * to itself a private repo would therefore park the git process on a prompt
+ * nobody answers and hang the HTTP request behind it for good. These three tell
+ * git, `GIT_ASKPASS`' callers and ssh to fail instead of asking.
+ */
+const NON_INTERACTIVE_GIT_ENV: Record<string, string> = {
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+  GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
+};
+
+/**
+ * Reject with `message` if `promise` has not settled within `ms`.
+ *
+ * Only the *waiting* is bounded: `git-bun` exposes no way to abort a running
+ * command, so a git process talking to a blackholed remote is abandoned to its
+ * own network timeout rather than killed. That still keeps the request — and the
+ * client waiting on it — from hanging indefinitely.
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Blank out `user:secret@` userinfo in any URL a message carries. A repo may be
+ * registered with an embedded token, and git echoes the URL it was given back in
+ * the command line it reports on failure — this keeps that out of an API response.
+ */
+function redactUrlCredentials(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1***@");
+}
+
 /**
  * Body of `POST /workspaces` on the bridge (ship-targeted, names a registered
- * repo). The branch comes either verbatim from `branch` or from the issue
- * `issueNumber` names — exactly one of the two, never both.
+ * repo). The branch comes either verbatim from `branch`, or from the issue that
+ * `issueNumber` identifies — exactly one of the two, never both.
  */
 export interface CreateWorkspaceInput {
   readonly ship: string;
@@ -126,6 +176,8 @@ export class FleetManager {
   private readonly makeProvider: (repo: Repo) => RepoProvider;
   /** Probes a remote's refs; overridable so tests never shell out to git. */
   private readonly lsRemote: typeof Git.lsRemote;
+  /** Deadline for one `lsRemote` probe (overridable in tests). */
+  private readonly lsRemoteTimeoutMs: number;
   /** The bridge-owned file factory served from `<dataDirectory>/armory`. */
   private readonly armory: ArmoryService;
 
@@ -137,6 +189,7 @@ export class FleetManager {
       store?: Store;
       providerFor?: (repo: Repo) => RepoProvider;
       lsRemote?: typeof Git.lsRemote;
+      lsRemoteTimeoutMs?: number;
       armory?: ArmoryService;
     },
   ) {
@@ -145,6 +198,7 @@ export class FleetManager {
     this.store = opts?.store ?? new Store(config.dataDirectory);
     this.makeProvider = opts?.providerFor ?? providerFor;
     this.lsRemote = opts?.lsRemote ?? Git.lsRemote;
+    this.lsRemoteTimeoutMs = opts?.lsRemoteTimeoutMs ?? LS_REMOTE_TIMEOUT_MS;
     this.armory = opts?.armory ?? new ArmoryService(join(config.dataDirectory, ARMORY_DIRECTORY));
   }
 
@@ -376,12 +430,23 @@ export class FleetManager {
 
     let refs: RemoteRef[];
     try {
-      refs = await this.lsRemote(repo.url, { cwd: this.config.dataDirectory, heads: true });
+      refs = await withTimeout(
+        this.lsRemote(repo.url, {
+          cwd: this.config.dataDirectory,
+          heads: true,
+          env: NON_INTERACTIVE_GIT_ENV,
+        }),
+        this.lsRemoteTimeoutMs,
+        `timed out after ${this.lsRemoteTimeoutMs}ms`,
+      );
     } catch (error) {
       // Any failure here is the remote's or the network's, not the caller's — and
       // a raw GitError must not reach the route, which would report it as a 500.
+      // git's own stderr is preferred over the GitError message because the
+      // message replays the command line, credentials in the URL included.
+      const detail = error instanceof GitError ? error.stderr.trim() || error.message : (error as Error).message;
       throw new BridgeError(
-        `could not list branches for repo "${name}": ${(error as Error).message}`,
+        redactUrlCredentials(`could not list branches for repo "${name}": ${detail}`),
         502,
       );
     }
@@ -685,12 +750,14 @@ export class FleetManager {
 
     try {
       // Resolving the issue happens under the reservation, so two concurrent
-      // creates of the same workspace cannot both mint a linked branch. The
-      // converse — the branch gets created and linked and then the ship call
-      // fails — is accepted: a retry reuses that branch (the provider returns
-      // the existing linked branch, or a deduped name), the reservation is still
-      // cleared by the `finally` below, and the error the user sees is the
-      // ship's, because this call has already returned by then.
+      // creates of the same workspace cannot both ask the provider for a branch;
+      // the second is turned away with a 409 before it gets here.
+      //
+      // The branch outliving a failed create is accepted rather than undone: if
+      // the ship call below fails, the linked branch stays on the remote with no
+      // workspace behind it. Nothing is corrupted — the `finally` still clears
+      // the reservation, the error the user sees is the ship's, and a retry
+      // resolves the same branch because `linkBranchToIssue` is idempotent.
       const branch =
         "branch" in source ? source.branch : await this.branchForIssue(input.repoName, source.issueNumber);
 
@@ -766,9 +833,10 @@ export class FleetManager {
       return { branch };
     }
     if (input.issueNumber !== undefined) {
-      // Guarded here so `issueBranchName` — which rejects the same values — can
-      // never be reached with a number a client made up.
-      if (!Number.isInteger(input.issueNumber) || input.issueNumber < 1) {
+      // `t.Numeric()` admits 0, 1.5 and -3; rejecting them here costs nothing,
+      // where letting them through costs a provider round trip to learn that no
+      // such issue exists.
+      if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber < 1) {
         throw new BridgeError("issueNumber must be a positive integer", 400);
       }
       return { issueNumber: input.issueNumber };

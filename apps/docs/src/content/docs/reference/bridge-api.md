@@ -20,7 +20,7 @@ adds ship management, a repo registry, and an aggregate system-resources view.
 | `GET /workspaces` | Same path. Merged across ships, deduped, each row gains `ship`. |
 | `GET /workspaces/:repo/:name` | Same path. Proxied live to the owning ship; response gains `ship` on **both** the `active` and `inactive` variants. |
 | `GET /workspaces/:repo/:name/diff` | Same path and query. Proxied verbatim. |
-| `POST /workspaces` | Same path, **different body**: `{ship, repoName, name, branch}` instead of `{url, repoName, name, branch}`. The clone URL comes from the bridge's repo registry. Response gains `ship`. |
+| `POST /workspaces` | Same path, **different body**: `{ship, repoName, name, branch \| issueNumber}` instead of `{url, repoName, name, branch}`. The clone URL comes from the bridge's repo registry, and the branch may be named outright or derived from an issue. Response gains `ship`. |
 | `POST /workspaces/:repo/:name/branch` | Same. |
 | `POST /workspaces/:repo/:name/activate` | Same. |
 | `POST /workspaces/:repo/:name/deactivate` | Same. |
@@ -36,7 +36,8 @@ adds ship management, a repo registry, and an aggregate system-resources view.
 
 Bridge-only routes: `GET`/`POST /ships`, `DELETE /ships/:name`,
 `GET /ships/:ship/system-resources`, `GET`/`POST /repos`,
-`DELETE /repos/:name`, `GET /armory/file`, `GET /armory/ships`.
+`DELETE /repos/:name`, `GET /repos/:name/branches`, `GET /armory/file`,
+`GET /armory/ships`.
 
 ## Routes at a glance
 
@@ -50,6 +51,7 @@ Bridge-only routes: `GET`/`POST /ships`, `DELETE /ships/:name`,
 | GET | `/repos` | 200 | `Repo[]` |
 | POST | `/repos` | 201 | `Repo` |
 | DELETE | `/repos/:name` | 200 | `{ ok: true }` |
+| GET | `/repos/:name/branches` | 200 | `RepoBranch[]` |
 | GET | `/armory` | 200 | `ArmoryManifest` |
 | GET | `/armory/file` | 200 | `ArmoryFile` |
 | GET | `/armory/ships` | 200 | `ShipArmoryState[]` |
@@ -76,11 +78,11 @@ The status comes from the thrown `BridgeError`; anything else is a `500`.
 
 | Status | Raised when |
 | --- | --- |
-| `400` | Invalid repo/workspace/ship identifier; `unknown ship: <name>` (create, or per-ship resources); `unknown repo: <name>`; `invalid repo`. |
+| `400` | Invalid repo/workspace/ship identifier; `unknown ship: <name>` (create, or per-ship resources); `unknown repo: <name>`; `invalid repo`; a create naming both a `branch` and an `issueNumber`, neither, a blank `branch`, or an `issueNumber` that is not a positive integer. |
 | `404` | `workspace not found: <repo>/<name>` — no ship in the ownership index holds it; `ship not found: <name>`; `repo not found: <name>`. |
 | `409` | `ship already registered: <name>`; a registering ship holds workspaces already hosted elsewhere; `workspace already exists: <repo>/<name>`; a create already in progress or of indeterminate outcome for that key; a ship removed mid-request. |
 | `422` | Elysia schema validation on the request body. |
-| `502` | `ship at <url> did not respond: <message>` (`POST /ships`); a ship returned no data, an invalid summary/status, or a workspace identity that was not requested. |
+| `502` | `ship at <url> did not respond: <message>` (`POST /ships`); a ship returned no data, an invalid summary/status, or a workspace identity that was not requested; `GET /repos/:name/branches` could not reach the remote. |
 | `503` | `ship "<name>" hosting <repo>/<name> is offline`; `ship "<name>" is offline` (create, per-ship resources); `ship "<name>" unreachable: <message>`. |
 | ship's status | Any error the owning ship returned is passed through with the ship's own status and message. |
 
@@ -217,6 +219,30 @@ Responds `{ ok: true }`.
 | `404` | `repo not found: <name>`. |
 
 Deleting a repo does not touch any workspace already cloned from it.
+
+### `GET /repos/:name/branches`
+
+The branches the repo's remote currently advertises, sorted by name.
+
+```ts
+{ name: string; sha: string }[]
+```
+
+Answered with `git ls-remote --heads` against the registered clone URL, **not**
+through the repo's provider: `provider` defaults to `"custom"`, for which no
+provider exists, so a provider-backed listing would be unavailable for most
+repos. `ls-remote` works against any git URL and needs no token. The probe runs
+non-interactively (git never prompts for credentials or host keys) and is
+abandoned after 15 s.
+
+`refs/heads/` is stripped from each name; tags and other refs are omitted, so a
+tag the ship would happily clone does not appear here.
+
+| Status | Cause |
+| --- | --- |
+| `400` | Invalid repo identifier. |
+| `404` | `repo not found: <name>`. |
+| `502` | `could not list branches for repo "<name>": <git's stderr>` — unreachable, unauthenticated, or timed out. Credentials embedded in the repo URL are redacted from this message. |
 
 ## Armory
 
@@ -374,8 +400,10 @@ text.
 ### `POST /workspaces`
 
 ```ts
-// request body — all four fields required
-{ ship: string; repoName: string; name: string; branch: string }
+// request body — ship, repoName and name are required;
+// exactly one of branch / issueNumber must be present
+{ ship: string; repoName: string; name: string;
+  branch?: string; issueNumber?: number }
 ```
 
 `ship` names the target host and `repoName` must be a **registered repo**; the
@@ -387,10 +415,29 @@ bridge looks up its clone URL and calls the ship's `POST /workspaces` with
 created in the new workspace rather than rejected — see
 [ship API](/reference/ship-api/).
 
+With `issueNumber` instead, the bridge resolves the branch itself before calling
+the ship:
+
+1. it reads the issue through the repo's [provider](#repo-registry) — so this
+   form needs `provider: "github"` and a token with repo write scope;
+2. it computes the issue's canonical branch name, `<number>-<slug of title>`
+   capped at 60 characters (`12-better-create-workspace-issue`) — the same
+   function a client can use to preview the name;
+3. it asks the provider to create that branch and record it as the issue's
+   linked development branch (GitHub's "Development → create a branch");
+4. the **name the provider returns** is what the ship is told to check out, which
+   may differ from the computed one if the provider de-duplicated it.
+
+Step 3 is idempotent: an issue that already has a linked branch, or a branch of
+that name created by hand, resolves to the existing branch instead of failing.
+The branch is created before the clone and is *not* removed if the clone then
+fails — a retry reuses it.
+
 | Status | Cause |
 | --- | --- |
-| `422` | A body field is missing. |
-| `400` | Invalid repo/workspace identifier; `unknown ship: <ship>`; `unknown repo: <repoName>`. |
+| `422` | `ship`, `repoName` or `name` is missing. |
+| `400` | Invalid repo/workspace identifier; `unknown ship: <ship>`; `unknown repo: <repoName>`; both `branch` and `issueNumber`, or neither; a blank `branch`; an `issueNumber` that is not a positive integer. |
+| provider's status | Any error resolving or linking the issue is passed through with the provider's own status — e.g. `401` with no token, `404` for an unknown issue, `409` when the branch could be neither created nor found. |
 | `503` | `ship "<ship>" is offline`. |
 | `409` | `workspace already exists: <repo>/<name>`; a create for that key is already in progress; the key's create outcome is indeterminate; the target ship was removed mid-request. |
 | `502` | The ship returned no data, an invalid summary, or a different workspace identity. |

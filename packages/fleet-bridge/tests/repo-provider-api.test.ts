@@ -38,7 +38,6 @@ interface Recorder {
   reviewPr?: { number: number; review: { event: ReviewEvent; body?: string } };
   checksRef?: string;
   failedLogsRef?: string;
-  linkBranch?: { issueNumber: number; branch: string };
 }
 
 const info: RepoInfo = {
@@ -173,9 +172,9 @@ describe("repo provider API", () => {
         recorder.failedLogsRef = ref;
         return [failedLog];
       },
-      async linkBranchToIssue(issueNumber: number, branch: string) {
+      // Unused by these routes, but the interface requires it.
+      async linkBranchToIssue(_issueNumber: number, branch: string) {
         guard();
-        recorder.linkBranch = { issueNumber, branch };
         return { name: branch, sha: "sha-of-linked-branch" };
       },
     };
