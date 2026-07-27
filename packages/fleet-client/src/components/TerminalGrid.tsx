@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ClipboardEvent, type FocusEvent } from "react";
 import { ATTR, type GridMsg, type WireCellObject } from "webterm/protocol";
 import { resolveColor } from "@/lib/webterm/palette";
 import { drawCellGlyph } from "@/lib/webterm/glyphs";
@@ -38,6 +38,48 @@ function baseFont(bold: boolean, italic: boolean): string {
   return `${italic ? "italic " : ""}${bold ? "bold " : ""}${FONT_SIZE}px ${FONT_FAMILY}`;
 }
 
+/**
+ * Whether a delegated React event was aimed at the handler's own element rather
+ * than bubbled up from a descendant — the takeover button. Only keys aimed at
+ * the container itself belong to the PTY: without this guard, Enter/Space on
+ * that button would be swallowed (`encodeKeyEvent` maps them, and the
+ * `preventDefault` cancels the button's synthesized click), stranding
+ * keyboard-only users on the conflict overlay.
+ */
+function ownEvent(e: { target: EventTarget; currentTarget: EventTarget }): boolean {
+  return e.target === e.currentTarget;
+}
+
+/** How the cursor cell should be painted this frame. */
+export type CursorRender = "hidden" | "solid" | "outline";
+
+/**
+ * Whether the cursor's phase is currently animating. The single source of truth
+ * for the blink condition: both the renderer and the blink timer ask this, so a
+ * timer tick can never disagree with what the next frame would paint.
+ * `blinking` is optional on the wire and defaults to on.
+ */
+export function cursorBlinks(cursor: GridMsg["cursor"], focused: boolean): boolean {
+  return cursor.visible && focused && (cursor.blinking ?? true);
+}
+
+/**
+ * Decide the cursor's appearance. The outline signals "this terminal does not
+ * have keyboard focus", so it wins over the terminal's own blink/shape settings
+ * — but never over `visible`: an app that hid the cursor (DECTCEM) stays hidden
+ * whether or not we are focused.
+ */
+export function cursorRender(
+  cursor: GridMsg["cursor"],
+  focused: boolean,
+  cursorOn: boolean,
+): CursorRender {
+  if (!cursor.visible) return "hidden";
+  if (!focused) return "outline";
+  if (!cursorBlinks(cursor, focused)) return "solid";
+  return cursorOn ? "solid" : "hidden";
+}
+
 /** Paint a full grid snapshot. The context transform already accounts for DPR. */
 function drawGrid(
   ctx: CanvasRenderingContext2D,
@@ -45,6 +87,7 @@ function drawGrid(
   metrics: CellMetrics,
   colors: TermColors,
   cursorOn: boolean,
+  focused: boolean,
   dpr: number,
 ) {
   const { width: cw, height: ch } = metrics;
@@ -75,34 +118,46 @@ function drawGrid(
     }
   }
 
-  const cursorBlinking = grid.cursor.blinking ?? true;
-  if (grid.cursor.visible && (!cursorBlinking || cursorOn)) {
+  const render = cursorRender(grid.cursor, focused, cursorOn);
+  if (render !== "hidden") {
     const x = colEdge(grid.cursor.x);
     const y = rowEdge(grid.cursor.y);
     const w = colEdge(grid.cursor.x + 1) - x;
     const h = rowEdge(grid.cursor.y + 1) - y;
     const px = (size: number) => Math.max(1, Math.round(size * dpr)) / dpr;
-    ctx.fillStyle = resolveColor(grid.cursor.color, colors.cursor);
+    const cursorColor = resolveColor(grid.cursor.color, colors.cursor);
 
-    switch (grid.cursor.shape ?? "block") {
-      case "block": {
-        ctx.fillRect(x, y, w, h);
-        const cell = grid.cells[grid.cursor.y]?.[grid.cursor.x];
-        if (cell) {
-          const { bg } = cellColors(cell, colors);
-          paintCellGlyph(ctx, cell, x, y, w, h, bg, dpr);
+    if (render === "outline") {
+      const thickness = px(1);
+      ctx.strokeStyle = cursorColor;
+      ctx.lineWidth = thickness;
+      // `strokeRect` centers the stroke on the path, so a rect on the exact cell
+      // edges would spill half its width into the neighbouring cells. Insetting
+      // by half the (whole-device-pixel) thickness lands it inside the cell and
+      // on pixel boundaries, so it stays crisp at any DPR.
+      ctx.strokeRect(x + thickness / 2, y + thickness / 2, w - thickness, h - thickness);
+    } else {
+      ctx.fillStyle = cursorColor;
+      switch (grid.cursor.shape ?? "block") {
+        case "block": {
+          ctx.fillRect(x, y, w, h);
+          const cell = grid.cells[grid.cursor.y]?.[grid.cursor.x];
+          if (cell) {
+            const { bg } = cellColors(cell, colors);
+            paintCellGlyph(ctx, cell, x, y, w, h, bg, dpr);
+          }
+          break;
         }
-        break;
-      }
-      case "underline": {
-        const thickness = px(h / 10);
-        ctx.fillRect(x, y + h - thickness, w, thickness);
-        break;
-      }
-      case "bar": {
-        const thickness = px(w / 6);
-        ctx.fillRect(x, y, thickness, h);
-        break;
+        case "underline": {
+          const thickness = px(h / 10);
+          ctx.fillRect(x, y + h - thickness, w, thickness);
+          break;
+        }
+        case "bar": {
+          const thickness = px(w / 6);
+          ctx.fillRect(x, y, thickness, h);
+          break;
+        }
       }
     }
   }
@@ -198,7 +253,18 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   const lastSize = useRef<{ cols: number; rows: number } | null>(null);
   const dprRef = useRef(1);
   const cursorOn = useRef(true);
+  const elementFocused = useRef(false);
+  const windowFocused = useRef(true);
   const [exitCode, setExitCode] = useState<number | null>(null);
+
+  // Keystrokes only reach the PTY when this element holds focus *and* the window
+  // is the one the OS is delivering keys to; a focused element in a background
+  // window is exactly the "where is my typing going?" case issue #14 is about.
+  //
+  // The two refs are independent and combined with AND, so browsers that *also*
+  // fire an element blur on window deactivation are handled by either path in
+  // whichever order the events arrive; the repaints coalesce into one frame.
+  const focused = useCallback(() => elementFocused.current && windowFocused.current, []);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -207,8 +273,8 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     const colors = colorsRef.current;
     if (!canvas || !grid || !metrics || !colors) return;
     const ctx = canvas.getContext("2d");
-    if (ctx) drawGrid(ctx, grid, metrics, colors, cursorOn.current, dprRef.current);
-  }, []);
+    if (ctx) drawGrid(ctx, grid, metrics, colors, cursorOn.current, focused(), dprRef.current);
+  }, [focused]);
 
   const scheduleDraw = useCallback(() => {
     if (rafScheduled.current) return;
@@ -237,6 +303,36 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       cursorOn.current = true;
     }
   }, [active, repo, name]);
+
+  // Focus state that no event will tell us about: the window may already be in
+  // the background on mount, and window-level focus changes never surface as
+  // focusin/focusout on the element. Seeding from the DOM also keeps the element
+  // half honest if a future caller autofocuses the container before this runs.
+  useEffect(() => {
+    elementFocused.current = document.activeElement === containerRef.current;
+    windowFocused.current = document.hasFocus();
+
+    const onWindowFocus = () => {
+      // Re-read the element too: a browser that fires an element blur on window
+      // deactivation but no matching focus on reactivation would otherwise leave
+      // `elementFocused` stuck false. This is the only moment it can drift.
+      elementFocused.current = document.activeElement === containerRef.current;
+      windowFocused.current = true;
+      cursorOn.current = true;
+      scheduleDraw();
+    };
+    const onWindowBlur = () => {
+      windowFocused.current = false;
+      scheduleDraw();
+    };
+    window.addEventListener("focus", onWindowFocus);
+    window.addEventListener("blur", onWindowBlur);
+    scheduleDraw();
+    return () => {
+      window.removeEventListener("focus", onWindowFocus);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [active, scheduleDraw]);
 
   // Size the canvas to the container, tell the PTY, and repaint on any change.
   useEffect(() => {
@@ -287,7 +383,10 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     if (!active) return;
     const id = setInterval(() => {
       const grid = latestGrid.current;
-      if (!grid?.cursor.visible || !(grid.cursor.blinking ?? true)) {
+      // Parking `cursorOn` at true (rather than just skipping the toggle) means
+      // regaining focus starts a fresh blink cycle from a drawn cursor instead
+      // of resuming mid-off.
+      if (!grid || !cursorBlinks(grid.cursor, focused())) {
         cursorOn.current = true;
         return;
       }
@@ -295,9 +394,19 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       scheduleDraw();
     }, CURSOR_BLINK_MS);
     return () => clearInterval(id);
-  }, [active, scheduleDraw]);
+  }, [active, focused, scheduleDraw]);
+
+  // The conflict overlay owns the keyboard as well as the pointer: its button is
+  // the only way out, and swallowing keys here would trap focus on the container
+  // (`encodeKeyEvent` maps Tab and Shift-Tab, so `preventDefault` would cancel
+  // the browser's focus move and leave the button unreachable). Only `"conflict"`
+  // gets this — during `"connecting"` there is no competing control, and eating
+  // Tab is the correct terminal behaviour. The socket is closed in `"conflict"`,
+  // so `send` was already a no-op; the released `preventDefault` is the point.
+  const keysBelongToPty = status !== "conflict";
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!ownEvent(e) || !keysBelongToPty) return;
     const bytes = encodeKeyEvent(e);
     if (bytes === null) return;
     e.preventDefault();
@@ -305,8 +414,22 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
   };
 
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (!ownEvent(e) || !keysBelongToPty) return;
     e.preventDefault();
     send(e.clipboardData.getData("text"));
+  };
+
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    if (!ownEvent(e)) return;
+    elementFocused.current = true;
+    cursorOn.current = true;
+    scheduleDraw();
+  };
+
+  const onBlur = (e: FocusEvent<HTMLDivElement>) => {
+    if (!ownEvent(e)) return;
+    elementFocused.current = false;
+    scheduleDraw();
   };
 
   const statusMessage =
@@ -328,6 +451,8 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       tabIndex={0}
       onKeyDown={onKeyDown}
       onPaste={onPaste}
+      onFocus={onFocus}
+      onBlur={onBlur}
       className="relative min-h-0 flex-1 cursor-text overflow-hidden bg-term-bg px-3 py-2 outline-none focus:ring-1 focus:ring-inset focus:ring-term-line"
     >
       <canvas ref={canvasRef} />
