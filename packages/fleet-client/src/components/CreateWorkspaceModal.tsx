@@ -4,10 +4,9 @@ import type { RepoBranch, RepoIssue } from "@/data/types";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Combobox, highlight } from "@/components/ui/combobox";
+import { Combobox, highlight, splitRanges } from "@/components/ui/combobox";
 import { cn } from "@/lib/utils";
-import { splitRanges } from "@/lib/fuzzy";
-import { branchState, issueBranchPreview, issueText } from "@/lib/create-workspace";
+import { branchState, createWorkspaceInput, issueBranchPreview, issueText } from "@/lib/create-workspace";
 import { Field, ModalActions } from "@/routes/ReposRoute";
 
 // Module-level so the pickers' memoised filtering is not invalidated every render.
@@ -96,23 +95,17 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
   }, [fromIssue, issuesLoaded, listRepoIssues, repoName]);
 
   const state = branchState(branch, branches);
-  const ready = Boolean(name.trim()) && Boolean(shipName) && (fromIssue ? issue !== null : Boolean(branch.trim()));
+  const input = createWorkspaceInput({ ship: shipName, repoName, name, fromIssue, branch, issue });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    // The Create button is disabled in this state, but implicit submission can
-    // still reach here — and issue mode without a selection has no payload to
-    // send, only a branch-mode one that would silently create the wrong thing.
-    if (!ready || pending) return;
+    // `input` being null is what disables the Create button, but implicit
+    // submission can still reach here.
+    if (!input || pending) return;
     setPending(true);
     setError(null);
     try {
-      // Exactly one branch source goes on the wire: the bridge 400s on both keys.
-      await createWorkspace(
-        fromIssue && issue
-          ? { ship: shipName, repoName, name: name.trim(), issueNumber: issue.number }
-          : { ship: shipName, repoName, name: name.trim(), branch: branch.trim() },
-      );
+      await createWorkspace(input);
       onClose();
     } catch (err) {
       setError((err as Error).message);
@@ -174,10 +167,12 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
               }}
               placeholder="Search open issues"
               disabled={issuesError !== null}
-              emptyMessage={issuesLoading ? "listing issues…" : "No open issue matches."}
+              emptyMessage="No open issue matches."
             />
             {issuesError ? (
               <Note className="text-red-400">Issues could not be listed: {issuesError}</Note>
+            ) : issuesLoading ? (
+              <Note className="text-dim2">listing issues…</Note>
             ) : issue ? (
               <SelectedIssue issue={issue} />
             ) : null}
@@ -196,13 +191,16 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
             />
             {state.kind === "existing" && <Note className="text-dim">On branch {state.branch}</Note>}
             {state.kind === "new" && <Note className="text-accent">Creating new branch {state.branch}</Note>}
-            {branchesError && <Note className="text-dim2">Branches could not be listed — type a branch name.</Note>}
-            {!branchesError && branches === null && <Note className="text-dim2">listing branches…</Note>}
+            {state.kind === "unknown" && (
+              <Note className="text-dim2">
+                {branchesError ? "Branches could not be listed — type a branch name." : "listing branches…"}
+              </Note>
+            )}
           </Field>
         )}
 
         {error && <p className="font-mono text-[11px] text-red-400">{error}</p>}
-        <ModalActions onCancel={onClose} confirmLabel="Create" pending={pending} disabled={!ready} />
+        <ModalActions onCancel={onClose} confirmLabel="Create" pending={pending} disabled={input === null} />
       </form>
     </Modal>
   );

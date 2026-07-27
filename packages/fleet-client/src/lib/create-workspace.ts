@@ -1,10 +1,9 @@
 /**
- * lib/create-workspace.ts — the decisions behind the create-workspace form.
- *
- * The form's one piece of real logic is what to tell the user about the branch
- * they typed, and that depends on a list that is allowed to be missing. It lives
- * here so it can be tested without a DOM, and so the component is left with
- * rendering.
+ * lib/create-workspace.ts — the decisions behind the create-workspace form:
+ * what to tell the user about the branch they typed, and what request that form
+ * state amounts to. Both live here rather than in the component so they can be
+ * tested without a DOM — there is no DOM harness in this package — leaving the
+ * component with rendering.
  */
 
 import { issueBranchName } from "fleet-protocol";
@@ -56,4 +55,47 @@ export function issueBranchPreview(issue: Pick<RepoIssue, "number" | "title">): 
   } catch {
     return null;
   }
+}
+
+/** Everything the form holds that decides what gets sent. */
+export interface CreateWorkspaceForm {
+  readonly ship: string;
+  readonly repoName: string;
+  readonly name: string;
+  /** Whether the "Create from issue" checkbox is ticked. */
+  readonly fromIssue: boolean;
+  readonly branch: string;
+  readonly issue: RepoIssue | null;
+}
+
+/** The body of `POST /workspaces`; the two branch sources are mutually exclusive. */
+export interface CreateWorkspaceInput {
+  readonly ship: string;
+  readonly repoName: string;
+  readonly name: string;
+  readonly branch?: string;
+  readonly issueNumber?: number;
+}
+
+/**
+ * The request a filled-in form amounts to, or `null` when it is not submittable.
+ *
+ * One function rather than a payload builder plus a `canSubmit` predicate: they
+ * would be two statements of the same rules, free to disagree, and the disagreement
+ * would show up as a request the bridge rejects. In particular the issue-mode
+ * result carries **no `branch` key at all** — the bridge answers 400 to a body
+ * naming both sources, and an empty string is naming one.
+ */
+export function createWorkspaceInput(form: CreateWorkspaceForm): CreateWorkspaceInput | null {
+  const name = form.name.trim();
+  if (name.length === 0 || form.ship.length === 0) return null;
+
+  if (form.fromIssue) {
+    if (!form.issue) return null;
+    return { ship: form.ship, repoName: form.repoName, name, issueNumber: form.issue.number };
+  }
+
+  const branch = form.branch.trim();
+  if (branch.length === 0) return null;
+  return { ship: form.ship, repoName: form.repoName, name, branch };
 }

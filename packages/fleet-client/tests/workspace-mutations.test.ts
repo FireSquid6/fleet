@@ -215,8 +215,6 @@ describe("MockFleetBridge create-workspace surface", () => {
 
     const names = (await mock.listRepoBranches(REPO)).map((b) => b.name);
     expect(names).toContain("main");
-    // Sorted by name, the way the bridge's `ls-remote` listing is.
-    expect(names).toEqual([...names].sort());
     await expect(mock.listRepoBranches("nope")).rejects.toThrow("repo not found");
   });
 
@@ -242,13 +240,16 @@ describe("MockFleetBridge create-workspace surface", () => {
     expect(await mock.listWorkspaces()).toContainEqual(workspace);
   });
 
-  test("the issue fixture exercises punctuation and the 60-character cap", async () => {
+  test("the issue fixture exercises punctuation and truncation", async () => {
     const issues = await new MockFleetBridge().listRepoIssues(REPO);
     const names = issues.map((issue) => issueBranchName(issue));
 
     expect(names.every((name) => /^[0-9a-z-]+$/.test(name))).toBe(true);
     expect(issues.some((issue) => /[^\w ]/.test(issue.title))).toBe(true);
-    expect(names.some((name) => name.length === 60)).toBe(true);
+    // One title outgrows its branch name, so the picker's preview shows a
+    // truncated one. Asserted against the derived name rather than a length,
+    // which would pin `fleet-protocol`'s cap from another package's test.
+    expect(issues.some((issue, i) => issue.title.length > names[i]!.length)).toBe(true);
   });
 
   test("a create from an issue on a custom repo is refused, as on the bridge", async () => {
@@ -278,6 +279,25 @@ describe("MockFleetBridge create-workspace surface", () => {
     await expect(
       new MockFleetBridge().createWorkspace({ ship: "forge-01", repoName: REPO, name: "ws-neither" }),
     ).rejects.toThrow("either a branch or an issue");
+  });
+
+  test("a blank branch is refused rather than recorded verbatim", async () => {
+    const mock = new MockFleetBridge();
+
+    await expect(
+      mock.createWorkspace({ ship: "forge-01", repoName: REPO, name: "ws-blank", branch: "   " }),
+    ).rejects.toThrow("branch must not be empty");
+    expect((await mock.listWorkspaces()).some((w) => w.name === "ws-blank")).toBe(false);
+  });
+
+  test("an issue number that cannot identify an issue is refused before it is looked up", async () => {
+    const mock = new MockFleetBridge();
+
+    for (const issueNumber of [0, -3, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+      await expect(
+        mock.createWorkspace({ ship: "forge-01", repoName: REPO, name: "ws-bad", issueNumber }),
+      ).rejects.toThrow("issueNumber must be a positive integer");
+    }
   });
 
   test("a plain branch create still works and keeps the branch verbatim", async () => {

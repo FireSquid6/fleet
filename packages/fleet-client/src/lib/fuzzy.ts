@@ -2,13 +2,17 @@
  * lib/fuzzy.ts — the subsequence matcher behind every type-to-filter list.
  *
  * Hand-rolled because the client carries no search dependency and this is the
- * only place that needs one. The matcher is deliberately greedy — each query
- * character takes the first position that can still hold it — rather than the
- * dynamic-programming search fzf runs. Greedy can score an alignment lower than
- * the best one that exists (`ab` against `a-b ab` matches the scattered pair),
- * but the lists it ranks here are a repo's branches and its open issues: tens of
- * short strings, where the cost of being occasionally one rank off is far below
- * the cost of the machinery that avoids it.
+ * only place that needs one. Matching is greedy from a fixed starting point, but
+ * every occurrence of the query's first character is tried as that starting
+ * point and the best-scoring alignment wins. Purely greedy scanning gets the
+ * headline case of this feature wrong — `main` against `chore/remove-main-shim`
+ * consumes the `m` of "re*m*ove" and scores the branch below one that merely
+ * contains those letters scattered — while restarting costs one pass per
+ * occurrence of a single character over lists of tens of short strings.
+ *
+ * It is still not fzf: the alignment after each start is greedy, so a query
+ * whose *later* characters could align better elsewhere can be scored low
+ * (`ab` against `a-b ab`). That residue is accepted.
  */
 
 /** One item that matched, with the ranges to highlight and its ranking score. */
@@ -22,8 +26,11 @@ export interface FuzzyMatch<T> {
 /** Characters after which a match reads as the start of a word. */
 const SEPARATORS = new Set(["-", "_", "/", ".", " "]);
 
-const MATCH_SCORE = 1;
-/** Paid when a match directly follows the previous one — the strongest signal. */
+/**
+ * Every candidate is scored against the same query, so a per-character reward
+ * would be the same constant on all of them and could not order anything. There
+ * is deliberately none: only the bonuses and penalties below decide.
+ */
 const CONTIGUOUS_BONUS = 8;
 const START_BONUS = 12;
 const SEPARATOR_BONUS = 6;
@@ -55,58 +62,57 @@ export function fuzzySearch<T>(items: T[], query: string, toText: (item: T) => s
 
 /** Score one haystack against an already-lowercased needle; null when it does not match. */
 function scoreText(text: string, needle: string): { score: number; ranges: [number, number][] } | null {
-  // Indices are taken on the lowercased copy but reported against `text`, which
-  // holds because case folding is length-preserving for the ASCII-ish branch
-  // names and issue titles these lists carry.
   const haystack = text.toLowerCase();
-  const indices: number[] = [];
-  let score = -text.length * LENGTH_PENALTY;
+  const first = [...needle][0]!;
+
+  let best: { score: number; spans: [number, number][] } | null = null;
+  for (let at = haystack.indexOf(first); at !== -1; at = haystack.indexOf(first, at + 1)) {
+    const candidate = alignFrom(haystack, needle, at);
+    if (candidate && (best === null || candidate.score > best.score)) best = candidate;
+  }
+  if (!best) return null;
+
+  // Spans index the lowercased copy, which addresses `text` only while case
+  // folding preserves length — U+0130 lowercases to two units and shifts
+  // everything after it. Where it does not, the item still ranks; it just
+  // highlights nothing, rather than emphasising the wrong characters.
+  const ranges = haystack.length === text.length ? mergeSpans(best.spans) : [];
+  return { score: best.score - text.length * LENGTH_PENALTY, ranges };
+}
+
+/** Greedily place `needle` with its first character pinned at `start`. */
+function alignFrom(haystack: string, needle: string, start: number): { score: number; spans: [number, number][] } | null {
+  const spans: [number, number][] = [];
+  let score = 0;
+  // Distance is measured from the last consumed position, starting at the head of
+  // the string, so a match far into the text pays for the run-up as well.
   let from = 0;
-  let previous = -1;
 
   for (const character of needle) {
-    const at = haystack.indexOf(character, from);
+    const at = spans.length === 0 ? start : haystack.indexOf(character, from);
     if (at === -1) return null;
 
-    score += MATCH_SCORE;
-    if (previous !== -1 && at === previous + 1) score += CONTIGUOUS_BONUS;
+    if (at === from && spans.length > 0) score += CONTIGUOUS_BONUS;
     else score -= Math.min(at - from, MAX_GAP) * GAP_PENALTY;
     if (at === 0) score += START_BONUS;
     else if (SEPARATORS.has(haystack[at - 1]!)) score += SEPARATOR_BONUS;
 
-    indices.push(at);
-    previous = at;
+    // A span, not an index: an astral character is two code units, and half of a
+    // surrogate pair renders as U+FFFD.
+    spans.push([at, at + character.length]);
     from = at + character.length;
   }
 
-  return { score, ranges: mergeRanges(indices) };
+  return { score, spans };
 }
 
-/**
- * Cut `ranges` at index `at`, rebasing the right-hand side to 0 — for a row that
- * renders one matched string as two differently styled pieces. A range straddling
- * the cut is split across both sides.
- */
-export function splitRanges(
-  ranges: [number, number][],
-  at: number,
-): [[number, number][], [number, number][]] {
-  const left: [number, number][] = [];
-  const right: [number, number][] = [];
-  for (const [start, end] of ranges) {
-    if (start < at) left.push([start, Math.min(end, at)]);
-    if (end > at) right.push([Math.max(start, at) - at, end - at]);
-  }
-  return [left, right];
-}
-
-/** Collapse ascending match indices into `[start, end)` runs. */
-function mergeRanges(indices: number[]): [number, number][] {
+/** Collapse ascending, non-overlapping spans into `[start, end)` runs. */
+function mergeSpans(spans: [number, number][]): [number, number][] {
   const ranges: [number, number][] = [];
-  for (const index of indices) {
+  for (const [start, end] of spans) {
     const last = ranges[ranges.length - 1];
-    if (last && last[1] === index) last[1] = index + 1;
-    else ranges.push([index, index + 1]);
+    if (last && last[1] === start) last[1] = end;
+    else ranges.push([start, end]);
   }
   return ranges;
 }

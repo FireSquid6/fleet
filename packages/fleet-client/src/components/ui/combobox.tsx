@@ -11,12 +11,19 @@ import { Input } from "@/components/ui/input";
  * {@link fuzzySearch}, done once per render and handed to `renderItem` as the
  * ranges to highlight, so the list rendering never re-derives the match.
  *
- * It lives inside a `<form>` and inside a `Modal`, both of which claim the keys a
- * dropdown needs: Enter would submit the form and Escape would close the modal
- * (whose listener is on `window`, so stopping the native event's propagation
- * inside React's handler — React dispatches from the root container, below
- * `window` — is what keeps it from firing). Both are intercepted here only while
- * the list is on screen; otherwise the form and the modal keep their own keys.
+ * The list is rendered **in normal flow**, not absolutely positioned. Its only
+ * home is inside a `Modal`, whose panel is `overflow-hidden` and whose body is
+ * `overflow-y-auto`: any non-`visible` overflow ancestor clips an out-of-flow
+ * descendant, so a floating list would be cut off with no way to reach the rest
+ * of it. In flow it simply lengthens the modal body, which already knows how to
+ * scroll. It costs the actions below being pushed down while the list is open.
+ *
+ * It lives inside a `<form>` and inside that `Modal`, both of which claim the
+ * keys a dropdown needs: Enter would submit the form and Escape would close the
+ * modal (whose listener is on `window`, so stopping the native event's
+ * propagation inside React's handler — React dispatches from the root container,
+ * below `window` — is what keeps it from firing). Both are intercepted here only
+ * while the list is on screen; otherwise the form and the modal keep their keys.
  *
  * Deliberately not a full ARIA dialog/listbox widget: like `Modal` it stays
  * proportionate to an app with no competing overlays.
@@ -38,8 +45,8 @@ interface ComboboxProps<T> {
   emptyMessage?: ReactNode;
   /**
    * Typing something no item matches is a legal value in its own right (a branch
-   * name that does not exist yet), so an empty result set closes the list quietly
-   * instead of reporting that nothing was found.
+   * name that does not exist yet). It suppresses the empty message, and it stops
+   * the list from pre-highlighting a row — see {@link enterAction}.
    */
   allowFreeText?: boolean;
 }
@@ -58,15 +65,21 @@ export function Combobox<T>({
   allowFreeText,
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(() => defaultActive(allowFreeText));
   const listId = useId();
   const listRef = useRef<HTMLUListElement>(null);
+  /** Whether the current active row was reached by keyboard; see the scroll effect. */
+  const arrowedRef = useRef(false);
 
   const matches = useMemo(() => fuzzySearch(items, value, toText), [items, value, toText]);
-  const activeIndex = matches.length === 0 ? -1 : Math.min(active, matches.length - 1);
+  const activeIndex = active < 0 || matches.length === 0 ? -1 : Math.min(active, matches.length - 1);
   const showList = open && (matches.length > 0 || (!allowFreeText && emptyMessage !== undefined));
 
   useEffect(() => {
+    // Only arrow keys scroll. Doing it on hover too makes a partially visible row
+    // slide out from under a stationary pointer, whose `mouseenter` on the row
+    // that replaced it scrolls again — the list walks itself to the end.
+    if (!arrowedRef.current) return;
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, showList]);
 
@@ -98,24 +111,26 @@ export function Combobox<T>({
         setOpen(true);
         return;
       }
-      if (matches.length === 0) return;
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      setActive((current) => {
-        const from = Math.min(current, matches.length - 1);
-        return (from + step + matches.length) % matches.length;
-      });
+      arrowedRef.current = true;
+      setActive((current) => moveActive(current, matches.length, event.key === "ArrowDown" ? 1 : -1));
       return;
     }
     if (event.key === "Enter" && showList) {
-      event.preventDefault();
-      const item = matches[activeIndex];
-      if (item) select(item.item);
-      else setOpen(false);
+      const action = enterAction(activeIndex, matches.length, Boolean(allowFreeText));
+      if (action === "select") {
+        event.preventDefault();
+        select(matches[activeIndex]!.item);
+        return;
+      }
+      // "submit" falls through with the list closed: the typed text is the value,
+      // and swallowing the key would make the user press Enter twice.
+      if (action === "dismiss") event.preventDefault();
+      setOpen(false);
     }
   };
 
   return (
-    <div className="relative">
+    <div className="flex flex-col gap-1.5">
       <Input
         role="combobox"
         aria-expanded={showList}
@@ -128,7 +143,7 @@ export function Combobox<T>({
         disabled={disabled}
         onChange={(event) => {
           onValueChange(event.target.value);
-          setActive(0);
+          setActive(defaultActive(allowFreeText));
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
@@ -144,7 +159,11 @@ export function Combobox<T>({
           id={listId}
           role="listbox"
           ref={listRef}
-          className="absolute left-0 right-0 top-full z-10 mt-1 max-h-[200px] overflow-y-auto rounded-md border border-line bg-panel py-1 shadow-xl"
+          // On the list rather than each row: a mousedown anywhere in it —
+          // including on its scrollbar, which is needed past ~7 rows — would
+          // otherwise blur the input and close the list mid-drag.
+          onMouseDown={(event) => event.preventDefault()}
+          className="max-h-[200px] overflow-y-auto rounded-md border border-line bg-panel py-1"
         >
           {matches.length === 0 ? (
             <li role="presentation" className="px-3 py-[6px] font-mono text-[11px] text-dim2">
@@ -158,14 +177,11 @@ export function Combobox<T>({
                 role="option"
                 aria-selected={index === activeIndex}
                 data-active={index === activeIndex ? "true" : undefined}
-                // mousedown, not click: it fires before the input's blur, and
-                // preventing its default keeps focus (and so the list) in place
-                // long enough for the selection to register.
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  select(match.item);
+                onMouseDown={() => select(match.item)}
+                onMouseEnter={() => {
+                  arrowedRef.current = false;
+                  setActive(index);
                 }}
-                onMouseEnter={() => setActive(index)}
                 className={cn(
                   "cursor-pointer px-3 py-[5px] font-mono text-[11.5px] text-dim",
                   index === activeIndex && "bg-panel2 text-text",
@@ -179,6 +195,34 @@ export function Combobox<T>({
       )}
     </div>
   );
+}
+
+/**
+ * Where the highlight starts, and returns after every edit. Free text mode starts
+ * at nothing highlighted (`-1`): with a row pre-selected, typing a new branch name
+ * and pressing Enter would replace it with the closest existing branch instead of
+ * committing what was typed.
+ */
+function defaultActive(allowFreeText: boolean | undefined): number {
+  return allowFreeText ? -1 : 0;
+}
+
+/** Where ArrowDown/ArrowUp move from `current`; `-1` means nothing is highlighted. */
+export function moveActive(current: number, count: number, step: 1 | -1): number {
+  if (count === 0) return -1;
+  if (current < 0) return step === 1 ? 0 : count - 1;
+  return (Math.min(current, count - 1) + step + count) % count;
+}
+
+/**
+ * What Enter means with the list on screen: take the highlighted row, let the
+ * form submit the text as typed, or just close a list that has nothing to offer.
+ */
+export type EnterAction = "select" | "submit" | "dismiss";
+
+export function enterAction(activeIndex: number, matchCount: number, allowFreeText: boolean): EnterAction {
+  if (activeIndex >= 0 && matchCount > 0) return "select";
+  return allowFreeText ? "submit" : "dismiss";
 }
 
 /** Text with the matched ranges emphasised — the default row, and reusable in a custom one. */
@@ -197,4 +241,23 @@ export function highlight(text: string, ranges: [number, number][]): ReactNode {
   }
   if (at < text.length) parts.push(text.slice(at));
   return parts;
+}
+
+/**
+ * Cut `ranges` at index `at`, rebasing the right-hand side to 0 — for a row that
+ * renders one matched string as two differently styled pieces. A range straddling
+ * the cut is split across both sides; one ending or starting exactly on it stays
+ * whole, so neither side is handed a zero-width range to render.
+ */
+export function splitRanges(
+  ranges: [number, number][],
+  at: number,
+): [[number, number][], [number, number][]] {
+  const left: [number, number][] = [];
+  const right: [number, number][] = [];
+  for (const [start, end] of ranges) {
+    if (start < at) left.push([start, Math.min(end, at)]);
+    if (end > at) right.push([Math.max(start, at) - at, end - at]);
+  }
+  return [left, right];
 }

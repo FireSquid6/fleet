@@ -396,6 +396,31 @@ const SEED_ARMORY_SHIP_STATES: Record<string, ArmorySyncState> = {
 const CUSTOM_REPO = "notifier";
 
 /**
+ * Validate a create request's mutually exclusive branch source, mirroring the
+ * bridge's own `branchSource` (`fleet-manager.ts`) — including the checks past
+ * "one or the other": a blank branch and a non-integral issue number are 400s
+ * there, and a mock that quietly accepts them would let a form ship a bug that
+ * only the real bridge would catch.
+ */
+function branchSource(input: { branch?: string; issueNumber?: number }): { branch: string } | { issueNumber: number } {
+  if (input.branch !== undefined && input.issueNumber !== undefined) {
+    throw new Error("a workspace is created from a branch or an issue, not both");
+  }
+  if (input.branch !== undefined) {
+    const branch = input.branch.trim();
+    if (branch.length === 0) throw new Error("branch must not be empty");
+    return { branch };
+  }
+  if (input.issueNumber !== undefined) {
+    if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber < 1) {
+      throw new Error("issueNumber must be a positive integer");
+    }
+    return { issueNumber: input.issueNumber };
+  }
+  throw new Error("a workspace needs either a branch or an issue to start from");
+}
+
+/**
  * Seed the repo registry from the distinct repo names in the seed workspaces.
  * All but one are `github`, so the issue picker has something to show; the
  * odd one out is a plain git remote, which is what makes the picker's
@@ -526,12 +551,7 @@ export class MockFleetBridge implements FleetBridge {
     branch?: string;
     issueNumber?: number;
   }): Promise<Workspace> {
-    if (input.branch !== undefined && input.issueNumber !== undefined) {
-      throw new Error("a workspace is created from a branch or an issue, not both");
-    }
-    if (input.branch === undefined && input.issueNumber === undefined) {
-      throw new Error("a workspace needs either a branch or an issue to start from");
-    }
+    const source = branchSource(input);
     if (!this.ships.some((s) => s.name === input.ship)) throw new Error(`unknown ship: ${input.ship}`);
     if (!this.repos.some((r) => r.name === input.repoName)) throw new Error(`unknown repo: ${input.repoName}`);
     if (this.workspaces.some((w) => w.repoName === input.repoName && w.name === input.name)) {
@@ -540,7 +560,8 @@ export class MockFleetBridge implements FleetBridge {
     // The bridge derives the branch from the issue and links it on the provider
     // before the ship ever sees the request; the workspace it returns is on that
     // branch, so the mock has to do the same or issue mode looks like a no-op.
-    const branch = input.branch ?? issueBranchName(this.issue(input.repoName, input.issueNumber!));
+    const branch =
+      "branch" in source ? source.branch : issueBranchName(this.issue(input.repoName, source.issueNumber));
     const ws: Workspace = {
       ship: input.ship,
       repoName: input.repoName,
