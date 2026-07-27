@@ -169,7 +169,7 @@ than a loud failure.
 | `branches` | `(options?: ListBranchesOptions) => Promise<BranchInfo[]>` | `branch --format=…`, plus `-a` (`{ all }`) or `-r` (`{ remote }`) |
 | `createBranch` | `(name: string, options?: CreateBranchOptions) => Promise<void>` | `branch <name> [startPoint]` — creates without checking out |
 | `checkout` | `(ref: string, options?: CheckoutOptions) => Promise<void>` | `checkout [-b] <ref>` |
-| `switchBranch` | `(ref: string, options?: SwitchOptions) => Promise<void>` | `switch [-c] [--detach] <ref>` |
+| `switchBranch` | `(ref: string, options?: SwitchOptions) => Promise<void>` | `switch [-c] [--detach] <ref> [startPoint]` |
 | `deleteBranch` | `(name: string, options?: DeleteBranchOptions) => Promise<void>` | `branch -d`, or `-D` with `{ force: true }` |
 
 ```ts

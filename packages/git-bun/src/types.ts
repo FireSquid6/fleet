@@ -227,6 +227,11 @@ export interface SwitchOptions {
   create?: boolean;
   /** Detach HEAD at the given commit (`--detach`). */
   detach?: boolean;
+  /**
+   * Commit/branch the created branch starts at. Defaults to HEAD. A remote-tracking
+   * start point (`origin/x`) also sets the new branch's upstream.
+   */
+  startPoint?: string;
 }
 
 /** Options for {@link Git.deleteBranch}. */
@@ -273,11 +278,9 @@ export interface PushOptions {
 export interface LsRemoteOptions {
   /**
    * Directory to run from; must already exist. `ls-remote` talks to `url`, but
-   * `-C <cwd>` still decides which repository's configuration git reads, so remote
-   * names, `url.<base>.insteadOf` rewrites and credential helpers all come from
-   * there. Required rather than defaulting to `process.cwd()`: a probe that silently
-   * inherited ambient config could resolve `url` differently than the clone that
-   * follows it.
+   * `-C <cwd>` still decides which repository's config git reads, so remote-name
+   * resolution, `url.<base>.insteadOf` rewrites and credential helpers all come from
+   * there.
    */
   cwd: string;
   /** List only branch refs (`--heads`). */

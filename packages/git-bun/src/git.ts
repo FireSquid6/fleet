@@ -288,15 +288,16 @@ export class Git {
   }
 
   /**
-   * Switch branches (`switch`) — the modern, less error-prone alternative to
-   * {@link checkout}. Pass `{ create: true }` for `-c`, `{ detach: true }` for
-   * a detached checkout.
+   * Switch branches (`switch [-c] [--detach] <ref> [startPoint]`) — the modern,
+   * less error-prone alternative to {@link checkout}. Pass `{ create: true }` for
+   * `-c`, `{ detach: true }` for a detached checkout.
    */
   async switchBranch(ref: string, options: SwitchOptions = {}): Promise<void> {
     const args = ["switch"];
     if (options.create) args.push("-c");
     if (options.detach) args.push("--detach");
     args.push(ref);
+    if (options.startPoint !== undefined) args.push(options.startPoint);
     await this.command.run(args);
   }
 
@@ -385,8 +386,8 @@ export class Git {
     const args = ["ls-remote"];
     if (options.heads) args.push("--heads");
     if (options.tags) args.push("--tags");
-    // `--` keeps a `url` or `pattern` that starts with `-` out of git's option
-    // parser, since both are caller-supplied.
+    // End option parsing here, so this command cannot read a `url` or `pattern`
+    // beginning with `-` as a flag.
     args.push("--", url);
     if (options.pattern !== undefined) args.push(options.pattern);
     return parseLsRemote(await command.run(args));

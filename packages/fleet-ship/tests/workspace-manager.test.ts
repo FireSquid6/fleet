@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Git } from "git-bun";
+import { Git, GitError } from "git-bun";
 import type { FleetEvent } from "fleet-protocol";
 import { WorkspaceError, WorkspaceManager, type WorkspaceTmux } from "../src/workspace-manager";
 import { workspaceSessionName } from "../src/workspace-session";
@@ -572,7 +572,7 @@ suite("WorkspaceManager end-to-end", () => {
     await expect(stat(join(fleetDirectory, "repo", "ws-bad-branch"))).rejects.toThrow(/ENOENT/);
   });
 
-  test("create rejects a remote with no commits to branch from", async () => {
+  test("create rejects a remote whose HEAD resolves to nothing", async () => {
     const base = await mkdtemp(join(tmpdir(), "fleet-ship-empty-"));
     const empty = join(base, "empty");
     try {
@@ -582,10 +582,52 @@ suite("WorkspaceManager end-to-end", () => {
         manager.create({ url: empty, repoName: "repo", name: "ws-empty-remote", branch: "main" }),
       ).rejects.toMatchObject({
         status: 400,
-        message: expect.stringMatching(/no commits/),
+        message: expect.stringMatching(/no usable HEAD/),
       });
 
       await expect(stat(join(fleetDirectory, "repo", "ws-empty-remote"))).rejects.toThrow(/ENOENT/);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create rolls back a clone that fails partway, on either branch path", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-broken-"));
+    const upstream = join(base, "upstream");
+    try {
+      const git = await Git.init(upstream, { initialBranch: "main" });
+      await git.setConfig("user.email", "test@example.com");
+      await git.setConfig("user.name", "Test");
+      await Bun.write(join(upstream, "ok.txt"), "hi\n");
+      await git.add();
+      await git.commit("base");
+      // A committed path no filesystem can create, so `git clone` fails during its
+      // checkout — after it has already made the destination directory.
+      const blob = (await git.command.run(["hash-object", "-w", "ok.txt"])).trim();
+      await git.command.run([
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${blob},${"x".repeat(300)}`,
+      ]);
+      await git.commit("a path that cannot be checked out");
+
+      for (const [name, branch] of [
+        ["ws-broken-existing", "main"],
+        ["ws-broken-new", "brand-new"],
+      ] as const) {
+        const failure = await manager
+          .create({ url: upstream, repoName: "repo", name, branch })
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        // A clone that dies is the ship's problem, never the caller's branch name, so
+        // it must not be classified as a 400 by the branch-creation mapping.
+        expect(failure).toBeInstanceOf(GitError);
+        expect(failure).not.toBeInstanceOf(WorkspaceError);
+        await expect(stat(join(fleetDirectory, "repo", name))).rejects.toThrow(/ENOENT/);
+      }
     } finally {
       await rm(base, { recursive: true, force: true });
     }

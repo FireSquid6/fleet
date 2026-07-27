@@ -421,6 +421,30 @@ suite("git-bun end-to-end", () => {
     expect(names).not.toContain("feature");
   });
 
+  test("switchBranch creates a branch at an explicit start point, tracking it", async () => {
+    const origin = join(root, "start-point-origin");
+    const repo = await Git.init(origin, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(origin, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.switchBranch("late", { create: true });
+    await Bun.write(join(origin, "late.txt"), "only on late\n");
+    await repo.add(".");
+    const lateSha = await repo.commit("late commit");
+    await repo.switchBranch("main");
+
+    const clone = await Git.clone(origin, join(root, "start-point-clone"), { env: IDENTITY });
+    // `checkout.guess` off is what makes the start point necessary rather than merely
+    // explicit: a bare `switch late` cannot infer `origin/late` under this config.
+    await clone.setConfig("checkout.guess", "false");
+    await expect(clone.switchBranch("late")).rejects.toThrow(GitError);
+
+    await clone.switchBranch("late", { create: true, startPoint: "origin/late" });
+    expect(await clone.currentBranch()).toBe("late");
+    expect(await clone.headSha()).toBe(lateSha);
+    expect((await clone.branches()).find((b) => b.name === "late")?.upstream).toBe("origin/late");
+  });
+
   test("worktreeAdd returns a Git handle bound to the new directory", async () => {
     const dir = join(root, "wt-main");
     const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
