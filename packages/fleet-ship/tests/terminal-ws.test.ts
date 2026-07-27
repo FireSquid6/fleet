@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Elysia } from "elysia";
 import {
   BINARY_MESSAGE_CLOSE_CODE,
   BINARY_MESSAGE_CLOSE_REASON,
@@ -37,15 +38,18 @@ describe("ship terminal protocol", () => {
   let argvs: string[][];
   let sendOnCreate: ServerMsg | undefined;
   let createTerminal: Parameters<typeof createApp>[2];
+  let created: Parameters<NonNullable<Parameters<typeof createApp>[2]>>[0][];
 
   beforeEach(() => {
     handled = [];
     stops = 0;
     creates = 0;
     argvs = [];
+    created = [];
     sendOnCreate = undefined;
     createTerminal = (options) => {
       creates++;
+      created.push(options);
       argvs.push([...options.argv]);
       if (sendOnCreate) options.send(sendOnCreate);
       return {
@@ -135,6 +139,46 @@ describe("ship terminal protocol", () => {
     const close = closed(socket);
     socket.close();
     await close;
+  });
+
+  test("forwards flow-control frames to the bridge", async () => {
+    const socket = new WebSocket(url);
+    await attached(socket);
+    socket.send('{"type":"ack","seq":3}');
+    socket.send('{"type":"resync"}');
+    await Bun.sleep(20);
+    expect(handled.slice(1)).toEqual([{ type: "ack", seq: 3 }, { type: "resync" }]);
+    const close = closed(socket);
+    socket.close();
+    await close;
+  });
+
+  test("gives the bridge a congestion signal read from the live socket", async () => {
+    const socket = new WebSocket(url);
+    await attached(socket);
+    expect(created[0]?.congested?.()).toBe(false);
+    const close = closed(socket);
+    socket.close();
+    await close;
+  });
+
+  test("exposes getBufferedAmount on the raw socket behind Elysia's wrapper", async () => {
+    // The congestion signal above reads through a cast, because the
+    // `ServerWebSocket` declaration Elysia bundles predates the method. Nothing
+    // in the type system would notice it disappearing, so pin it here: without
+    // it the signal silently degrades to a constant "not congested".
+    let reading: unknown;
+    const probe = new Elysia().ws("/probe", {
+      open(ws) {
+        reading = (ws as { raw?: { getBufferedAmount?: () => number } }).raw?.getBufferedAmount?.();
+        ws.close();
+      },
+    });
+    probe.listen(0);
+    const socket = new WebSocket(`ws://localhost:${probe.server?.port}/probe`);
+    await closed(socket);
+    probe.server?.stop(true);
+    expect(reading).toBe(0);
   });
 
   test("times out a missing init and releases the workspace for reconnect", async () => {

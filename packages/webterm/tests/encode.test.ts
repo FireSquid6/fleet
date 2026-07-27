@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { Terminal } from "bun-vt";
-import { encodeCell, serializeGrid } from "webterm";
+import { applyPatch, diffGrid, encodeCell, serializeGrid } from "webterm";
+import type { GridMsg, WireCell } from "webterm";
+
+function grid(cells: WireCell[][], seq = 0): GridMsg {
+  return {
+    type: "grid",
+    seq,
+    cols: cells[0]?.length ?? 0,
+    rows: cells.length,
+    cursor: { x: 0, y: 0, visible: true },
+    cells,
+  };
+}
 
 describe("encode", () => {
   test("a blank default cell serializes to 0", () => {
@@ -76,5 +88,101 @@ describe("encode", () => {
       blinking: true,
     });
     expect("color" in cursor).toBe(false);
+  });
+});
+
+describe("diffGrid", () => {
+  test("an unchanged grid produces no runs", () => {
+    expect(diffGrid(grid([[0, { t: "a" }, 0]]), grid([[0, { t: "a" }, 0]]))).toEqual([]);
+  });
+
+  test("one changed cell produces one single-cell run", () => {
+    expect(diffGrid(grid([[0, 0, 0]]), grid([[0, { t: "a" }, 0]]))).toEqual([[0, 1, [{ t: "a" }]]]);
+  });
+
+  test("adjacent changes coalesce into one run, separated changes do not", () => {
+    expect(diffGrid(grid([[0, 0, 0, 0]]), grid([[{ t: "a" }, { t: "b" }, 0, 0]]))).toEqual([
+      [0, 0, [{ t: "a" }, { t: "b" }]],
+    ]);
+    expect(diffGrid(grid([[0, 0, 0, 0]]), grid([[{ t: "a" }, 0, { t: "b" }, 0]]))).toEqual([
+      [0, 0, [{ t: "a" }]],
+      [0, 2, [{ t: "b" }]],
+    ]);
+  });
+
+  test("changes at the first and last column are both reported", () => {
+    expect(diffGrid(grid([[{ t: "a" }, 0, { t: "c" }]]), grid([[0, 0, 0]]))).toEqual([
+      [0, 0, [0]],
+      [0, 2, [0]],
+    ]);
+  });
+
+  test("runs are reported per row", () => {
+    const before = grid([
+      [0, 0],
+      [0, 0],
+    ]);
+    const after = grid([
+      [0, { t: "a" }],
+      [{ t: "b" }, 0],
+    ]);
+    expect(diffGrid(before, after)).toEqual([
+      [0, 1, [{ t: "a" }]],
+      [1, 0, [{ t: "b" }]],
+    ]);
+  });
+
+  test("compares cells structurally rather than by identity", () => {
+    expect(diffGrid(grid([[{ f: 1 }]]), grid([[{ f: 1 }]]))).toEqual([]);
+    expect(diffGrid(grid([[{ f: [1, 2, 3] }]]), grid([[{ f: [1, 2, 3] }]]))).toEqual([]);
+    expect(diffGrid(grid([[{ f: [1, 2, 3] }]]), grid([[{ f: [1, 2, 4] }]]))).toEqual([[0, 0, [{ f: [1, 2, 4] }]]]);
+    expect(diffGrid(grid([[{ f: 1 }]]), grid([[{ f: 1, a: 1 }]]))).toEqual([[0, 0, [{ f: 1, a: 1 }]]]);
+    expect(diffGrid(grid([[{ f: 1, a: 1 }]]), grid([[{ f: 1 }]]))).toEqual([[0, 0, [{ f: 1 }]]]);
+    expect(diffGrid(grid([[0]]), grid([[{}]]))).toEqual([[0, 0, [{}]]]);
+  });
+
+  test("throws on a dimension mismatch", () => {
+    expect(() => diffGrid(grid([[0, 0]]), grid([[0]]))).toThrow(TypeError);
+    expect(() => diffGrid(grid([[0]]), grid([[0], [0]]))).toThrow(TypeError);
+  });
+
+  test("a patch of the diff reproduces the next grid exactly", () => {
+    const before = grid(
+      [
+        [0, { t: "a" }, 0],
+        [{ t: "b" }, 0, { t: "c" }],
+      ],
+      1,
+    );
+    const cases: WireCell[][][] = [
+      [
+        [0, { t: "a" }, 0],
+        [{ t: "b" }, 0, { t: "c" }],
+      ],
+      [
+        [0, { t: "z" }, 0],
+        [{ t: "b" }, 0, { t: "c" }],
+      ],
+      [
+        [{ t: "1" }, { t: "2" }, 0],
+        [{ t: "b" }, { t: "3" }, { t: "c" }],
+      ],
+      [
+        [{ t: "q", b: [9, 9, 9] }, 0, { t: "w" }],
+        [0, { t: "e" }, 0],
+      ],
+    ];
+    for (const cells of cases) {
+      const next = grid(cells, 2);
+      const patched = applyPatch(before, {
+        type: "patch",
+        seq: next.seq,
+        cols: next.cols,
+        rows: next.rows,
+        cursor: next.cursor,
+        runs: diffGrid(before, next),
+      });
+      expect(patched).toEqual(next);
+    }
   });
 });

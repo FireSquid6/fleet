@@ -6,8 +6,14 @@
  * from `webterm` on the server for the bridge + encoder.
  */
 
-export { TerminalBridge, type TerminalBridgeOptions } from "./server";
-export { serializeGrid, encodeCell } from "./encode";
+export {
+  TerminalBridge,
+  type TerminalBridgeOptions,
+  FrameSequencer,
+  type FrameSequencerOptions,
+  type FrameDecision,
+} from "./server";
+export { serializeGrid, encodeCell, diffGrid } from "./encode";
 
 export {
   ATTR,
@@ -33,6 +39,9 @@ export {
   TERMINAL_TAKEOVER_QUERY,
   decodeClientMessage,
   decodeServerMessage,
+  applyPatch,
+  GridStream,
+  type GridStreamResult,
   utf8ByteLength,
   clampTerminalSize,
   splitInput,
@@ -40,8 +49,12 @@ export {
   type InitMsg,
   type InputMsg,
   type ResizeMsg,
+  type AckMsg,
+  type ResyncMsg,
   type ServerMsg,
   type GridMsg,
+  type PatchMsg,
+  type PatchRun,
   type ExitMsg,
   type WireCursor,
   type WireCursorShape,

@@ -5,8 +5,9 @@
  * safe to bundle straight into the browser.
  *
  * The server is the terminal emulator: it parses the shell's raw VT bytes with
- * bun-vt into a cell grid and streams full grid snapshots to the client.
- * The client only paints cells and sends keystrokes.
+ * bun-vt into a cell grid and streams it to the client, either as a full `grid`
+ * snapshot or as a `patch` delta against the previous frame. The client only
+ * paints cells and sends keystrokes.
  */
 
 import { z } from "zod";
@@ -48,10 +49,20 @@ const colsSchema = z.number().int().min(MIN_TERMINAL_COLS).max(MAX_TERMINAL_COLS
 const rowsSchema = z.number().int().min(MIN_TERMINAL_ROWS).max(MAX_TERMINAL_ROWS);
 const inputSchema = z.string().refine((data) => utf8.encode(data).byteLength <= MAX_INPUT_BYTES);
 
+const seqSchema = z.number().int().nonnegative();
+
 const InitMsgSchema = z.strictObject({ type: z.literal("init"), cols: colsSchema, rows: rowsSchema });
 const InputMsgSchema = z.strictObject({ type: z.literal("input"), data: inputSchema });
 const ResizeMsgSchema = z.strictObject({ type: z.literal("resize"), cols: colsSchema, rows: rowsSchema });
-const ClientMsgSchema = z.discriminatedUnion("type", [InitMsgSchema, InputMsgSchema, ResizeMsgSchema]);
+const AckMsgSchema = z.strictObject({ type: z.literal("ack"), seq: seqSchema });
+const ResyncMsgSchema = z.strictObject({ type: z.literal("resync") });
+const ClientMsgSchema = z.discriminatedUnion("type", [
+  InitMsgSchema,
+  InputMsgSchema,
+  ResizeMsgSchema,
+  AckMsgSchema,
+  ResyncMsgSchema,
+]);
 
 // ---------------------------------------------------------------------------
 // Client → server
@@ -77,7 +88,18 @@ export interface ResizeMsg {
   readonly rows: number;
 }
 
-export type ClientMsg = InitMsg | InputMsg | ResizeMsg;
+/** Acknowledge receipt of the server frame with this `seq`. */
+export interface AckMsg {
+  readonly type: "ack";
+  readonly seq: number;
+}
+
+/** Ask the server for a full `grid` frame (recovery from a sequence gap). */
+export interface ResyncMsg {
+  readonly type: "resync";
+}
+
+export type ClientMsg = InitMsg | InputMsg | ResizeMsg | AckMsg | ResyncMsg;
 
 // ---------------------------------------------------------------------------
 // Server → client
@@ -95,13 +117,35 @@ export interface WireCursor {
   readonly color?: WireColor;
 }
 
-/** A full active-screen snapshot to paint. `cells` is indexed `cells[row][col]`. */
+/**
+ * A full active-screen snapshot to paint. `cells` is indexed `cells[row][col]`.
+ *
+ * `seq` counts frames on this connection: it is the anchor a `patch` deltas
+ * against, so a client that misses a frame can detect the gap and `resync`.
+ */
 export interface GridMsg {
   readonly type: "grid";
+  readonly seq: number;
   readonly cols: number;
   readonly rows: number;
   readonly cursor: WireCursor;
   readonly cells: WireCell[][];
+}
+
+/** A run of consecutive changed cells in one row: [row, col, cells]. */
+export type PatchRun = readonly [number, number, readonly WireCell[]];
+
+/**
+ * A delta against the frame with `seq - 1`. Only valid applied to that exact
+ * frame; a client holding anything else must ask for a full `grid` instead.
+ */
+export interface PatchMsg {
+  readonly type: "patch";
+  readonly seq: number;
+  readonly cols: number;
+  readonly rows: number;
+  readonly cursor: WireCursor;
+  readonly runs: readonly PatchRun[];
 }
 
 /** Shell exited; the connection is closing. */
@@ -110,7 +154,7 @@ export interface ExitMsg {
   readonly code: number;
 }
 
-export type ServerMsg = GridMsg | ExitMsg;
+export type ServerMsg = GridMsg | PatchMsg | ExitMsg;
 
 // ---------------------------------------------------------------------------
 // Compact cell encoding
@@ -172,6 +216,7 @@ const WireCursorSchema = z.strictObject({
 const GridMsgSchema = z
   .strictObject({
     type: z.literal("grid"),
+    seq: seqSchema,
     cols: colsSchema,
     rows: rowsSchema,
     cursor: WireCursorSchema,
@@ -185,8 +230,34 @@ const GridMsgSchema = z
       ctx.addIssue({ code: "custom", message: "cursor is outside grid" });
     }
   });
+const PatchRunSchema = z.tuple([
+  z.number().int().nonnegative(),
+  z.number().int().nonnegative(),
+  z.array(WireCellSchema).min(1),
+]);
+const PatchMsgSchema = z
+  .strictObject({
+    type: z.literal("patch"),
+    seq: seqSchema,
+    cols: colsSchema,
+    rows: rowsSchema,
+    cursor: WireCursorSchema,
+    runs: z.array(PatchRunSchema),
+  })
+  .superRefine((patch, ctx) => {
+    if (patch.cursor.x >= patch.cols || patch.cursor.y >= patch.rows) {
+      ctx.addIssue({ code: "custom", message: "cursor is outside grid" });
+    }
+    // A run that would write past the right edge is a decode failure rather
+    // than a clamp, so the renderer can apply runs without bounds checks.
+    for (const [row, col, cells] of patch.runs) {
+      if (row >= patch.rows || col + cells.length > patch.cols) {
+        ctx.addIssue({ code: "custom", message: "patch run is outside grid" });
+      }
+    }
+  });
 const ExitMsgSchema = z.strictObject({ type: z.literal("exit"), code: z.number().int() });
-const ServerMsgSchema = z.discriminatedUnion("type", [GridMsgSchema, ExitMsgSchema]);
+const ServerMsgSchema = z.discriminatedUnion("type", [GridMsgSchema, PatchMsgSchema, ExitMsgSchema]);
 
 function parseJsonFrame(frame: unknown): unknown {
   if (typeof frame === "string") return JSON.parse(frame);
@@ -202,6 +273,97 @@ export function decodeClientMessage(frame: unknown): ClientMsg {
 
 export function decodeServerMessage(frame: unknown): ServerMsg {
   return ServerMsgSchema.parse(parseJsonFrame(frame));
+}
+
+/**
+ * Apply a delta to the snapshot it was computed against, returning the new
+ * snapshot. `prev` is never mutated — the client repaints from the object it
+ * already holds — and rows no run touches are shared with `prev` rather than
+ * copied.
+ *
+ * Throws on a dimension mismatch: the patch anchors to a differently sized
+ * frame, and the caller's recovery is to ask for a full `grid`.
+ */
+export function applyPatch(prev: GridMsg, patch: PatchMsg): GridMsg {
+  if (patch.cols !== prev.cols || patch.rows !== prev.rows) {
+    throw new TypeError("patch dimensions do not match the previous grid");
+  }
+
+  const cells = prev.cells.slice();
+  const copied = new Set<number>();
+  for (const [row, col, run] of patch.runs) {
+    if (!copied.has(row)) {
+      cells[row] = cells[row]!.slice();
+      copied.add(row);
+    }
+    const target = cells[row]!;
+    for (let i = 0; i < run.length; i++) {
+      target[col + i] = run[i]!;
+    }
+  }
+
+  return { type: "grid", seq: patch.seq, cols: patch.cols, rows: patch.rows, cursor: patch.cursor, cells };
+}
+
+export interface GridStreamResult {
+  /** The grid to paint, when this frame produced a new one. */
+  readonly grid: GridMsg | null;
+  /** What to send back: an ack for an accepted frame, or a request for a full snapshot. */
+  readonly reply: AckMsg | ResyncMsg | null;
+}
+
+/**
+ * The client half of the frame protocol: holds the current snapshot, folds
+ * patches into it, and decides what to send back. Both clients drive one of
+ * these so the sequencing rules live in one place.
+ */
+export class GridStream {
+  #grid: GridMsg | null = null;
+  /**
+   * Set when a frame could not be applied. Only one `resync` goes out per gap:
+   * re-requesting on every following patch would pile a burst of requests onto
+   * the congested link that probably caused the gap in the first place.
+   */
+  #awaitingSnapshot = false;
+
+  /** The most recent complete snapshot, or null before the first `grid`. */
+  get grid(): GridMsg | null {
+    return this.#grid;
+  }
+
+  /** Drop all state — call when a socket closes, so the next one starts from a full frame. */
+  reset(): void {
+    this.#grid = null;
+    this.#awaitingSnapshot = false;
+  }
+
+  /**
+   * Take a server frame. Only frames that were actually applied are acked: an
+   * ack means "I have this frame", and the server's pacing depends on that.
+   */
+  accept(msg: GridMsg | PatchMsg): GridStreamResult {
+    if (msg.type === "grid") {
+      this.#grid = msg;
+      this.#awaitingSnapshot = false;
+      return { grid: msg, reply: { type: "ack", seq: msg.seq } };
+    }
+
+    if (this.#awaitingSnapshot) return { grid: null, reply: null };
+
+    const prev = this.#grid;
+    if (prev !== null && msg.seq === prev.seq + 1) {
+      try {
+        const next = applyPatch(prev, msg);
+        this.#grid = next;
+        return { grid: next, reply: { type: "ack", seq: next.seq } };
+      } catch {
+        // A dimension mismatch is unrecoverable from here; a full frame fixes it.
+      }
+    }
+
+    this.#awaitingSnapshot = true;
+    return { grid: null, reply: { type: "resync" } };
+  }
 }
 
 export function utf8ByteLength(value: string): number {

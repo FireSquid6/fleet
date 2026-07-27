@@ -24,7 +24,11 @@ export function createApp(
   terminalInitTimeoutMs?: number,
   armory?: ArmoryCache,
 ) {
-  return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES } })
+  // Terminal frames are JSON whose keys and blank-cell `0`s repeat heavily, so
+  // permessage-deflate is worth an order of magnitude on them. Bun's client
+  // WebSocket offers the extension by default, so the bridge→ship hop starts
+  // compressing purely from the server accepting it here.
+  return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: true } })
     .use(Logestic.preset("commontz"))
     .use(workspacesPlugin(manager, createTerminal, terminalInitTimeoutMs))
     .use(eventsPlugin(manager))
