@@ -38,25 +38,43 @@ there is a dedicated close code for them.
 | `init` | `{ type: "init", cols, rows }` | First message. Allocate a terminal and spawn the PTY at this size. |
 | `input` | `{ type: "input", data }` | Keystrokes or paste bytes to write to the PTY. |
 | `resize` | `{ type: "resize", cols, rows }` | Resize both the VT parser and the PTY. |
+| `ack` | `{ type: "ack", seq }` | Acknowledge receipt of the server frame with this `seq`. |
+| `resync` | `{ type: "resync" }` | Ask for a full `grid` frame — recovery from a sequence gap. |
 
-`cols` must be an integer in `[1, 1024]`, `rows` in `[1, 512]`, and `data` at
-most 256 KiB **measured as UTF-8**, not as JavaScript string length. All three
-schemas are strict objects: an unknown extra field is a decode failure.
+`cols` must be an integer in `[1, 1024]`, `rows` in `[1, 512]`, `data` at most
+256 KiB **measured as UTF-8**, not as JavaScript string length, and `seq` a
+non-negative integer. Every schema is a strict object: an unknown extra field is
+a decode failure.
 
 ### Server to client
 
 | Message | Shape | Meaning |
 | --- | --- | --- |
-| `grid` | `{ type: "grid", cols, rows, cursor, cells }` | A full snapshot of the active screen. |
+| `grid` | `{ type: "grid", seq, cols, rows, cursor, cells }` | A full snapshot of the active screen. |
+| `patch` | `{ type: "patch", seq, cols, rows, cursor, runs }` | A delta against the frame with `seq - 1`. |
 | `exit` | `{ type: "exit", code }` | The shell exited; the connection is closing. |
 
 `cells` is indexed `cells[row][col]` and its dimensions must match `rows` and
 `cols` exactly — the decoder cross-checks this, and also that the cursor lies
 inside the grid.
 
-Every `grid` message is a **complete** snapshot, never a delta. That makes frame
-loss and coalescing trivially safe: if two frames arrive between paints, drawing
-only the newest is lossless.
+`seq` is a per-connection frame counter, and it is what tells the two frame
+types apart in practice. A `grid` is a **complete** snapshot and is therefore
+self-syncing: it can be applied to any state, so coalescing is trivially safe —
+if two `grid` frames arrive between paints, drawing only the newest is lossless.
+A `patch` is only valid applied to the frame numbered `seq - 1`. A client that
+sees a gap in `seq` cannot paint the patch and sends `resync` to get a fresh
+`grid`.
+
+```ts
+/** A run of consecutive changed cells in one row: [row, col, cells]. */
+type PatchRun = readonly [number, number, readonly WireCell[]];
+```
+
+Runs, not per-cell entries: a scroll or a repainted status line changes whole
+spans at once. Every run is bounds-checked at decode — `row` inside the grid,
+`cells` non-empty, and `col + cells.length <= cols`. A run that would write past
+the right edge is a decode failure, not a silent clamp.
 
 ```ts
 interface WireCursor {
@@ -146,6 +164,8 @@ Three close reasons are defined so both ends agree on why a socket died:
 | --- | --- | --- |
 | `decodeClientMessage` | `(frame: unknown) => ClientMsg` | Parse and strictly validate a client frame. Throws on anything invalid. |
 | `decodeServerMessage` | `(frame: unknown) => ServerMsg` | Same, for server frames. |
+| `applyPatch` | `(prev: GridMsg, patch: PatchMsg) => GridMsg` | Apply a delta to the snapshot it was computed against, returning a new `GridMsg`. Never mutates `prev`; rows no run touches are shared with it. Throws a `TypeError` on a dimension mismatch. |
+| `diffGrid` | `(prev: GridMsg, next: GridMsg) => PatchRun[]` | The runs of cells that differ between two same-sized snapshots; empty when nothing changed. Throws a `TypeError` on a dimension mismatch. Exported from `webterm`, not `webterm/protocol`. |
 | `utf8ByteLength` | `(value: string) => number` | UTF-8 byte length of a string. |
 | `clampTerminalSize` | `(cols: number, rows: number) => { cols, rows }` | Truncate and clamp into the legal range; `NaN`/`Infinity` become the minimum. |
 | `splitInput` | `(data: string) => string[]` | Split a paste into chunks of at most `MAX_INPUT_BYTES`, never breaking a multi-byte character. |
@@ -235,9 +255,11 @@ Bun.serve<{ bridge?: TerminalBridge }>({
 });
 ```
 
-`serializeGrid(term: Terminal): GridMsg` and `encodeCell(cell: Cell): WireCell`
-are exported separately, so a caller driving `bun-vt` itself can produce the same
-snapshots without using `TerminalBridge`.
+`serializeGrid(term: Terminal, seq?: number): GridMsg` and
+`encodeCell(cell: Cell): WireCell` are exported separately, so a caller driving
+`bun-vt` itself can produce the same snapshots without using `TerminalBridge`.
+`seq` defaults to `0`, since only the caller streaming a connection's frames
+knows their numbering.
 
 ### How Fleet wires it up
 
@@ -292,7 +314,7 @@ ws.onmessage = (event) => {
   try {
     const msg = decodeServerMessage(event.data);
     if (msg.type === "grid") paint(msg);
-    else console.log("shell exited", msg.code);
+    else if (msg.type === "exit") console.log("shell exited", msg.code);
   } catch {
     ws.close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
   }
@@ -334,7 +356,10 @@ bun test
 
 The suite covers the decoders (dimension boundaries, UTF-8 input measurement,
 malformed/unknown/extra-field/scalar/array/binary frames, grid dimension and
-cursor cross-checks), the browser helpers (`clampTerminalSize`, `splitInput`
-across a multi-byte boundary), and the encoder against a real `bun-vt` terminal —
-including that a blank cell serializes to `0` and that the default cursor color
-is omitted.
+cursor cross-checks, out-of-bounds and empty patch runs, `ack`/`resync`), the
+browser helpers (`clampTerminalSize`, `splitInput` across a multi-byte
+boundary), and the encoder against a real `bun-vt` terminal — including that a
+blank cell serializes to `0` and that the default cursor color is omitted. The
+delta path is tested from both ends: `diffGrid`'s run coalescing and structural
+cell comparison, `applyPatch`'s copy-on-write, and the round trip — applying the
+runs of `diffGrid(a, b)` to `a` reproduces `b`.

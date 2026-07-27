@@ -138,7 +138,7 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
     ws.onmessage = (event) => {
       const msg = decodeServerMessage(event.data);
       if (msg.type === "grid") process.stdout.write(renderGrid(msg));
-      else teardown(msg.code);
+      else if (msg.type === "exit") teardown(msg.code);
     };
 
     ws.onerror = () => {

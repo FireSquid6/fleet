@@ -1,6 +1,7 @@
 /**
  * encode.ts — turn a bun-vt `Terminal`'s current grid into a `GridMsg`
- * snapshot, using the compact per-cell encoding from `protocol.ts`.
+ * snapshot, using the compact per-cell encoding from `protocol.ts`, and diff
+ * two snapshots into the runs of a `PatchMsg`.
  */
 
 import type { Cell, CellStyle, Color, Terminal } from "bun-vt";
@@ -9,6 +10,7 @@ import {
   UNDERLINE,
   WIDTH,
   type GridMsg,
+  type PatchRun,
   type WireCell,
   type WireCellObject,
   type WireColor,
@@ -64,8 +66,12 @@ export function encodeCell(cell: Cell): WireCell {
   return out;
 }
 
-/** Serialize the terminal's whole active screen into a `GridMsg`. */
-export function serializeGrid(term: Terminal): GridMsg {
+/**
+ * Serialize the terminal's whole active screen into a `GridMsg`. `seq` is the
+ * connection's frame counter, which only the caller streaming the frames knows;
+ * a one-off snapshot can leave it at the default.
+ */
+export function serializeGrid(term: Terminal, seq = 0): GridMsg {
   const rows = term.rows;
   const cols = term.cols;
   const cells: WireCell[][] = new Array(rows);
@@ -82,6 +88,7 @@ export function serializeGrid(term: Terminal): GridMsg {
   const cursorColor = colorToWire(cursor.color);
   return {
     type: "grid",
+    seq,
     cols,
     rows,
     cursor: {
@@ -94,4 +101,61 @@ export function serializeGrid(term: Terminal): GridMsg {
     },
     cells,
   };
+}
+
+function colorsEqual(a: WireColor | undefined, b: WireColor | undefined): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined || typeof a === "number" || typeof b === "number") return false;
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+
+/**
+ * Structural cell comparison. Deliberately not a `JSON.stringify` comparison:
+ * key order is an encoder implementation detail, and this runs over every cell
+ * of every frame. The blank literal `0` only ever equals another `0` — the
+ * encoder never emits an all-defaults object, so an object is assumed to differ.
+ */
+function cellsEqual(a: WireCell, b: WireCell): boolean {
+  if (a === b) return true;
+  if (a === 0 || b === 0) return false;
+  return (
+    a.t === b.t &&
+    a.a === b.a &&
+    a.u === b.u &&
+    a.w === b.w &&
+    colorsEqual(a.f, b.f) &&
+    colorsEqual(a.b, b.b)
+  );
+}
+
+/**
+ * Diff two same-sized snapshots into the runs of a `PatchMsg` — empty when
+ * nothing changed. Runs rather than per-cell entries because a scroll or a
+ * repainted status line changes whole spans at once.
+ *
+ * Throws on a dimension mismatch; the caller sends a full snapshot instead.
+ */
+export function diffGrid(prev: GridMsg, next: GridMsg): PatchRun[] {
+  if (prev.cols !== next.cols || prev.rows !== next.rows) {
+    throw new TypeError("cannot diff grids of different sizes");
+  }
+
+  const runs: PatchRun[] = [];
+  for (let r = 0; r < next.rows; r++) {
+    const before = prev.cells[r]!;
+    const after = next.cells[r]!;
+    let start = -1;
+    for (let c = 0; c < next.cols; c++) {
+      if (cellsEqual(before[c]!, after[c]!)) {
+        if (start >= 0) {
+          runs.push([r, start, after.slice(start, c)]);
+          start = -1;
+        }
+      } else if (start < 0) {
+        start = c;
+      }
+    }
+    if (start >= 0) runs.push([r, start, after.slice(start, next.cols)]);
+  }
+  return runs;
 }

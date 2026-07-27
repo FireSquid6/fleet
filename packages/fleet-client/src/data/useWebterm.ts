@@ -44,7 +44,7 @@ export function handleServerFrame(
   try {
     const msg = decodeServerMessage(data);
     if (msg.type === "grid") opts.onGrid?.(msg);
-    else opts.onExit?.(msg.code);
+    else if (msg.type === "exit") opts.onExit?.(msg.code);
   } catch {
     close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
   }

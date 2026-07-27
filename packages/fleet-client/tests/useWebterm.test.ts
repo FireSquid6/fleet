@@ -39,6 +39,7 @@ describe("browser server-message handling", () => {
     handleServerFrame(
       JSON.stringify({
         type: "grid",
+        seq: 0,
         cols: 1,
         rows: 1,
         cursor: { x: 0, y: 0, visible: true },

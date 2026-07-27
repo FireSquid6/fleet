@@ -5,6 +5,7 @@ import { renderGrid } from "../src/render-grid";
 function grid(cells: WireCell[][], cursor?: Partial<GridMsg["cursor"]>): GridMsg {
   return {
     type: "grid",
+    seq: 0,
     rows: cells.length,
     cols: cells[0]?.length ?? 0,
     cursor: { x: 0, y: 0, visible: true, ...cursor },
