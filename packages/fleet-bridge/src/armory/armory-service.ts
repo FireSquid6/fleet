@@ -3,19 +3,24 @@
  * `ArmoryManifest` and serves individual files out of it.
  *
  * Read-only and human-authored: the directory is hand-edited or git-synced, so the
- * scan is defensive rather than trusting. Symlinks are skipped outright (never
- * followed, never listed) because a symlink in the armory would let a manifest
+ * scan is defensive rather than trusting. Symlinks at or below the section level
+ * are skipped outright (never followed, never listed) — including a section
+ * directory that is itself a symlink — because such a link would let a manifest
  * consumer pull a file from anywhere on the bridge host, and the rest of this
- * codebase refuses symlinks for the same reason.
+ * codebase refuses symlinks for the same reason. The one exception is the armory
+ * root, which the operator may point wherever they like; see `scan`.
  *
- * The manifest is the single source of truth: `readFile` only serves paths the
- * manifest lists, which is what confines reads to the three section directories.
+ * The manifest gates which paths `readFile` will serve, but it does not by itself
+ * confine reads: it is cached, so it describes the tree as of the last scan, and a
+ * directory that was real then may be a symlink now. `readFile` therefore
+ * re-resolves the file against the armory root before reading a byte.
+ *
  * A scan is cached until `invalidate()` (a filesystem watcher calls it) and
  * serialized through a promise queue, mirroring `store.ts`, so concurrent
  * requests never walk the tree simultaneously.
  */
 
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, readdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import {
   ARMORY_SECTIONS,
@@ -125,12 +130,26 @@ export class ArmoryService {
     const target = resolve(this.root, path);
     if (!isStrictDescendant(this.root, target)) throw new ArmoryPathError(path);
 
-    const info = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+    // A path the manifest lists can still vanish before it is read.
+    const vanished = (error: NodeJS.ErrnoException): never => {
       if (error.code === "ENOENT" || error.code === "ENOTDIR") throw new ArmoryNotFoundError(path);
       throw error;
-    });
+    };
+
+    const info = await lstat(target).catch(vanished);
     if (!info.isFile()) throw new ArmoryNotFoundError(path);
     if (info.size > MAX_ARMORY_FILE_BYTES) throw new ArmoryTooLargeError(path, info.size);
+
+    // `lstat` refuses a symlink at the final component only; it follows every
+    // directory above it. The manifest cannot name a path through a symlinked
+    // directory, but it is cached, so `skills/pack` may have been a real
+    // directory at scan time and be a link to `/etc` by the time this runs.
+    // Resolving both ends is what actually confines the read to the armory —
+    // and it resolves the root's own symlink too, so a symlinked root still
+    // contains its own files.
+    const realRoot = await realpath(this.root).catch(vanished);
+    const realTarget = await realpath(target).catch(vanished);
+    if (!isStrictDescendant(realRoot, realTarget)) throw new ArmoryPathError(path);
 
     const bytes = new Uint8Array(await Bun.file(target).arrayBuffer());
     const text = decodeUtf8(bytes);
@@ -142,10 +161,29 @@ export class ArmoryService {
 
   // --- scanning -------------------------------------------------------------
 
+  /**
+   * The root and the sections are trusted differently, which is worth stating
+   * because the asymmetry looks arbitrary. The root is the operator's own choice
+   * about their own data directory — pointing it at a git checkout elsewhere on
+   * the host is a supported way to manage the armory — so a symlink there is
+   * allowed. A section is content, and content in that checkout is whatever a
+   * pull request put there; `skills -> ../../../.ssh` would put host secrets into
+   * a manifest that every ship in the fleet then installs. So a section is
+   * lstat'ed before it is walked: `readdir` follows a symlink handed to it as a
+   * path, where it never follows one it finds in a listing.
+   *
+   * A refused section contributes nothing and the other two still scan — the
+   * bridge has to keep serving `GET /armory` with the sections it can trust.
+   */
   private async scan(): Promise<ArmoryManifest> {
     const entries: ArmoryEntry[] = [];
     for (const section of ARMORY_SECTIONS) {
-      await this.walk(join(this.root, section), section, section, entries);
+      const directory = join(this.root, section);
+      if (await isSymlink(directory)) {
+        console.warn(`armory: skipping section "${section}" — ${directory} is a symlink`);
+        continue;
+      }
+      await this.walk(directory, section, section, entries);
     }
     entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const dotfileMap = await this.readDotfileMap();
@@ -263,6 +301,15 @@ async function hashFile(target: string): Promise<string> {
     hasher.update(value);
   }
   return hasher.digest("hex");
+}
+
+/** False when `target` does not exist, so a missing section reads as an ordinary absent one. */
+async function isSymlink(target: string): Promise<boolean> {
+  const info = await lstat(target).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
+    throw error;
+  });
+  return info?.isSymbolicLink() ?? false;
 }
 
 function isStrictDescendant(root: string, target: string): boolean {

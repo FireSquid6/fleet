@@ -170,6 +170,98 @@ describe("ArmoryService", () => {
     expect(manifest.entries.map((entry) => entry.path)).toEqual(["skills/real/SKILL.md"]);
   });
 
+  test("a section directory that is itself a symlink contributes nothing and is unreadable", async () => {
+    const root = await armoryDirectory();
+    const outside = join(dirname(root), "secrets");
+    await write(outside, "id_rsa", "PRIVATE KEY MATERIAL");
+    await write(outside, "nested/deeper.txt", "also outside");
+    await mkdir(root, { recursive: true });
+    // `readdir` follows a symlink handed to it as a path, so `skills` itself
+    // being a link is the case a per-dirent check cannot see.
+    await symlink(outside, join(root, "skills"));
+
+    const service = new ArmoryService(root);
+    const manifest = await service.manifest();
+
+    expect(manifest.entries.map((entry) => entry.path)).toEqual([]);
+    expect(manifest.entries.map((entry) => entry.path)).not.toContain("skills/id_rsa");
+    expect(manifest.entries.map((entry) => entry.path)).not.toContain("skills/nested/deeper.txt");
+    await expect(service.readFile("skills/id_rsa")).rejects.toBeInstanceOf(ArmoryNotFoundError);
+    await expect(service.readFile("skills/nested/deeper.txt")).rejects.toBeInstanceOf(
+      ArmoryNotFoundError,
+    );
+  });
+
+  test("a symlinked section does not disturb the sections beside it", async () => {
+    const outside = join(dirname(await armoryDirectory()), "secrets");
+    await write(outside, "id_rsa", "PRIVATE KEY MATERIAL");
+
+    const poisoned = await armoryDirectory();
+    await write(poisoned, "plugins/claude-code/plugin.json", "{}");
+    await write(poisoned, "dotfiles/.tmux.conf", "set -g mouse on");
+    await symlink(outside, join(poisoned, "skills"));
+
+    const clean = await armoryDirectory();
+    await write(clean, "plugins/claude-code/plugin.json", "{}");
+    await write(clean, "dotfiles/.tmux.conf", "set -g mouse on");
+
+    const withSymlink = await new ArmoryService(poisoned).manifest();
+    const without = await new ArmoryService(clean).manifest();
+
+    expect(withSymlink.entries.map((entry) => entry.path)).toEqual([
+      "dotfiles/.tmux.conf",
+      "plugins/claude-code/plugin.json",
+    ]);
+    expect(withSymlink.revision).toBe(without.revision);
+  });
+
+  test("an armory root that is a symlink scans normally", async () => {
+    // The documented workflow: the operator points their data directory's armory
+    // at a checkout elsewhere on the host.
+    const checkout = join(dirname(await armoryDirectory()), "checkout");
+    await write(checkout, "skills/my-skill/SKILL.md", "# skill");
+    await write(checkout, "dotfile-map.json", JSON.stringify({ ".tmux.conf": "~/.tmux.conf" }));
+
+    const root = await armoryDirectory();
+    await mkdir(dirname(root), { recursive: true });
+    await symlink(checkout, root);
+
+    const service = new ArmoryService(root);
+    const manifest = await service.manifest();
+
+    expect(manifest.entries.map((entry) => entry.path)).toEqual(["skills/my-skill/SKILL.md"]);
+    expect(manifest.dotfileMap).toEqual({ ".tmux.conf": "~/.tmux.conf" });
+    expect((await service.readFile("skills/my-skill/SKILL.md")).contents).toBe("# skill");
+  });
+
+  test("a section that is a regular file is skipped without throwing", async () => {
+    const root = await armoryDirectory();
+    await write(root, "skills", "not a directory");
+    await write(root, "plugins/claude-code/plugin.json", "{}");
+
+    const manifest = await new ArmoryService(root).manifest();
+
+    expect(manifest.entries.map((entry) => entry.path)).toEqual(["plugins/claude-code/plugin.json"]);
+  });
+
+  test("readFile refuses a path whose directory became a symlink after the scan", async () => {
+    const root = await armoryDirectory();
+    const outside = join(dirname(root), "secrets");
+    await write(outside, "passwd", "OUTSIDE THE ARMORY");
+    await write(root, "skills/pack/passwd", "harmless");
+
+    const service = new ArmoryService(root);
+    expect((await service.manifest()).entries.map((entry) => entry.path)).toEqual([
+      "skills/pack/passwd",
+    ]);
+
+    // The manifest stays cached and clean while the tree beneath it changes.
+    await rm(join(root, "skills/pack"), { recursive: true, force: true });
+    await symlink(outside, join(root, "skills/pack"));
+
+    await expect(service.readFile("skills/pack/passwd")).rejects.toBeInstanceOf(ArmoryPathError);
+  });
+
   test("readFile round-trips utf8 and falls back to base64 for binary", async () => {
     const root = await armoryDirectory();
     await write(root, "skills/one/SKILL.md", "héllo ✅");
