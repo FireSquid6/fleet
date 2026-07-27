@@ -87,15 +87,19 @@ describe("GET /repos/:name/branches", () => {
     expect(lsRemote.calls[0]).toMatchObject({ url: "git@fake/repo1.git", cwd: dir, heads: true });
   });
 
-  test("runs git non-interactively, so a credential prompt cannot hang the request", async () => {
+  test("runs git non-interactively and under its own deadlines", async () => {
     await call("GET", "/repos/repo1/branches");
 
-    // Without these, git opens /dev/tty for the prompt — the bridge runs in an
-    // operator's terminal, so the request would block until someone typed.
+    // Without the first three git opens /dev/tty for the prompt — the bridge runs
+    // in an operator's terminal, so the request would block until someone typed.
+    // The last two make git abandon a stalled transfer itself, which is the only
+    // thing that reaps the process: giving up on the promise does not.
     expect(lsRemote.calls[0]!.env).toEqual({
       GIT_TERMINAL_PROMPT: "0",
       GIT_ASKPASS: "",
-      GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
+      GIT_SSH_COMMAND: "ssh -oBatchMode=yes -oConnectTimeout=10",
+      GIT_HTTP_LOW_SPEED_LIMIT: "1",
+      GIT_HTTP_LOW_SPEED_TIME: "15",
     });
   });
 
@@ -149,6 +153,21 @@ describe("GET /repos/:name/branches", () => {
     expect(res.status).toBe(502);
     expect(res.body.error).not.toContain("ghp_SECRET");
     expect(res.body.error).toContain("Authentication failed");
+  });
+
+  test("a password containing @ is redacted whole, not up to its first @", async () => {
+    lsRemote.answer = () => {
+      throw new GitError(["ls-remote"], {
+        stdout: "",
+        stderr: "fatal: could not read from 'https://user:p@ssw0rd@github.com/o/r.git'",
+        exitCode: 128,
+      });
+    };
+
+    const res = await call("GET", "/repos/repo1/branches");
+
+    expect(res.body.error).not.toContain("ssw0rd");
+    expect(res.body.error).toContain("https://***@github.com/o/r.git");
   });
 
   test("credentials git echoes back in its own stderr are redacted too", async () => {

@@ -131,9 +131,11 @@ export interface RepoProvider {
    * development branch (GitHub's "Development → create a branch for this issue"
    * relationship). A write: it needs a token with repo write scope.
    *
-   * Returns the ref the provider actually created — it may differ from the
-   * requested name, because a forge is free to de-duplicate against branches
-   * that already exist.
+   * Callers must use the returned `name`, never the one they passed in: a forge
+   * may hand back a different ref. What any given forge does when the name is
+   * already taken — de-duplicate it, refuse, or return the existing link — is
+   * not established here, so an implementation is expected to cope with the name
+   * coming back changed and to be safe to call twice for the same branch.
    */
   linkBranchToIssue(issueNumber: number, branch: string): Promise<LinkedBranch>;
 }

@@ -86,32 +86,48 @@ export class BridgeError extends Error {
 /** How long to wait for a ship's first `sync` before treating it as offline. */
 const SYNC_TIMEOUT_MS = 5000;
 
-/** How long a remote ref probe may run before the bridge stops waiting on it. */
-const LS_REMOTE_TIMEOUT_MS = 15000;
+/**
+ * Outer bound on a remote ref probe. Deliberately longer than the 15 s of
+ * stalled transfer `NON_INTERACTIVE_GIT_ENV` gives git, so that on a dead remote
+ * git aborts itself first and the client gets git's own diagnosis instead of a
+ * bare "timed out". This is the backstop for a git that somehow does neither.
+ */
+const LS_REMOTE_TIMEOUT_MS = 20000;
 
 /**
- * Environment for every git invocation the bridge makes.
+ * Environment for every git invocation the bridge makes. Two failure modes, both
+ * of which would otherwise leave a git process alive after the HTTP request that
+ * spawned it has gone:
  *
- * git asks for credentials, ssh passphrases and unknown host keys by opening
- * `/dev/tty` directly, which bypasses the pipes it was given — and the bridge
- * normally runs in an operator's foreground terminal, so that tty exists. Left
- * to itself a private repo would therefore park the git process on a prompt
- * nobody answers and hang the HTTP request behind it for good. These three tell
- * git, `GIT_ASKPASS`' callers and ssh to fail instead of asking.
+ * - **Prompts.** git asks for credentials, ssh passphrases and unknown host keys
+ *   by opening `/dev/tty` directly, bypassing the pipes it was given — and the
+ *   bridge normally runs in an operator's foreground terminal, so that tty
+ *   exists. A private repo would park git on a prompt nobody answers forever.
+ * - **Tarpits.** A remote that completes the TCP handshake and then says nothing
+ *   holds git open indefinitely; git only inherits a deadline if it is given
+ *   one. The low-speed pair makes git abort a transfer moving under 1 byte/s for
+ *   15 s, and `ConnectTimeout` bounds the ssh handshake. Both make git exit on
+ *   its own, which is what actually reaps the process — killing the request that
+ *   is waiting on it would not.
+ *
+ * `GIT_HTTP_LOW_SPEED_*` only covers the http(s) transport; an ssh remote that
+ * connects and then stalls is still only bounded by `LS_REMOTE_TIMEOUT_MS`.
  */
 const NON_INTERACTIVE_GIT_ENV: Record<string, string> = {
   GIT_TERMINAL_PROMPT: "0",
   GIT_ASKPASS: "",
-  GIT_SSH_COMMAND: "ssh -oBatchMode=yes",
+  GIT_SSH_COMMAND: "ssh -oBatchMode=yes -oConnectTimeout=10",
+  GIT_HTTP_LOW_SPEED_LIMIT: "1",
+  GIT_HTTP_LOW_SPEED_TIME: "15",
 };
 
 /**
  * Reject with `message` if `promise` has not settled within `ms`.
  *
- * Only the *waiting* is bounded: `git-bun` exposes no way to abort a running
- * command, so a git process talking to a blackholed remote is abandoned to its
- * own network timeout rather than killed. That still keeps the request — and the
- * client waiting on it — from hanging indefinitely.
+ * This bounds the *waiting*, not the work: `git-bun` exposes no handle to abort
+ * a running command, so a git process that outlives its deadline is left to exit
+ * on its own. That is why `NON_INTERACTIVE_GIT_ENV` configures git to give up by
+ * itself — this timer is the backstop, not the mechanism.
  */
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -127,13 +143,46 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
   }
 }
 
+/** A URL-shaped run of text; quotes and whitespace end it, as they do in git's messages. */
+const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s'"`]+/gi;
+
 /**
- * Blank out `user:secret@` userinfo in any URL a message carries. A repo may be
- * registered with an embedded token, and git echoes the URL it was given back in
- * the command line it reports on failure — this keeps that out of an API response.
+ * Blank out `user:secret@` userinfo in every URL a message carries. A repo may
+ * be registered with an embedded token, and git echoes the URL it was given back
+ * in the command line it reports on failure — this keeps that out of an API
+ * response.
+ *
+ * Parsing beats pattern-matching here: a password may itself contain `@`
+ * (`https://user:p@ssw0rd@host/r`), and userinfo runs to the *last* `@` before
+ * the path, which a leftmost-shortest regex gets wrong. `URL` implements that
+ * rule; the regex below is only for candidates it refuses to parse.
+ *
+ * Not covered, deliberately: credentials in a query string
+ * (`?access_token=…`) and scp-style `token@host:org/repo.git`, neither of which
+ * is a URL this code can recognize as one.
  */
 function redactUrlCredentials(text: string): string {
-  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1***@");
+  return text.replace(URL_IN_TEXT, (candidate) => {
+    try {
+      const url = new URL(candidate);
+      if (!url.username && !url.password) return candidate;
+      url.username = "***";
+      url.password = "";
+      return url.toString();
+    } catch {
+      return redactAuthority(candidate);
+    }
+  });
+}
+
+/** Fallback for an unparseable URL: strip through the last `@` of the authority. */
+function redactAuthority(candidate: string): string {
+  const parts = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)([\s\S]*)$/i.exec(candidate);
+  if (!parts) return candidate;
+  const [, scheme, authority = "", rest = ""] = parts;
+  const at = authority.lastIndexOf("@");
+  if (at === -1) return candidate;
+  return `${scheme}***@${authority.slice(at + 1)}${rest}`;
 }
 
 /**

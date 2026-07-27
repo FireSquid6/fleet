@@ -478,14 +478,15 @@ describe("GitHubProvider", () => {
       const body = typeof init?.body === "string" ? init.body : undefined;
       calls.push({ url, method: init?.method ?? "GET", headers: new Headers(init?.headers), body });
 
-      if (url.endsWith("/issues/12")) {
+      const issue = /\/issues\/(\d+)$/.exec(url)?.[1];
+      if (issue !== undefined) {
         return Response.json({
-          number: 12,
-          node_id: "I_issue12",
+          number: Number(issue),
+          node_id: `I_issue${issue}`,
           title: "a bug",
           state: "open",
           user: { login: "alice" },
-          html_url: "https://github.com/owner/repo/issues/12",
+          html_url: `https://github.com/owner/repo/issues/${issue}`,
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           body: null,
@@ -529,7 +530,7 @@ describe("GitHubProvider", () => {
   const duplicateByNull = () =>
     Response.json({ data: { createLinkedBranch: { clientMutationId: null, issue: null, linkedBranch: null } } });
 
-  /** The other duplicate reply: a populated `errors` array. */
+  /** The other duplicate reply: a refusal. The wording is not what makes it one. */
   const duplicateByError = () =>
     Response.json({ errors: [{ message: "A ref named 12-a-bug already exists in the repository" }] });
 
@@ -571,7 +572,7 @@ describe("GitHubProvider", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("a GraphQL error carried on an HTTP 200 becomes a ProviderError(502)", async () => {
+  test("a GraphQL error on an HTTP 200 keeps its message when nothing can be resolved", async () => {
     const { fetch } = linkBranchFetch(() =>
       Response.json({ data: null, errors: [{ message: "Resource not accessible by integration" }] }),
     );
@@ -587,13 +588,13 @@ describe("GitHubProvider", () => {
     }
   });
 
-  // GitHub reports "that issue already has this branch" in two different ways
-  // depending on the case, and neither is a failure the caller can act on, so
-  // both have to resolve to the branch that is already there.
+  // A refused create may only mean the branch is already there, and GitHub has
+  // been seen reporting that both as a null `linkedBranch` on an HTTP 200 and as
+  // an outright refusal — so both go looking before failing.
   test.each([
     ["a null linkedBranch with no errors", duplicateByNull],
-    ["an 'already exists' error", duplicateByError],
-  ])("a duplicate reported as %s resolves to the issue's existing linked branch", async (_label, duplicate) => {
+    ["a refusal", duplicateByError],
+  ])("%s resolves to the branch of the requested name linked to the issue", async (_label, duplicate) => {
     const { fetch, calls } = linkBranchFetch((call) =>
       isMutation(call) ? duplicate() : linkedRefs({ name: "12-a-bug", oid: "existingsha" }),
     );
@@ -609,8 +610,8 @@ describe("GitHubProvider", () => {
 
   test.each([
     ["a null linkedBranch with no errors", duplicateByNull],
-    ["an 'already exists' error", duplicateByError],
-  ])("a duplicate reported as %s prefers the requested name among several links", async (_label, duplicate) => {
+    ["a refusal", duplicateByError],
+  ])("%s ignores links under other names and takes the requested one", async (_label, duplicate) => {
     const { fetch } = linkBranchFetch((call) =>
       isMutation(call)
         ? duplicate()
@@ -621,15 +622,19 @@ describe("GitHubProvider", () => {
     expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug", sha: "existingsha" });
   });
 
-  test("a duplicate falls back to any branch the issue is linked to", async () => {
-    const { fetch } = linkBranchFetch((call) =>
-      isMutation(call) ? duplicateByNull() : linkedRefs({ name: "12-renamed-by-hand", oid: "handsha" }),
+  test("a branch of the requested name beats an unrelated branch linked to the issue", async () => {
+    // Issue 42 was linked to "42-retries" by `gh issue develop`, and the name the
+    // caller previewed exists too. Answering with "42-retries" would put the
+    // workspace on a branch the user never saw.
+    const { fetch } = linkBranchFetch(
+      (call) => (isMutation(call) ? duplicateByNull() : linkedRefs({ name: "42-retries", oid: "OLDSHA" })),
+      { "42-add-retries-to-the-sync-loop": "requestedsha" },
     );
     const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
 
-    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({
-      name: "12-renamed-by-hand",
-      sha: "handsha",
+    expect(await provider.linkBranchToIssue(42, "42-add-retries-to-the-sync-loop")).toEqual({
+      name: "42-add-retries-to-the-sync-loop",
+      sha: "requestedsha",
     });
   });
 
@@ -643,8 +648,22 @@ describe("GitHubProvider", () => {
     expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug", sha: "unlinkedsha" });
   });
 
-  test("a refused create with nothing to fall back on is a ProviderError(409) naming the branch", async () => {
-    const { fetch } = linkBranchFetch((call) => (isMutation(call) ? duplicateByNull() : linkedRefs()));
+  test("a refusal whose wording nothing anticipated still resolves the existing branch", async () => {
+    const { fetch } = linkBranchFetch(
+      (call) =>
+        isMutation(call)
+          ? Response.json({ errors: [{ message: "Referenz existiert bereits" }] })
+          : linkedRefs({ name: "12-a-bug", oid: "existingsha" }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug", sha: "existingsha" });
+  });
+
+  test("a refused create with no branch of that name is a 409 carrying the reason", async () => {
+    const { fetch } = linkBranchFetch((call) =>
+      isMutation(call) ? duplicateByError() : linkedRefs({ name: "12-something-else", oid: "othersha" }),
+    );
     const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
 
     try {
@@ -654,6 +673,70 @@ describe("GitHubProvider", () => {
       expect(error).toBeInstanceOf(ProviderError);
       expect((error as ProviderError).status).toBe(409);
       expect((error as ProviderError).message).toContain("12-a-bug");
+      // The branch linked under another name is reported, never returned.
+      expect((error as ProviderError).message).toContain("already exists in the repository");
+    }
+  });
+
+  test.each([
+    ["a payload with no createLinkedBranch", { data: { createLinkedBranch: null } }],
+    [
+      "a created ref missing its target oid",
+      { data: { createLinkedBranch: { linkedBranch: { ref: { name: "12-a-bug" } } } } },
+    ],
+  ])("%s is a ProviderError(502), not a duplicate", async (_label, payload) => {
+    const { fetch, calls } = linkBranchFetch((call) =>
+      isMutation(call) ? Response.json(payload) : linkedRefs({ name: "12-older-link", oid: "oldsha" }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).status).toBe(502);
+    }
+    // An unreadable reply must not be answered with some older branch: the
+    // mutation may well have created the one that was asked for.
+    expect(calls.filter((c) => c.url.endsWith("/graphql"))).toHaveLength(1);
+  });
+
+  test.each([401, 403, 404])(
+    "an HTTP %i from the mutation is surfaced without looking for an existing branch",
+    async (status) => {
+      const { fetch, calls } = linkBranchFetch(() => Response.json({ message: "nope" }, { status }));
+      const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+      try {
+        await provider.linkBranchToIssue(12, "12-a-bug");
+        throw new Error("expected linkBranchToIssue to throw");
+      } catch (error) {
+        expect((error as ProviderError).status).toBe(status);
+      }
+      expect(calls.filter((c) => c.url.endsWith("/graphql"))).toHaveLength(1);
+    },
+  );
+
+  test("a non-404 from the branch lookup is surfaced instead of 'no such branch'", async () => {
+    const { fetch } = linkBranchFetch((call) => {
+      if (isMutation(call)) return duplicateByNull();
+      return linkedRefs();
+    });
+    // Re-wrap so the ref lookup 403s rather than 404s.
+    const forbidding = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (/\/git\/ref\/heads\/12-a-bug$/.test(String(input))) {
+        return Response.json({ message: "Resource not accessible" }, { status: 403 });
+      }
+      return fetch(input as string, init);
+    }) as unknown as typeof globalThis.fetch;
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch: forbidding });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect((error as ProviderError).status).toBe(403);
     }
   });
 

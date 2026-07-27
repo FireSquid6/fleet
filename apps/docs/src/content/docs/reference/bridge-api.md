@@ -232,8 +232,8 @@ Answered with `git ls-remote --heads` against the registered clone URL, **not**
 through the repo's provider: `provider` defaults to `"custom"`, for which no
 provider exists, so a provider-backed listing would be unavailable for most
 repos. `ls-remote` works against any git URL and needs no token. The probe runs
-non-interactively (git never prompts for credentials or host keys) and is
-abandoned after 15 s.
+non-interactively — git never prompts for credentials or host keys, aborts an
+http transfer that stalls for 15 s, and is given up on entirely after 20 s.
 
 `refs/heads/` is stripped from each name; tags and other refs are omitted, so a
 tag the ship would happily clone does not appear here.
@@ -425,19 +425,22 @@ the ship:
    function a client can use to preview the name;
 3. it asks the provider to create that branch and record it as the issue's
    linked development branch (GitHub's "Development → create a branch");
-4. the **name the provider returns** is what the ship is told to check out, which
-   may differ from the computed one if the provider de-duplicated it.
+4. the **name the provider returns** is what the ship is told to check out. Use
+   it rather than the computed name — a provider may hand back a different ref.
 
-Step 3 is idempotent: an issue that already has a linked branch, or a branch of
-that name created by hand, resolves to the existing branch instead of failing.
-The branch is created before the clone and is *not* removed if the clone then
-fails — a retry reuses it.
+Step 3 is safe to repeat. If the provider will not create the branch, the bridge
+looks for one of the *same name* — first among the issue's linked branches, then
+as a plain ref (someone may have pushed it by hand) — and uses that. A branch
+linked to the issue under a **different** name is never substituted; that case
+fails with `409`, since silently checking out a branch the caller never named is
+worse than refusing. The branch is created before the clone and is not removed if
+the clone then fails, so a retry reuses it.
 
 | Status | Cause |
 | --- | --- |
 | `422` | `ship`, `repoName` or `name` is missing. |
 | `400` | Invalid repo/workspace identifier; `unknown ship: <ship>`; `unknown repo: <repoName>`; both `branch` and `issueNumber`, or neither; a blank `branch`; an `issueNumber` that is not a positive integer. |
-| provider's status | Any error resolving or linking the issue is passed through with the provider's own status — e.g. `401` with no token, `404` for an unknown issue, `409` when the branch could be neither created nor found. |
+| provider's status | Any error resolving or linking the issue is passed through with the provider's own status — e.g. `401` with no token, `403` for a token without repo write scope, `404` for an unknown issue, `409` when the branch could be neither created nor found under the requested name. |
 | `503` | `ship "<ship>" is offline`. |
 | `409` | `workspace already exists: <repo>/<name>`; a create for that key is already in progress; the key's create outcome is indeterminate; the target ship was removed mid-request. |
 | `502` | The ship returned no data, an invalid summary, or a different workspace identity. |
