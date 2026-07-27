@@ -181,6 +181,43 @@ outside the grid or a row of the wrong length. The schema's cross-field checks
 exist precisely so the renderer can assume well-formed input.
 :::
 
+### `GridStream`
+
+Every client needs the same sequencing logic — hold the current snapshot, fold
+patches into it, ask for a fresh one after a gap — so it ships as a small state
+machine rather than being written twice.
+
+```ts
+import { GridStream } from "webterm/protocol";
+
+const stream = new GridStream();
+
+const { grid, reply } = stream.accept(msg);   // msg: GridMsg | PatchMsg
+if (reply) ws.send(JSON.stringify(reply));    // an `ack`, or a `resync`
+if (grid) paint(grid);                        // a complete GridMsg, patch or not
+```
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `accept` | `(msg: GridMsg \| PatchMsg) => GridStreamResult` | Take a server frame; returns the grid to paint and the frame to send back, either of which may be `null`. |
+| `grid` | `GridMsg \| null` | The most recent complete snapshot; `null` before the first `grid`. |
+| `reset` | `() => void` | Drop all state. Call when a socket closes, so the next one starts from a full frame. |
+
+A `grid` is always accepted and becomes the current snapshot. A `patch` is
+applied when its `seq` is exactly one past that snapshot's; the result is a
+complete `GridMsg`, so a renderer never has to know a patch existed. Anything
+else — a patch before the first snapshot, a `seq` gap, or a patch anchored to
+different dimensions — yields `{ grid: null, reply: { type: "resync" } }` and
+leaves the stream waiting for a full frame, during which further patches yield
+nothing at all.
+
+That silence is deliberate: exactly **one** `resync` goes out per gap.
+Re-requesting on every subsequent patch would pile a burst of requests onto the
+congested link that probably caused the gap in the first place.
+
+Only accepted frames are acked. An `ack` means "I have this frame", and it
+carries that frame's `seq`.
+
 ## The server side
 
 `TerminalBridge` owns one PTY subprocess plus one `bun-vt` terminal. It is
@@ -275,12 +312,14 @@ See [Terminals](/concepts/terminals/) for the end-to-end path.
 ## Driving it from a client
 
 The client's job is small: send `init` once, then `resize` on every size change,
-`input` on every keystroke, and repaint on every `grid`.
+`input` on every keystroke, and hand every frame to a `GridStream`, which says
+what to paint and what to send back.
 
 ```ts
 import {
   clampTerminalSize,
   decodeServerMessage,
+  GridStream,
   splitInput,
   BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON,
   INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON,
@@ -288,6 +327,7 @@ import {
 } from "webterm/protocol";
 
 const ws = new WebSocket(url);
+const stream = new GridStream();
 let initialized = false;
 
 function sendSize(cols: number, rows: number) {
@@ -313,8 +353,13 @@ ws.onmessage = (event) => {
   }
   try {
     const msg = decodeServerMessage(event.data);
-    if (msg.type === "grid") paint(msg);
-    else if (msg.type === "exit") console.log("shell exited", msg.code);
+    if (msg.type === "exit") {
+      console.log("shell exited", msg.code);
+      return;
+    }
+    const { grid, reply } = stream.accept(msg);
+    if (reply) ws.send(JSON.stringify(reply));
+    if (grid) paint(grid);
   } catch {
     ws.close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
   }
@@ -337,10 +382,14 @@ this shape and adds the things a real UI needs:
 - The first `resize` after the socket opens is sent as `init`; every later one is
   a `resize`. A size reported before the socket is open is buffered and flushed
   on connect.
-- Grid frames are deliberately kept **out** of React state. The newest snapshot
-  goes into a ref and is painted on the next animation frame — since each frame
-  is a full snapshot, dropping intermediate ones is lossless, and a 60fps stream
-  never re-renders the component tree.
+- A `GridStream` lives in a ref and every `grid`/`patch` goes through it, so
+  acks and resyncs are sent without the component knowing. It is reset whenever
+  the socket effect re-runs: a reconnected socket numbers its frames from
+  scratch, and the snapshot from the old one is not a baseline for any of them.
+- Frames are deliberately kept **out** of React state. The snapshot the stream
+  hands back goes into a ref and is painted on the next animation frame — since
+  it is always a full snapshot, dropping intermediate ones is lossless, and a
+  60fps stream never re-renders the component tree.
 - The socket is opened only while the terminal is actually visible, and closed on
   unmount — which is what releases the ship's single-terminal guard.
 
@@ -362,4 +411,7 @@ boundary), and the encoder against a real `bun-vt` terminal — including that a
 blank cell serializes to `0` and that the default cursor color is omitted. The
 delta path is tested from both ends: `diffGrid`'s run coalescing and structural
 cell comparison, `applyPatch`'s copy-on-write, and the round trip — applying the
-runs of `diffGrid(a, b)` to `a` reproduces `b`.
+runs of `diffGrid(a, b)` to `a` reproduces `b`. `GridStream` is covered on top of
+that: patches accumulate in order, a gap produces exactly one `resync` and then
+silence until a `grid` arrives, and a mismatched patch is a gap rather than a
+throw.

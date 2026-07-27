@@ -4,6 +4,7 @@ import {
   clampTerminalSize,
   decodeClientMessage,
   decodeServerMessage,
+  GridStream,
   MAX_INPUT_BYTES,
   splitInput,
   TERMINAL_CONFLICT_CLOSE_CODE,
@@ -170,6 +171,73 @@ describe("applyPatch", () => {
         runs: [],
       }),
     ).toThrow(TypeError);
+  });
+});
+
+describe("GridStream", () => {
+  const grid = (seq: number, char: string): GridMsg => ({
+    type: "grid",
+    seq,
+    cols: 2,
+    rows: 1,
+    cursor: { x: 0, y: 0, visible: true },
+    cells: [[{ t: char }, 0]],
+  });
+  const patch = (seq: number, char: string): PatchMsg => ({
+    type: "patch",
+    seq,
+    cols: 2,
+    rows: 1,
+    cursor: { x: 1, y: 0, visible: true },
+    runs: [[0, 1, [{ t: char }]]],
+  });
+
+  test("cannot start from a patch — it has nothing to anchor to", () => {
+    const stream = new GridStream();
+    expect(stream.grid).toBeNull();
+    expect(stream.accept(patch(0, "a"))).toEqual({ grid: null, reply: { type: "resync" } });
+    expect(stream.grid).toBeNull();
+  });
+
+  test("accumulates in-order patches onto the snapshot, acking each frame", () => {
+    const stream = new GridStream();
+    expect(stream.accept(grid(4, "a"))).toEqual({ grid: grid(4, "a"), reply: { type: "ack", seq: 4 } });
+    const first = stream.accept(patch(5, "b"));
+    expect(first.reply).toEqual({ type: "ack", seq: 5 });
+    expect(first.grid?.cells).toEqual([[{ t: "a" }, { t: "b" }]]);
+    const second = stream.accept(patch(6, "c"));
+    expect(second.reply).toEqual({ type: "ack", seq: 6 });
+    expect(second.grid?.cells).toEqual([[{ t: "a" }, { t: "c" }]]);
+    expect(stream.grid).toBe(second.grid!);
+  });
+
+  test("asks for a snapshot once per gap, then stays quiet until one arrives", () => {
+    const stream = new GridStream();
+    stream.accept(grid(0, "a"));
+    expect(stream.accept(patch(2, "b"))).toEqual({ grid: null, reply: { type: "resync" } });
+    expect(stream.accept(patch(3, "c"))).toEqual({ grid: null, reply: null });
+    expect(stream.accept(patch(4, "d"))).toEqual({ grid: null, reply: null });
+
+    expect(stream.accept(grid(9, "z"))).toEqual({ grid: grid(9, "z"), reply: { type: "ack", seq: 9 } });
+    const resumed = stream.accept(patch(10, "y"));
+    expect(resumed.reply).toEqual({ type: "ack", seq: 10 });
+    expect(resumed.grid?.cells).toEqual([[{ t: "z" }, { t: "y" }]]);
+  });
+
+  test("treats a patch against different dimensions as a gap rather than throwing", () => {
+    const stream = new GridStream();
+    stream.accept(grid(0, "a"));
+    const resized: PatchMsg = { ...patch(1, "b"), cols: 3, runs: [] };
+    expect(stream.accept(resized)).toEqual({ grid: null, reply: { type: "resync" } });
+    expect(stream.accept(patch(2, "c"))).toEqual({ grid: null, reply: null });
+  });
+
+  test("reset returns the stream to its pre-connection state", () => {
+    const stream = new GridStream();
+    stream.accept(grid(0, "a"));
+    stream.reset();
+    expect(stream.grid).toBeNull();
+    expect(stream.accept(patch(1, "b"))).toEqual({ grid: null, reply: { type: "resync" } });
   });
 });
 

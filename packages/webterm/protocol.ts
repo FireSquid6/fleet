@@ -305,6 +305,67 @@ export function applyPatch(prev: GridMsg, patch: PatchMsg): GridMsg {
   return { type: "grid", seq: patch.seq, cols: patch.cols, rows: patch.rows, cursor: patch.cursor, cells };
 }
 
+export interface GridStreamResult {
+  /** The grid to paint, when this frame produced a new one. */
+  readonly grid: GridMsg | null;
+  /** What to send back: an ack for an accepted frame, or a request for a full snapshot. */
+  readonly reply: AckMsg | ResyncMsg | null;
+}
+
+/**
+ * The client half of the frame protocol: holds the current snapshot, folds
+ * patches into it, and decides what to send back. Both clients drive one of
+ * these so the sequencing rules live in one place.
+ */
+export class GridStream {
+  #grid: GridMsg | null = null;
+  /**
+   * Set when a frame could not be applied. Only one `resync` goes out per gap:
+   * re-requesting on every following patch would pile a burst of requests onto
+   * the congested link that probably caused the gap in the first place.
+   */
+  #awaitingSnapshot = false;
+
+  /** The most recent complete snapshot, or null before the first `grid`. */
+  get grid(): GridMsg | null {
+    return this.#grid;
+  }
+
+  /** Drop all state — call when a socket closes, so the next one starts from a full frame. */
+  reset(): void {
+    this.#grid = null;
+    this.#awaitingSnapshot = false;
+  }
+
+  /**
+   * Take a server frame. Only frames that were actually applied are acked: an
+   * ack means "I have this frame", and the server's pacing depends on that.
+   */
+  accept(msg: GridMsg | PatchMsg): GridStreamResult {
+    if (msg.type === "grid") {
+      this.#grid = msg;
+      this.#awaitingSnapshot = false;
+      return { grid: msg, reply: { type: "ack", seq: msg.seq } };
+    }
+
+    if (this.#awaitingSnapshot) return { grid: null, reply: null };
+
+    const prev = this.#grid;
+    if (prev !== null && msg.seq === prev.seq + 1) {
+      try {
+        const next = applyPatch(prev, msg);
+        this.#grid = next;
+        return { grid: next, reply: { type: "ack", seq: next.seq } };
+      } catch {
+        // A dimension mismatch is unrecoverable from here; a full frame fixes it.
+      }
+    }
+
+    this.#awaitingSnapshot = true;
+    return { grid: null, reply: { type: "resync" } };
+  }
+}
+
 export function utf8ByteLength(value: string): number {
   return utf8.encode(value).byteLength;
 }

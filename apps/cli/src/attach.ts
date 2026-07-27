@@ -2,16 +2,18 @@
  * attach.ts — `fleet client attach`: drive a workspace's webterm terminal from a
  * real TTY.
  *
- * Output direction: the server streams full grid snapshots, which we repaint with
- * `renderGrid`. Input direction is trivial — a TTY in raw mode already emits the
- * exact byte sequences a PTY expects (arrows, ctrl chars, …), so we forward raw
- * stdin straight through as `input` messages. Ctrl-] detaches without killing the
- * shell (the tmux session survives for re-attach).
+ * Output direction: the server streams snapshots and deltas, which a `GridStream`
+ * folds back into full grids for `renderGrid` to repaint (the renderer always
+ * paints the whole screen). Input direction is trivial — a TTY in raw mode
+ * already emits the exact byte sequences a PTY expects (arrows, ctrl chars, …),
+ * so we forward raw stdin straight through as `input` messages. Ctrl-] detaches
+ * without killing the shell (the tmux session survives for re-attach).
  */
 
 import type { WorkspaceStatus } from "fleet-protocol";
 import {
   decodeServerMessage,
+  GridStream,
   splitInput,
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_TAKEOVER_CLOSE_CODE,
@@ -84,6 +86,7 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
     const ws = new WebSocket(terminalWsUrl(shipUrl, repo, name));
 
     let torn = false;
+    const stream = new GridStream();
     const send = (msg: ClientMsg) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
@@ -137,8 +140,13 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
 
     ws.onmessage = (event) => {
       const msg = decodeServerMessage(event.data);
-      if (msg.type === "grid") process.stdout.write(renderGrid(msg));
-      else if (msg.type === "exit") teardown(msg.code);
+      if (msg.type === "exit") {
+        teardown(msg.code);
+        return;
+      }
+      const { grid, reply } = stream.accept(msg);
+      if (reply) send(reply);
+      if (grid) process.stdout.write(renderGrid(grid));
     };
 
     ws.onerror = () => {

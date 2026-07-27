@@ -34,6 +34,8 @@ export {
   decodeClientMessage,
   decodeServerMessage,
   applyPatch,
+  GridStream,
+  type GridStreamResult,
   utf8ByteLength,
   clampTerminalSize,
   splitInput,
