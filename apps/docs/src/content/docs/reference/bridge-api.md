@@ -31,9 +31,12 @@ adds ship management, a repo registry, and an aggregate system-resources view.
 | `POST /workspaces/:repo/:name/agent/init` | **Not present.** |
 | `GET`/`POST /workspaces/:repo/:name/agent/status` | **Not present.** Agent status still reaches the bridge through each ship's `/events` stream, as the `agent` field on every workspace. |
 
+| `POST /armory/sync` | **Not present.** The bridge is the pusher, not a target. |
+| `GET /armory` | Same path, **different shape**: the bridge serves the armory manifest it owns; a ship serves the sync state it has applied. |
+
 Bridge-only routes: `GET`/`POST /ships`, `DELETE /ships/:name`,
 `GET /ships/:ship/system-resources`, `GET`/`POST /repos`,
-`DELETE /repos/:name`.
+`DELETE /repos/:name`, `GET /armory/file`, `GET /armory/ships`.
 
 ## Routes at a glance
 
@@ -47,6 +50,9 @@ Bridge-only routes: `GET`/`POST /ships`, `DELETE /ships/:name`,
 | GET | `/repos` | 200 | `Repo[]` |
 | POST | `/repos` | 201 | `Repo` |
 | DELETE | `/repos/:name` | 200 | `{ ok: true }` |
+| GET | `/armory` | 200 | `ArmoryManifest` |
+| GET | `/armory/file` | 200 | `ArmoryFile` |
+| GET | `/armory/ships` | 200 | `ShipArmoryState[]` |
 | GET | `/workspaces` | 200 | `BridgeWorkspaceSummary[]` |
 | GET | `/workspaces/:repo/:name` | 200 | `BridgeWorkspaceStatus` |
 | GET | `/workspaces/:repo/:name/diff` | 200 | raw diff text |
@@ -211,6 +217,113 @@ Responds `{ ok: true }`.
 | `404` | `repo not found: <name>`. |
 
 Deleting a repo does not touch any workspace already cloned from it.
+
+## Armory
+
+The read side of the [armory](/guides/the-armory/): the manifest of the bridge's
+`<dataDirectory>/armory/` directory, the contents of any file it lists, and what
+each ship has applied. Ships use the first two to pull; the third is for
+operators. All three are read-only — armory content is edited on the bridge host,
+never through the API.
+
+### `GET /armory`
+
+```ts
+{
+  revision: string;                    // lowercase hex sha256 of the whole armory
+  entries: {
+    path: string;                      // POSIX, armory-relative, e.g. "skills/reviewer/SKILL.md"
+    section: "skills" | "plugins" | "dotfiles";
+    size: number;
+    sha256: string;                    // lowercase hex
+    mode: number;                      // normalized to 0o755 or 0o644
+  }[];
+  dotfileMap: Record<string, string>;  // dotfiles/-relative source → "~/"-rooted or absolute destination
+}
+```
+
+`entries` is sorted by `path`. `revision` is a content address: it changes when
+and only when a file's contents, mode, or path changes, or `dotfileMap` changes,
+so a ship can compare revisions to decide whether to re-pull.
+
+A missing `armory/` directory is not an error — it yields an empty manifest.
+
+| Status | Cause |
+| --- | --- |
+| `400` | `invalid <path>/dotfile-map.json:` followed by one indented line per offending entry — a malformed map fails the whole manifest. |
+
+### `GET /armory/file`
+
+| Query | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `path` | string | yes | An `entries[].path` from the manifest. |
+
+```ts
+{
+  path: string;
+  section: "skills" | "plugins" | "dotfiles";
+  size: number;
+  sha256: string;
+  mode: number;
+  encoding: "utf8" | "base64";
+  contents: string;
+}
+```
+
+The facts repeat the manifest's so a caller can verify what it fetched without
+holding the manifest. `encoding` is `utf8` when the bytes decode as text and
+`base64` otherwise.
+
+| Status | Cause |
+| --- | --- |
+| `400` | An unsafe `path` (absolute, containing `..`, or with a `\` segment); an invalid `dotfile-map.json`. |
+| `404` | `armory file not found: <path>` — not listed in the manifest, or gone since the scan. |
+| `413` | `armory file too large (<size> bytes, limit 10485760): <path>`. Oversized files are still listed in the manifest; only serving them is refused. |
+| `422` | `path` query parameter missing. |
+
+### `GET /armory/ships`
+
+```ts
+{
+  ship: string;
+  status: "online" | "offline";
+  state: {                             // null for an offline ship, or one whose call failed
+    revision: string | null;           // applied revision; null until the first successful sync
+    bridgeUrl: string | null;
+    syncedAt: string | null;           // ISO timestamp
+    fileCount: number;
+    install: {                         // null until an install has run
+      skillCount: number;
+      pluginCount: number;
+      dotfileCount: number;
+      removedCount: number;
+      conflicts: string[];             // destinations left alone
+      warnings: string[];
+      installedAt: string | null;
+    } | null;
+    lastError: string | null;          // cleared by the next success
+  } | null;
+}[]
+```
+
+Always `200`. A `state` of `null` means the bridge could not ask — a single
+unreachable ship never fails the aggregate, and is deliberately distinct from a
+ship answering that it holds nothing.
+
+Counts are files, not skills or plugins: a skill is a directory and a plugin is
+an arbitrary tree, so files are the only unit both share.
+
+### Pushing to ships
+
+There is no route that triggers a sync. The bridge pushes
+[`POST /armory/sync`](/reference/ship-api/) to every online ship on three
+occasions: when the armory directory changes on disk, when a ship registers, and
+whenever a ship arrives at `online` (so a restarted or reconnected ship catches
+up). Each push carries `{ bridgeUrl, revision }`, where `bridgeUrl` is the
+bridge's `--public-url`, defaulting to `http://localhost:<port>`.
+
+Pushes are fire-and-forget: a ship that fails is logged and skipped, never
+retried inline, and a registration never waits on the armory.
 
 ## Workspaces
 

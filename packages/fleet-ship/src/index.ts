@@ -62,7 +62,7 @@ export async function installStartupIntegrations(options: {
     for (const path of dotfileConflicts) {
       console.warn(
         `Fleet startup preserved a conflicting dotfile: ${path}. ` +
-          "Move it aside, or re-sync the armory with --force to replace it with the armory's link.",
+          "Move or delete it to let the armory's symlink take that path on the next sync or ship restart.",
       );
     }
     for (const path of report?.conflicts ?? []) {

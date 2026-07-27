@@ -26,6 +26,7 @@ bridge:
   dataDirectory: ./.fleet/bridge
   port: 4800
   name: my-fleet-bridge
+  # publicUrl: http://this-host:4800  # how ships reach this bridge; required if any ship is on another host
 
 # The web gui. Proxies to the bridge above by default.
 gui:
@@ -65,15 +66,41 @@ Every field has a default, so `bridge: {}` is valid.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `dataDirectory` | string (non-empty) | no | `./.fleet/bridge` | Where the bridge persists `ships.json` and `repos.json`. Resolved to an absolute path. |
+| `dataDirectory` | string (non-empty) | no | `./.fleet/bridge` | Where the bridge persists `ships.json` and `repos.json`, and where its `armory/` directory lives. Resolved to an absolute path. |
 | `port` | integer | no | `4800` | Port the bridge's HTTP + WebSocket API listens on. |
 | `name` | string (non-empty) | no | `bridge` | Human-facing name of the bridge. |
+| `publicUrl` | string (non-empty) | no | `http://localhost:<port>` | URL **ships** use to reach this bridge. |
 
 :::note
 The `dataDirectory` default here (`./.fleet/bridge`) is *not* the same as the
 `fleet bridge` CLI default (`./.fleet-bridge`). They are separate defaults in
 separate code paths.
 :::
+
+### `publicUrl`
+
+`publicUrl` is handed to each ship so it can pull the
+[armory](/guides/the-armory/), so it has to resolve **from the ships' hosts**,
+not from the machine running the launch. The default,
+`http://localhost:<bridge.port>`, is correct for a single-host fleet and wrong
+the moment a `source: remote` ship is on another machine — there, `localhost` is
+that machine.
+
+Getting it wrong fails quietly: the ship registers, its workspaces work, and only
+the armory never arrives. So `fleet launch` warns when a config declares one or
+more `source: remote` ships and sets no `publicUrl`:
+
+```
+fleet launch: bridge.publicUrl is not set, so remote ships "build-box", "gpu-box" will be told this bridge is at http://localhost:4800, which on their hosts is themselves; set bridge.publicUrl to a URL those hosts can reach
+```
+
+It is a warning on stderr, not an error — a `source: remote` ship can legitimately
+be on this same host behind a tunnel or a published container port, where
+`localhost` still resolves. Local ships never trigger it.
+
+The value is used verbatim; it is validated as a non-empty string, not parsed or
+normalized like `gui.bridgeUrl`, so write a full URL with its scheme. The
+equivalent flag on a standalone bridge is `fleet bridge --public-url`.
 
 ## `gui`
 
@@ -187,6 +214,7 @@ Two local ships plus one already-running remote ship:
 ```yaml
 bridge:
   port: 4800
+  publicUrl: http://10.0.0.2:4800
 gui:
   port: 3000
 ships:
@@ -199,6 +227,10 @@ ships:
     source: remote
     url: http://10.0.0.7:4700
 ```
+
+`publicUrl` is set here because `builder` is on another host: without it, that
+ship would be told to pull the armory from `http://localhost:4800`, which on
+`10.0.0.7` is `10.0.0.7`.
 
 A GUI-only process pointed at a bridge on another host:
 

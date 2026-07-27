@@ -46,6 +46,7 @@ bridge:
   dataDirectory: ./.fleet/bridge
   port: 4800
   name: control
+  publicUrl: http://control:4800
 
 gui:
   port: 3000
@@ -68,6 +69,42 @@ ships](/guides/managing-ships/).
 
 Either way the bridge discovers each ship's name from its first event sync, and
 persists the roster so it reconnects to all of them on restart.
+
+## Tell the ships where the bridge is
+
+Registration is one direction only — the bridge learns each ship's URL. For the
+[armory](/guides/the-armory/), traffic goes the other way: the bridge hands each
+ship a URL to pull from. That URL is `bridge.publicUrl` (or
+`fleet bridge --public-url`), and it defaults to `http://localhost:<port>`.
+
+On a single host that default is correct. **On a multi-host fleet it is always
+wrong**, because on `build-box.internal`, `localhost` is `build-box.internal`.
+Set it to an address your ships can reach:
+
+```yaml
+bridge:
+  port: 4800
+  publicUrl: http://control:4800
+```
+
+```bash
+fleet bridge --port 4800 --public-url http://control:4800
+```
+
+Nothing else depends on it, which is exactly why it is easy to miss: ships
+register, workspaces work, terminals work, and only the armory silently never
+arrives. `fleet launch` warns when a config declares `source: remote` ships and
+no `publicUrl`, but it is a warning, not an error — a remote ship reached through
+a tunnel on this host is legitimate.
+
+To confirm it took, ask the bridge what each ship has applied:
+
+```bash
+fleet client --bridge-url http://control:4800 armory ships
+```
+
+A ship stuck at `never` or `error` after a change to the armory is the symptom of
+an unreachable `publicUrl`.
 
 ## The `<repo>/<name>` uniqueness constraint
 
@@ -153,11 +190,14 @@ host.
 
 ## Reachability, end to end
 
-Three hops have to work:
+Four hops have to work:
 
 1. Browser → GUI server. The GUI serves the app and proxies `/bridge/*`.
 2. GUI server → bridge, over the `bridgeUrl` you configured.
 3. Bridge → each ship, over the URL you registered, for both HTTP and WebSockets.
+4. Each ship → bridge, over `publicUrl`, to pull the armory. This is the only hop
+   that runs ship-to-bridge, and the only one a firewall rule allowing just
+   "bridge to ships" will block.
 
 A terminal in the browser is piped browser → GUI → bridge → ship's tmux session,
 so the WebSocket path must be open at every hop, not just HTTP.
@@ -185,3 +225,4 @@ definition. See [Running agents](/guides/running-agents/).
 - [The bridge](/concepts/bridge/) — the ownership index and routing.
 - [Managing ships](/guides/managing-ships/) — registration and offline behaviour
   in detail.
+- [The Armory](/guides/the-armory/) — the one thing that needs `publicUrl`.

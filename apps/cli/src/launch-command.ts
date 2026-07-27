@@ -11,12 +11,17 @@ import { startBridge } from "fleet-bridge";
 import { startShip } from "fleet-ship";
 import { startClientServer } from "fleet-client";
 import { normalizeUrl } from "./client";
-import { CONFIG_TEMPLATE, loadLaunchConfig } from "./launch-config";
+import { CONFIG_TEMPLATE, loadLaunchConfig, publicUrlWarning } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";
 
 async function runLaunch(configPath: string): Promise<void> {
   const config = await loadLaunchConfig(configPath);
+
+  const warning = publicUrlWarning(config);
+  if (warning) {
+    console.warn(`fleet launch: ${warning}`);
+  }
 
   let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
   if (config.bridge) {

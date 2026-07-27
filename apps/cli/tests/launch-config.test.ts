@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse } from "yaml";
 import { resolve } from "node:path";
-import { CONFIG_TEMPLATE, parseLaunchConfig } from "../src/launch-config";
+import { CONFIG_TEMPLATE, parseLaunchConfig, publicUrlWarning } from "../src/launch-config";
 
 describe("parseLaunchConfig", () => {
   test("normalizes a full config (bridge + gui + local & remote ships)", () => {
@@ -71,6 +71,16 @@ describe("parseLaunchConfig", () => {
     expect(config.gui).toEqual({ bridgeUrl: "http://host:4800" });
   });
 
+  test("bridge carries an explicit publicUrl through unchanged", () => {
+    const config = parseLaunchConfig({ bridge: { publicUrl: "http://control.internal:4800" } });
+    expect(config.bridge).toEqual({
+      dataDirectory: resolve("./.fleet/bridge"),
+      port: 4800,
+      name: "bridge",
+      publicUrl: "http://control.internal:4800",
+    });
+  });
+
   test("the init scaffold is a valid config", () => {
     const config = parseLaunchConfig(parse(CONFIG_TEMPLATE));
     expect(config.bridge?.name).toBe("my-fleet-bridge");
@@ -78,5 +88,45 @@ describe("parseLaunchConfig", () => {
     expect(config.ships).toEqual([
       { key: "ship-a", source: "local", name: "ship-a", fleetDirectory: resolve("./fleet/ship-a"), port: 4700 },
     ]);
+  });
+});
+
+describe("publicUrlWarning", () => {
+  const remoteConfig = (bridge: Record<string, unknown>) =>
+    parseLaunchConfig({
+      bridge,
+      ships: {
+        "ship-a": { source: "remote", url: "http://a:4700" },
+        "ship-b": { source: "remote", url: "http://b:4700" },
+      },
+    });
+
+  test("warns when remote ships are registered with no publicUrl", () => {
+    const warning = publicUrlWarning(remoteConfig({ port: 4800 }));
+    expect(warning).toContain('remote ships "ship-a", "ship-b"');
+    expect(warning).toContain("http://localhost:4800");
+    expect(warning).toContain("set bridge.publicUrl");
+  });
+
+  test("uses the singular for one remote ship", () => {
+    const config = parseLaunchConfig({
+      bridge: {},
+      ships: { "ship-a": { source: "remote", url: "http://a:4700" } },
+    });
+    expect(publicUrlWarning(config)).toContain('remote ship "ship-a"');
+  });
+
+  test("stays quiet once publicUrl is set", () => {
+    expect(publicUrlWarning(remoteConfig({ publicUrl: "http://control:4800" }))).toBeNull();
+  });
+
+  test("stays quiet with only local ships", () => {
+    const config = parseLaunchConfig({ bridge: {}, ships: { "ship-a": {} } });
+    expect(publicUrlWarning(config)).toBeNull();
+  });
+
+  test("stays quiet with no bridge to reach", () => {
+    const config = parseLaunchConfig({ ships: { "ship-a": { source: "remote", url: "http://a:4700" } } });
+    expect(publicUrlWarning(config)).toBeNull();
   });
 });

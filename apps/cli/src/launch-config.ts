@@ -24,6 +24,14 @@ const BridgeSectionSchema = z.object({
   dataDirectory: z.string().min(1).default(DEFAULT_BRIDGE_DATA_DIRECTORY),
   port: z.number().int().default(DEFAULT_BRIDGE_PORT),
   name: z.string().min(1).default(DEFAULT_BRIDGE_NAME),
+  /**
+   * URL *ships* use to reach this bridge — it is handed to each ship so it can
+   * pull the armory, so it must resolve from the ships' hosts, not only from the
+   * one running the launch. Omitted, the bridge falls back to
+   * `http://localhost:<port>`, which is right for a single-host fleet and wrong
+   * for any ship on another machine.
+   */
+  publicUrl: z.string().min(1).optional(),
 });
 
 const GuiSectionSchema = z.object({
@@ -79,6 +87,7 @@ export interface NormalizedBridge {
   dataDirectory: string;
   port: number;
   name: string;
+  publicUrl?: string;
 }
 
 export interface NormalizedLocalShip {
@@ -147,6 +156,30 @@ export function parseLaunchConfig(raw: unknown): NormalizedLaunchConfig {
   return { bridge, gui: parsed.gui, ships };
 }
 
+/**
+ * The warning a config earns by registering ships on other hosts without telling
+ * them how to reach this bridge, or `null` when there is nothing to say.
+ *
+ * Deliberately not an error: a `source: remote` ship can be on this very host
+ * (behind a tunnel, in a container publishing a port), where the
+ * `http://localhost:<port>` fallback resolves fine. But when it is wrong it fails
+ * silently — the ship is registered, workspaces work, and only the armory never
+ * arrives — so it is worth saying out loud.
+ */
+export function publicUrlWarning(config: NormalizedLaunchConfig): string | null {
+  if (!config.bridge || config.bridge.publicUrl) return null;
+
+  const remote = config.ships.filter((ship) => ship.source === "remote");
+  if (remote.length === 0) return null;
+
+  const names = remote.map((ship) => `"${ship.key}"`).join(", ");
+  return (
+    `bridge.publicUrl is not set, so remote ${remote.length === 1 ? "ship" : "ships"} ${names} will be ` +
+    `told this bridge is at http://localhost:${config.bridge.port}, which on their hosts is themselves; ` +
+    `set bridge.publicUrl to a URL those hosts can reach`
+  );
+}
+
 /** Standard scaffold written by `fleet launch init` (commented for humans to edit). */
 export const CONFIG_TEMPLATE = `# fleet-config.yaml — configuration for \`fleet launch\`.
 # Every section is optional; only the sections present are started.
@@ -156,6 +189,7 @@ bridge:
   dataDirectory: ./.fleet/bridge
   port: 4800
   name: my-fleet-bridge
+  # publicUrl: http://this-host:4800  # how ships reach this bridge; required if any ship is on another host
 
 # The web gui. Proxies to the bridge above by default.
 gui:

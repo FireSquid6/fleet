@@ -7,9 +7,9 @@ sidebar:
 
 A ship serves an [Elysia](https://elysiajs.com) app on the port given by
 `fleet ship --port` (default `4700`). There is no authentication and no route
-prefix: paths are absolute from the origin. The app is composed of three
-plugins — workspaces (including the terminal WebSocket), events, and system
-resources.
+prefix: paths are absolute from the origin. The app is composed of four
+plugins — workspaces (including the terminal WebSocket), events, system
+resources, and the armory.
 
 ## Routes at a glance
 
@@ -27,6 +27,8 @@ resources.
 | GET | `/workspaces/:repo/:name/agent/status` | 200 | `AgentStatus` or `null` |
 | POST | `/workspaces/:repo/:name/agent/status` | 200 | `AgentStatus` |
 | GET | `/system-resources` | 200 | `SystemResources` |
+| POST | `/armory/sync` | 200 | `ArmorySyncState` |
+| GET | `/armory` | 200 | `ArmorySyncState` |
 | WS | `/workspaces/:repo/:name/terminal` | — | webterm protocol |
 | WS | `/events` | — | `FleetEvent` stream |
 
@@ -265,6 +267,68 @@ sampled over a 100 ms window, so this route takes at least that long to respond.
 ```
 
 This route has no error mapping — it always returns `200` on a healthy host.
+
+## `POST /armory/sync`
+
+The bridge's push telling this ship to re-pull and re-install the
+[armory](/guides/the-armory/). A ship holds no bridge address of its own, so
+`bridgeUrl` is how it learns where to pull from — and it only ever pulls from a
+bridge that has spoken to it.
+
+```ts
+{ bridgeUrl: string; revision: string }   // request
+```
+
+`revision` is a hint that something changed, not an instruction: the ship applies
+whatever revision the manifest it then fetches reports, because the armory may
+change again between the push and the fetch.
+
+The ship pulls `GET /armory` and `GET /armory/file` from `bridgeUrl`, verifying
+every file's `sha256` against the manifest before writing it into
+`~/.config/autosmith/fleet-ship/armory/files/`, then installs. Responds with the
+resulting `ArmorySyncState` (below). The call is synchronous — it returns after
+the install, not when the pull is queued.
+
+A single bad file fails the whole sync: the ship keeps the revision it already
+had and records `lastError`, rather than recording a revision that promises an
+armory it only half applied.
+
+| Status | Cause |
+| --- | --- |
+| `400` | `bridge url must be http(s): <url>`; `invalid bridge url: <url>`. |
+| `422` | `bridgeUrl` or `revision` missing. |
+| `500` | `armory install failed: <detail>` — the pull succeeded, the install did not. |
+| `502` | The pull failed: `bridge answered <status> for the armory file <path>`, a manifest or file that did not validate, an unsafe path, or a file whose bytes did not match the manifest hash. |
+
+## `GET /armory`
+
+What this ship has pulled and applied. Read-only; it triggers nothing.
+
+```ts
+{
+  revision: string | null;      // applied revision; null until the first successful sync
+  bridgeUrl: string | null;     // the bridge it last pulled from
+  syncedAt: string | null;      // ISO timestamp of the last successful sync
+  fileCount: number;
+  install: {                    // the last install applied from the cache; null until one has run
+    skillCount: number;
+    pluginCount: number;
+    dotfileCount: number;       // symlinks in place; a conflicted or skipped mapping is not one
+    removedCount: number;       // files uninstalled because the armory no longer carries them
+    conflicts: string[];        // destinations left alone because something unmanaged was there
+    warnings: string[];
+    installedAt: string | null;
+  } | null;
+  lastError: string | null;     // most recent failed sync or install, cleared by the next success
+}
+```
+
+A ship that has never synced answers with `revision`, `bridgeUrl`, `syncedAt`,
+`install`, and `lastError` all `null`, and `fileCount` `0` — a cold cache is not
+an error.
+
+The bridge aggregates this across the fleet as
+[`GET /armory/ships`](/reference/bridge-api/).
 
 ## `WS /events`
 

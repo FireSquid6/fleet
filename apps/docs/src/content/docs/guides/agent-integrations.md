@@ -14,6 +14,17 @@ small **startup plugin** per provider detects a fleet workspace at session start
 and injects a mandatory "activate the fleet-agent skill" instruction. A ship
 installs both into the agent's home directory every time it starts.
 
+:::note
+This page is about the integrations **Fleet owns**: `fleet-agent` and its startup
+plugins ship inside the `fleet` binary, are installed at ship startup, are
+repaired with `fleet ship plugin`, and are the same on every fleet.
+
+Skills and plugins **you** write are a different mechanism — put them in [the
+armory](/guides/the-armory/), a directory on the bridge that every ship pulls and
+installs. Fleet never writes to the armory, and `fleet ship plugin doctor` does
+not report on it; use `fleet client armory ships` for that.
+:::
+
 ## What happens at ship startup
 
 `fleet ship` installs the skill and the plugins before it begins serving. The
@@ -168,6 +179,8 @@ overridden.
 
 ## Related
 
+- [The Armory](/guides/the-armory/) — distributing skills, plugins, and dotfiles
+  you write to every ship.
 - [Running agents](/guides/running-agents/) — the workflow the skill teaches.
 - [Agents](/concepts/agents/) — the status model.
 - [CLI reference](/reference/cli/) — `fleet ship plugin` flags.

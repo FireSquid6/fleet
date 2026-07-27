@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { ArmorySyncState } from "fleet-protocol";
 import {
+  abbreviateRevision,
+  armoryShipState,
+  formatArmoryShipTable,
+  formatArmoryTable,
+  formatTimestamp,
   formatFleetWorkspaceTable,
   formatRepoTable,
   formatShipTable,
@@ -78,5 +84,123 @@ describe("formatRepoTable", () => {
     expect(lines[0]).toBe("NAME         URL                     PROVIDER");
     expect(lines[1]).toBe("Hello-World  git@github.com:x/y.git  github");
     expect(lines[2]).toBe("x            u                       custom");
+  });
+});
+
+const REVISION_A = "a".repeat(64);
+const REVISION_B = "b".repeat(64);
+
+function syncState(overrides: Partial<ArmorySyncState> = {}): ArmorySyncState {
+  return {
+    revision: REVISION_A,
+    bridgeUrl: "http://bridge:4800",
+    syncedAt: "2026-07-26T10:00:00.000Z",
+    fileCount: 3,
+    install: null,
+    lastError: null,
+    ...overrides,
+  };
+}
+
+describe("abbreviateRevision", () => {
+  test("takes the first 12 characters", () => {
+    expect(abbreviateRevision(REVISION_A)).toBe("aaaaaaaaaaaa");
+  });
+
+  test("renders a missing revision as a placeholder", () => {
+    expect(abbreviateRevision(null)).toBe("-");
+  });
+});
+
+describe("formatTimestamp", () => {
+  test("renders an ISO string unchanged", () => {
+    expect(formatTimestamp("2026-07-26T10:00:00.000Z")).toBe("2026-07-26T10:00:00.000Z");
+  });
+
+  test("normalizes the Date that Eden revives a timestamp into", () => {
+    expect(formatTimestamp(new Date("2026-07-26T10:00:00.000Z"))).toBe("2026-07-26T10:00:00.000Z");
+  });
+
+  test("renders a missing timestamp as a placeholder", () => {
+    expect(formatTimestamp(null)).toBe("-");
+  });
+
+  test("passes an unparseable value through rather than printing Invalid Date", () => {
+    expect(formatTimestamp("not a date")).toBe("not a date");
+  });
+});
+
+describe("armoryShipState", () => {
+  test("is unknown when the bridge could not reach the ship", () => {
+    expect(armoryShipState(REVISION_A, null)).toBe("unknown");
+  });
+
+  test("is never when the ship has not applied a revision", () => {
+    expect(armoryShipState(REVISION_A, syncState({ revision: null }))).toBe("never");
+  });
+
+  test("compares the applied revision against the bridge's", () => {
+    expect(armoryShipState(REVISION_A, syncState())).toBe("in sync");
+    expect(armoryShipState(REVISION_B, syncState())).toBe("behind");
+  });
+
+  test("error outranks both the revision comparison and a null revision", () => {
+    expect(armoryShipState(REVISION_A, syncState({ lastError: "pull failed" }))).toBe("error");
+    expect(armoryShipState(REVISION_B, syncState({ lastError: "pull failed" }))).toBe("error");
+    expect(armoryShipState(REVISION_A, syncState({ revision: null, lastError: "pull failed" }))).toBe(
+      "error",
+    );
+  });
+});
+
+describe("formatArmoryTable", () => {
+  test("renders headers only for an empty list", () => {
+    expect(formatArmoryTable([])).toBe("SECTION  PATH  SIZE  MODE");
+  });
+
+  test("keeps the section prefix on PATH and renders the mode in octal", () => {
+    const out = formatArmoryTable([
+      {
+        path: "dotfiles/gitconfig",
+        section: "dotfiles",
+        size: 42,
+        sha256: "0".repeat(64),
+        mode: 0o644,
+      },
+      {
+        path: "skills/reviewer/SKILL.md",
+        section: "skills",
+        size: 1024,
+        sha256: "1".repeat(64),
+        mode: 0o755,
+      },
+    ]);
+
+    const lines = out.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe("SECTION   PATH                      SIZE  MODE");
+    expect(lines[1]).toBe("dotfiles  dotfiles/gitconfig        42    0644");
+    expect(lines[2]).toBe("skills    skills/reviewer/SKILL.md  1024  0755");
+  });
+});
+
+describe("formatArmoryShipTable", () => {
+  test("renders headers only for an empty list", () => {
+    expect(formatArmoryShipTable(REVISION_A, [])).toBe("SHIP  STATUS  REVISION  SYNCED  STATE");
+  });
+
+  test("derives STATE per ship and blanks an unreachable ship's columns", () => {
+    const out = formatArmoryShipTable(REVISION_A, [
+      { ship: "orca", status: "online", state: syncState() },
+      { ship: "krill", status: "online", state: syncState({ revision: REVISION_B }) },
+      { ship: "a", status: "offline", state: null },
+    ]);
+
+    const lines = out.split("\n");
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe("SHIP   STATUS   REVISION      SYNCED                    STATE");
+    expect(lines[1]).toBe("orca   online   aaaaaaaaaaaa  2026-07-26T10:00:00.000Z  in sync");
+    expect(lines[2]).toBe("krill  online   bbbbbbbbbbbb  2026-07-26T10:00:00.000Z  behind");
+    expect(lines[3]).toBe("a      offline  -             -                         unknown");
   });
 });
