@@ -2,7 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Git, GitError, parseBranches, parseLog, parseStatus, parseWorktrees } from "./index";
+import {
+  Git,
+  GitError,
+  parseBranches,
+  parseLog,
+  parseLsRemote,
+  parseStatus,
+  parseWorktrees,
+} from "./index";
 
 // Deterministic identity so commits never fail on missing user.name/user.email,
 // regardless of the machine's global git config (the analog of tmux-bun's
@@ -207,6 +215,31 @@ describe("parseBranches", () => {
   });
 });
 
+describe("parseLsRemote", () => {
+  test("reads sha/ref pairs and ignores blank and non-ref lines", () => {
+    const mainSha = "1".repeat(40);
+    const featureSha = "a".repeat(64);
+    const stdout = [
+      "ref: refs/heads/main\tHEAD",
+      `${mainSha}\tHEAD`,
+      `${mainSha}\trefs/heads/main`,
+      "",
+      `${featureSha}\trefs/heads/feature/one`,
+      "",
+    ].join("\n");
+
+    expect(parseLsRemote(stdout)).toEqual([
+      { sha: mainSha, ref: "HEAD" },
+      { sha: mainSha, ref: "refs/heads/main" },
+      { sha: featureSha, ref: "refs/heads/feature/one" },
+    ]);
+  });
+
+  test("returns [] for empty output", () => {
+    expect(parseLsRemote("")).toEqual([]);
+  });
+});
+
 // --- end-to-end against a real git binary -----------------------------------
 
 const gitAvailable = await (async () => {
@@ -388,6 +421,30 @@ suite("git-bun end-to-end", () => {
     expect(names).not.toContain("feature");
   });
 
+  test("switchBranch creates a branch at an explicit start point, tracking it", async () => {
+    const origin = join(root, "start-point-origin");
+    const repo = await Git.init(origin, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(origin, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.switchBranch("late", { create: true });
+    await Bun.write(join(origin, "late.txt"), "only on late\n");
+    await repo.add(".");
+    const lateSha = await repo.commit("late commit");
+    await repo.switchBranch("main");
+
+    const clone = await Git.clone(origin, join(root, "start-point-clone"), { env: IDENTITY });
+    // `checkout.guess` off is what makes the start point necessary rather than merely
+    // explicit: a bare `switch late` cannot infer `origin/late` under this config.
+    await clone.setConfig("checkout.guess", "false");
+    await expect(clone.switchBranch("late")).rejects.toThrow(GitError);
+
+    await clone.switchBranch("late", { create: true, startPoint: "origin/late" });
+    expect(await clone.currentBranch()).toBe("late");
+    expect(await clone.headSha()).toBe(lateSha);
+    expect((await clone.branches()).find((b) => b.name === "late")?.upstream).toBe("origin/late");
+  });
+
   test("worktreeAdd returns a Git handle bound to the new directory", async () => {
     const dir = join(root, "wt-main");
     const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
@@ -434,6 +491,54 @@ suite("git-bun end-to-end", () => {
       fetchUrl: "https://example.com/x.git",
       pushUrl: "https://example.com/x.git",
     });
+  });
+
+  test("lsRemote reports the heads a remote advertises", async () => {
+    const dir = join(root, "ls-remote-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(dir, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.createBranch("feature/one");
+
+    const heads = await Git.lsRemote(dir, { cwd: root, heads: true });
+    expect(heads.map((h) => h.ref).sort()).toEqual(["refs/heads/feature/one", "refs/heads/main"]);
+    expect(heads[0]?.sha).toMatch(/^[0-9a-f]{40}$/);
+
+    const found = await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "feature/one" });
+    expect(found.map((h) => h.ref)).toEqual(["refs/heads/feature/one"]);
+
+    expect(await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "no-such-branch" })).toEqual(
+      [],
+    );
+  });
+
+  test("lsRemote matches a pattern against the tail of a ref, not the whole name", async () => {
+    const dir = join(root, "ls-remote-tail-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(dir, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.createBranch("feature/one");
+
+    // `one` is not a branch here, yet git still reports `refs/heads/feature/one` —
+    // which is why callers testing for one specific branch must compare the fully
+    // qualified ref rather than treating a non-empty result as "it exists".
+    const tail = await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "one" });
+    expect(tail.map((h) => h.ref)).toEqual(["refs/heads/feature/one"]);
+  });
+
+  test("lsRemote reports tags when asked, and only branches when not", async () => {
+    const dir = join(root, "ls-remote-tag-repo");
+    const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
+    await Bun.write(join(dir, "a.txt"), "x\n");
+    await repo.add(".");
+    await repo.commit("base");
+    await repo.command.run(["tag", "v1.0"]);
+
+    const refs = await Git.lsRemote(dir, { cwd: root, heads: true, tags: true, pattern: "v1.0" });
+    expect(refs.map((r) => r.ref)).toContain("refs/tags/v1.0");
+    expect(await Git.lsRemote(dir, { cwd: root, heads: true, pattern: "v1.0" })).toEqual([]);
   });
 
   test("genuine failures surface as GitError", async () => {

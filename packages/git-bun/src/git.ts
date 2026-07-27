@@ -6,6 +6,7 @@ import {
   LOG_FORMAT,
   parseBranches,
   parseLog,
+  parseLsRemote,
   parseStatus,
   parseWorktrees,
 } from "./format";
@@ -24,9 +25,11 @@ import type {
   InitOptions,
   ListBranchesOptions,
   LogOptions,
+  LsRemoteOptions,
   PullOptions,
   PushOptions,
   RemoteInfo,
+  RemoteRef,
   ResetOptions,
   RestoreOptions,
   ShowOptions,
@@ -285,15 +288,16 @@ export class Git {
   }
 
   /**
-   * Switch branches (`switch`) — the modern, less error-prone alternative to
-   * {@link checkout}. Pass `{ create: true }` for `-c`, `{ detach: true }` for
-   * a detached checkout.
+   * Switch branches (`switch [-c] [--detach] <ref> [startPoint]`) — the modern,
+   * less error-prone alternative to {@link checkout}. Pass `{ create: true }` for
+   * `-c`, `{ detach: true }` for a detached checkout.
    */
   async switchBranch(ref: string, options: SwitchOptions = {}): Promise<void> {
     const args = ["switch"];
     if (options.create) args.push("-c");
     if (options.detach) args.push("--detach");
     args.push(ref);
+    if (options.startPoint !== undefined) args.push(options.startPoint);
     await this.command.run(args);
   }
 
@@ -357,6 +361,36 @@ export class Git {
   /** Add a remote (`remote add <name> <url>`). */
   async addRemote(name: string, url: string): Promise<void> {
     await this.command.run(["remote", "add", name, url]);
+  }
+
+  /**
+   * List the refs a remote advertises (`ls-remote`) — a metadata-only round trip,
+   * so it answers "does this branch exist upstream?" without fetching objects.
+   * Static because the query is addressed to `url`, not to a working directory —
+   * but `options.cwd` is still required, since it decides whose git config the
+   * probe reads (see {@link LsRemoteOptions.cwd}).
+   *
+   * `options.pattern` narrows the listing by *tail* match, so a pattern of `"foo"`
+   * also returns `refs/heads/bar/foo`; compare `ref` against the fully qualified
+   * name to test a specific branch.
+   */
+  static async lsRemote(
+    url: string,
+    options: LsRemoteOptions,
+    backend?: GitBackend,
+  ): Promise<RemoteRef[]> {
+    const command = new GitCommand(
+      { cwd: options.cwd, binary: options.binary, env: options.env },
+      backend,
+    );
+    const args = ["ls-remote"];
+    if (options.heads) args.push("--heads");
+    if (options.tags) args.push("--tags");
+    // End option parsing here, so this command cannot read a `url` or `pattern`
+    // beginning with `-` as a flag.
+    args.push("--", url);
+    if (options.pattern !== undefined) args.push(options.pattern);
+    return parseLsRemote(await command.run(args));
   }
 
   // --- worktrees -----------------------------------------------------------

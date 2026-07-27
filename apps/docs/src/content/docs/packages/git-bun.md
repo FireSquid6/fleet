@@ -169,7 +169,7 @@ than a loud failure.
 | `branches` | `(options?: ListBranchesOptions) => Promise<BranchInfo[]>` | `branch --format=…`, plus `-a` (`{ all }`) or `-r` (`{ remote }`) |
 | `createBranch` | `(name: string, options?: CreateBranchOptions) => Promise<void>` | `branch <name> [startPoint]` — creates without checking out |
 | `checkout` | `(ref: string, options?: CheckoutOptions) => Promise<void>` | `checkout [-b] <ref>` |
-| `switchBranch` | `(ref: string, options?: SwitchOptions) => Promise<void>` | `switch [-c] [--detach] <ref>` |
+| `switchBranch` | `(ref: string, options?: SwitchOptions) => Promise<void>` | `switch [-c] [--detach] <ref> [startPoint]` |
 | `deleteBranch` | `(name: string, options?: DeleteBranchOptions) => Promise<void>` | `branch -d`, or `-D` with `{ force: true }` |
 
 ```ts
@@ -193,15 +193,40 @@ cases that need it.
 | `push` | `(options?: PushOptions) => Promise<void>` | `remote`, `branch`, `setUpstream`, `force`, `tags` |
 | `remotes` | `() => Promise<RemoteInfo[]>` | Parsed from `remote -v`, one entry per remote name |
 | `addRemote` | `(name: string, url: string) => Promise<void>` | `remote add` |
+| `Git.lsRemote` | `(url: string, options: LsRemoteOptions, backend?: GitBackend) => Promise<RemoteRef[]>` | `cwd` (required), `heads`, `tags`, `pattern`, `binary`, `env` |
 
 ```ts
 await repo.addRemote("origin", "git@github.com:org/repo.git");
 await repo.push({ remote: "origin", branch: "feature", setUpstream: true });
 await repo.fetch({ all: true, prune: true });
+
+const heads = await Git.lsRemote("git@github.com:org/repo.git", {
+  cwd: "/srv",
+  heads: true,
+  pattern: "main",
+});
+const exists = heads.some((head) => head.ref === "refs/heads/main");
 ```
 
 `RemoteInfo` is `{ name, fetchUrl, pushUrl }` — the two URL lines git prints per
 remote are folded into a single entry.
+
+`lsRemote` is static because the query is addressed to a URL rather than to a
+working directory, and it is metadata-only: it reports what a remote advertises
+without fetching a single object, which is how you answer "does this branch exist
+upstream?" cheaply. `RemoteRef` is `{ sha, ref }`, with `ref` fully qualified
+(`refs/heads/main`), and `--heads`/`--tags` decide which kinds of ref are listed.
+
+`LsRemoteOptions.pattern` is worth calling out: git matches it against the *tail*
+of a ref, so `"foo"` also reports `refs/heads/bar/foo`. Compare `ref` against the
+fully qualified name, as the example does, whenever you mean one specific branch —
+a non-empty result on its own does not mean the branch exists.
+
+`LsRemoteOptions.cwd` is required even though the query goes to a URL, because
+`-C <cwd>` decides which repository's configuration git reads: remote names,
+`url.<base>.insteadOf` rewrites, and credential helpers all come from there. Point
+it at a directory whose configuration you intend to apply — for a probe that
+precedes a clone, the directory the clone will run in.
 
 ## Worktrees
 
@@ -342,6 +367,7 @@ import {
   parseStatus,
   parseBranches,
   parseWorktrees,
+  parseLsRemote,
 } from "git-bun";
 ```
 

@@ -8,7 +8,8 @@
  */
 
 import { lstat, readdir, rm } from "node:fs/promises";
-import { Git, type DiffOptions } from "git-bun";
+import { dirname } from "node:path";
+import { Git, GitError, type DiffOptions } from "git-bun";
 import { Tmux } from "tmux-bun";
 import {
   FleetIdentifierSchema,
@@ -43,8 +44,9 @@ export class WorkspaceError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "WorkspaceError";
   }
 }
@@ -74,6 +76,77 @@ const DEFAULT_BRANCH_CANDIDATES = ["main", "master", "origin/main", "origin/mast
 
 function defaultBranch(names: readonly string[]): string | null {
   return DEFAULT_BRANCH_CANDIDATES.find((candidate) => names.includes(candidate)) ?? null;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Run `work`, removing `dir` again if it throws — including when a failed `git clone`
+ * leaves the destination behind, which it does whenever it gets as far as the
+ * checkout. Without that, one failure makes the `(repoName, name)` slot a permanent
+ * `409`. `assertCloneDestinationAvailable` proved `dir` did not exist, so removing it
+ * can only undo our own work.
+ */
+async function withDestinationRollback<T>(dir: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch (cleanup) {
+      // Report both: the original failure explains what went wrong, and a rollback
+      // that fails leaves the slot genuinely wedged until an operator removes `dir`,
+      // which is a server-side fault however the original failure was classified.
+      throw new WorkspaceError(
+        `${messageOf(error)} (and the partial clone at ${dir} could not be removed: ${messageOf(cleanup)})`,
+        500,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Clone `url` into `dir` and put the workspace on `branch`, a name the remote did not
+ * advertise as either a branch or a tag. The clone's own refs decide whether `branch`
+ * tracks `origin/<branch>` or is forked off what the clone checked out. Callers own
+ * rolling `dir` back if this throws.
+ */
+async function cloneOntoBranch(url: string, dir: string, branch: string): Promise<void> {
+  const git = await Git.clone(url, dir);
+  // A clone can exit 0 with nothing checked out — an empty remote, or one whose HEAD
+  // names a deleted branch — and a branch forked off that has no commits, so every
+  // later git read on the workspace fails. Refuse it while the mess is still ours.
+  if ((await git.command.tryRun(["rev-parse", "--verify", "HEAD"])).exitCode !== 0) {
+    throw new WorkspaceError(`remote has no usable HEAD to create branch "${branch}" from`, 400);
+  }
+  if ((await git.currentBranch()) === branch) return;
+
+  // The probe's answer can be stale — `branch` may have been pushed since — so decide
+  // from the refs the clone fetched. Naming `origin/<branch>` as the start point sets
+  // upstream and, unlike a bare `switch`, does not depend on `checkout.guess`.
+  const remotes = await git.branches({ remote: true });
+  const tracked = remotes.some((remote) => remote.name === `origin/${branch}`);
+  try {
+    await git.switchBranch(branch, {
+      create: true,
+      startPoint: tracked ? `origin/${branch}` : undefined,
+    });
+  } catch (error) {
+    // The clone already succeeded, so git refusing the branch means a name it will not
+    // take (`HEAD`, `a..b`, or one colliding with an existing ref) — the caller's
+    // input, not a server fault. Scoped to this step so a failed clone stays a 500.
+    if (error instanceof GitError) {
+      const detail = error.stderr.trim() === "" ? error.message : error.stderr.trim();
+      throw new WorkspaceError(`could not create branch "${branch}": ${detail}`, 400, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }
 
 export class WorkspaceManager {
@@ -352,7 +425,11 @@ export class WorkspaceManager {
   async create(options: CreateWorkspaceOptions): Promise<WorkspaceSummary> {
     const parsed = CreateWorkspaceRequestSchema.safeParse(options);
     if (!parsed.success) throw new WorkspaceError("invalid workspace create request", 400);
-    const { url, repoName, name, branch } = parsed.data;
+    const { url, repoName, name } = parsed.data;
+    // The protocol only types `branch` as a string, so a blank one reaches here. This
+    // trimmed value is the probe pattern, the ref git resolves, and what clients see.
+    const branch = parsed.data.branch.trim();
+    if (branch.length === 0) throw new WorkspaceError("branch must not be empty", 400);
     let dir: string;
     try {
       dir = await assertCloneDestinationAvailable(this.config.fleetDirectory, repoName, name);
@@ -361,7 +438,23 @@ export class WorkspaceManager {
       if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
       throw error;
     }
-    await Git.clone(url, dir, { branch });
+
+    // A failing probe propagates as a GitError instead of being read as "the ref
+    // doesn't exist", so a network blip can't put the workspace on a branch forked
+    // off the wrong place. `cwd` is where `Git.clone` runs, so both read one config.
+    const advertised = await Git.lsRemote(url, {
+      cwd: dirname(dir),
+      heads: true,
+      tags: true,
+      pattern: branch,
+    });
+    const isUpstreamRef = advertised.some(
+      (ref) => ref.ref === `refs/heads/${branch}` || ref.ref === `refs/tags/${branch}`,
+    );
+    await withDestinationRollback(dir, async () => {
+      if (isUpstreamRef) await Git.clone(url, dir, { branch });
+      else await cloneOntoBranch(url, dir, branch);
+    });
 
     const summary: WorkspaceSummary = { repoName, name, branch, active: false, agent: null };
     this.emit({ type: "workspace.created", ...this.stamp(), workspace: summary });

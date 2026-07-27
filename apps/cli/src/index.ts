@@ -106,7 +106,7 @@ clientCommand
   .argument("<repoName>", "repo name (the directory the clone lands under)")
   .argument("<name>", "workspace name")
   .requiredOption("-u, --url <url>", "git clone URL")
-  .requiredOption("-b, --branch <branch>", "branch to check out")
+  .requiredOption("-b, --branch <branch>", "branch to check out (created if it does not exist)")
   .action(async (repoName: string, name: string, options: { url: string; branch: string }) => {
     const result = await client().workspaces.post({
       url: options.url,

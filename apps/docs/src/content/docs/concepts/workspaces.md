@@ -74,9 +74,10 @@ mid-scan.
 ```
 
 **Create** clones the repo into `<fleetDirectory>/<repo>/<name>` at the
-requested branch. If the destination already exists the request fails with
-`409`; the ship never clones over an existing directory. A new workspace starts
-`inactive`.
+requested branch, creating that branch off the default branch when the remote
+has no branch or tag by that name. If the destination already exists the request
+fails with `409`; the ship never clones over an existing directory. A new
+workspace starts `inactive`.
 
 **Activate** starts a headless tmux session rooted at the workspace directory.
 Activating an already-active workspace is a `400`.

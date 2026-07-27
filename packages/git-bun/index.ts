@@ -28,6 +28,7 @@ export {
   parseStatus,
   parseWorktrees,
   parseBranches,
+  parseLsRemote,
 } from "./src/format";
 
 export type {
@@ -37,6 +38,7 @@ export type {
   WorktreeInfo,
   BranchInfo,
   RemoteInfo,
+  RemoteRef,
   ResetMode,
   InitOptions,
   CloneOptions,
@@ -48,6 +50,7 @@ export type {
   ResetOptions,
   RestoreOptions,
   ListBranchesOptions,
+  LsRemoteOptions,
   CreateBranchOptions,
   CheckoutOptions,
   SwitchOptions,

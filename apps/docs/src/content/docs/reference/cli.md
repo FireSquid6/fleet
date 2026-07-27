@@ -104,7 +104,7 @@ fleet client create <repoName> <name> -u <url> -b <branch>
 | Option | Argument | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `-u, --url` | `<url>` | yes | none | Git clone URL. |
-| `-b, --branch` | `<branch>` | yes | none | Branch to check out. |
+| `-b, --branch` | `<branch>` | yes | none | Branch to check out; created off the default branch if the remote has no branch or tag by that name. |
 
 :::caution
 `-u/--url` here is the **git clone URL**, not the ship URL. The ship URL is the

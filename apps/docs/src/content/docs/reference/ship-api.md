@@ -55,7 +55,7 @@ carrying the error's message.
 
 | Status | Raised when |
 | --- | --- |
-| `400` | Invalid repo/workspace identifier; a path that escapes the fleet directory; `invalid workspace create request`; `workspace not active: <repo>/<name>`; `workspace already active: <repo>/<name>`; `agent not initialized: <repo>/<name>`. |
+| `400` | Invalid repo/workspace identifier; a path that escapes the fleet directory; `invalid workspace create request`; `branch must not be empty`; `could not create branch "<branch>": <git's reason>`; `remote has no usable HEAD to create branch "<branch>" from`; `workspace not active: <repo>/<name>`; `workspace already active: <repo>/<name>`; `agent not initialized: <repo>/<name>`. |
 | `404` | `workspace not found: <repo>/<name>` — the directory does not exist or is not a git working tree. |
 | `409` | The clone destination already exists (`POST /workspaces`). |
 | `422` | Elysia schema validation — a missing or wrongly typed request body/query field. Note this is Elysia's own error shape, not `{error}`. |
@@ -147,9 +147,21 @@ on `branch`. Returns `201`.
 { repoName: string; name: string; branch: string; active: false; agent: null }
 ```
 
-Errors: `422` if a body field is missing or mistyped, `400` for an invalid
-identifier or `invalid workspace create request`, `409` if the destination
-directory already exists.
+`branch` is trimmed, then looked up on the remote (`git ls-remote`). A name the
+remote advertises as a branch or a tag is checked out by the clone
+(`git clone --branch`; a tag lands detached, as git does). One it advertises as
+neither is created off the repo's default branch after the clone
+(`git switch --create`), so the create succeeds instead of failing. Such a branch
+is never pushed — it exists only in the workspace until something pushes it.
+
+Errors: `422` if a body field is missing or mistyped, `409` if the destination
+directory already exists, and `400` for an invalid identifier,
+`invalid workspace create request`, `branch must not be empty` (blank or
+whitespace-only), a `branch` name git refuses to create, or a remote whose `HEAD`
+does not resolve to a commit (an empty repo, or one whose `HEAD` names a deleted
+branch). Any failure after the destination is claimed removes it again, so a retry
+is never blocked by the `409`; should that removal also fail, the response is a
+`500` naming both the original failure and the directory left behind.
 
 A new workspace always starts inactive; the `workspace.created` event is emitted
 on `/events`.

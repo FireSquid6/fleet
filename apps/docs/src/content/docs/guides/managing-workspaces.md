@@ -108,6 +108,9 @@ and the second is the workspace name.
 created workspace api-gateway/feature-x on branch main
 ```
 
+The branch is created off the repo's default branch if the remote doesn't have
+it yet, so you can start a workspace on a branch that doesn't exist.
+
 A fresh workspace starts **inactive**: the clone exists, but no tmux session does.
 
 :::caution

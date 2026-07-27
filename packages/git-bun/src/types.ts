@@ -85,6 +85,14 @@ export interface RemoteInfo {
   pushUrl: string;
 }
 
+/** A single ref advertised by `git ls-remote`. */
+export interface RemoteRef {
+  /** Commit hash the ref points at. */
+  sha: string;
+  /** Fully qualified ref name, e.g. `"refs/heads/main"`. */
+  ref: string;
+}
+
 /** Mode passed to {@link Git.reset}: how far the reset reaches. */
 export type ResetMode = "soft" | "mixed" | "hard";
 
@@ -219,6 +227,11 @@ export interface SwitchOptions {
   create?: boolean;
   /** Detach HEAD at the given commit (`--detach`). */
   detach?: boolean;
+  /**
+   * Commit/branch the created branch starts at. Defaults to HEAD. A remote-tracking
+   * start point (`origin/x`) also sets the new branch's upstream.
+   */
+  startPoint?: string;
 }
 
 /** Options for {@link Git.deleteBranch}. */
@@ -259,6 +272,30 @@ export interface PushOptions {
   force?: boolean;
   /** Also push tags (`--tags`). */
   tags?: boolean;
+}
+
+/** Options for {@link Git.lsRemote}. */
+export interface LsRemoteOptions {
+  /**
+   * Directory to run from; must already exist. `ls-remote` talks to `url`, but
+   * `-C <cwd>` still decides which repository's config git reads, so remote-name
+   * resolution, `url.<base>.insteadOf` rewrites and credential helpers all come from
+   * there.
+   */
+  cwd: string;
+  /** List only branch refs (`--heads`). */
+  heads?: boolean;
+  /** List only tag refs (`--tags`). */
+  tags?: boolean;
+  /**
+   * Ref pattern to narrow the listing. Git matches it against the *tail* of each
+   * ref, so `"foo"` also reports `refs/heads/bar/foo`.
+   */
+  pattern?: string;
+  /** git executable name/path. Defaults to `"git"`. */
+  binary?: string;
+  /** Extra environment variables for the invocation, e.g. `GIT_SSH_COMMAND`. */
+  env?: Record<string, string>;
 }
 
 /** Options for {@link Git.worktreeAdd}. */

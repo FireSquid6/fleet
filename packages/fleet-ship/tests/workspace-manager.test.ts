@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Git } from "git-bun";
+import { Git, GitError } from "git-bun";
 import type { FleetEvent } from "fleet-protocol";
 import { WorkspaceError, WorkspaceManager, type WorkspaceTmux } from "../src/workspace-manager";
 import { workspaceSessionName } from "../src/workspace-session";
@@ -438,6 +438,196 @@ suite("WorkspaceManager end-to-end", () => {
       const summary = await manager.create({ url: projRepo, repoName: "my-proj", name: "c1", branch: "main" });
       expect(summary.repoName).toBe("my-proj");
       expect(await manager.has("my-proj", "c1")).toBe(true);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create checks out a branch that already exists upstream", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-upstream-"));
+    const upstream = join(base, "upstream");
+    try {
+      const git = await Git.init(upstream, { initialBranch: "main" });
+      await git.setConfig("user.email", "test@example.com");
+      await git.setConfig("user.name", "Test");
+      await Bun.write(join(upstream, "README.md"), "hi\n");
+      await git.add();
+      await git.commit("initial");
+      await git.switchBranch("release/1.x", { create: true });
+      // A file only this branch has, so the assertion below cannot be satisfied by
+      // a fresh branch forked off the default one.
+      await Bun.write(join(upstream, "release.txt"), "shipped\n");
+      await git.add();
+      await git.commit("release commit");
+      await git.switchBranch("main");
+
+      const summary = await manager.create({
+        url: upstream,
+        repoName: "repo",
+        name: "ws-existing-branch",
+        branch: "release/1.x",
+      });
+      expect(summary.branch).toBe("release/1.x");
+
+      const wsDir = manager.workspaceDir("repo", "ws-existing-branch");
+      expect(await new Git({ cwd: wsDir }).currentBranch()).toBe("release/1.x");
+      expect(await Bun.file(join(wsDir, "release.txt")).text()).toBe("shipped\n");
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create makes a branch that does not exist upstream", async () => {
+    const summary = await manager.create({
+      url: sourceRepo,
+      repoName: "repo",
+      name: "ws-new-branch",
+      branch: "feature/brand-new",
+    });
+    expect(summary.branch).toBe("feature/brand-new");
+
+    const wsDir = manager.workspaceDir("repo", "ws-new-branch");
+    const git = new Git({ cwd: wsDir });
+    expect(await git.currentBranch()).toBe("feature/brand-new");
+    // Forked off the clone's default branch, so it carries the upstream commit.
+    expect(await git.headSha()).toBe(await new Git({ cwd: sourceRepo }).headSha());
+    expect((await git.branches({ remote: true })).map((b) => b.name)).toContain("origin/main");
+  });
+
+  test("create checks out a tag that exists upstream instead of forking a branch", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-tag-"));
+    const upstream = join(base, "upstream");
+    try {
+      const git = await Git.init(upstream, { initialBranch: "main" });
+      await git.setConfig("user.email", "test@example.com");
+      await git.setConfig("user.name", "Test");
+      await Bun.write(join(upstream, "README.md"), "hi\n");
+      await git.add();
+      await git.commit("initial");
+      await Bun.write(join(upstream, "tagged.txt"), "v1\n");
+      await git.add();
+      await git.commit("tagged commit");
+      await git.command.run(["tag", "v1.0"]);
+      // Move the default branch past the tag, so the tag's tree is distinguishable
+      // from a branch forked off `main`.
+      await Bun.write(join(upstream, "after.txt"), "later\n");
+      await git.add();
+      await git.commit("after the tag");
+
+      const summary = await manager.create({
+        url: upstream,
+        repoName: "repo",
+        name: "ws-tag",
+        branch: "v1.0",
+      });
+      expect(summary.branch).toBe("v1.0");
+
+      const wsDir = manager.workspaceDir("repo", "ws-tag");
+      expect(await Bun.file(join(wsDir, "tagged.txt")).text()).toBe("v1\n");
+      expect(await Bun.file(join(wsDir, "after.txt")).exists()).toBe(false);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create trims the requested branch before using it", async () => {
+    const summary = await manager.create({
+      url: sourceRepo,
+      repoName: "repo",
+      name: "ws-trim",
+      branch: " main",
+    });
+    expect(summary.branch).toBe("main");
+    expect(await new Git({ cwd: manager.workspaceDir("repo", "ws-trim") }).currentBranch()).toBe(
+      "main",
+    );
+  });
+
+  test("create rejects an empty branch without creating a directory", async () => {
+    await expect(
+      manager.create({ url: sourceRepo, repoName: "repo", name: "ws-blank-branch", branch: "  " }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/branch must not be empty/),
+    });
+
+    await expect(stat(join(fleetDirectory, "repo", "ws-blank-branch"))).rejects.toThrow(/ENOENT/);
+  });
+
+  test("create rejects a branch name git refuses, removing the clone it made", async () => {
+    await expect(
+      manager.create({
+        url: sourceRepo,
+        repoName: "repo",
+        name: "ws-bad-branch",
+        branch: "bad..name",
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringMatching(/could not create branch/),
+    });
+
+    // The clone succeeds and only `switch -c` fails, so this is the rollback path:
+    // nothing may be left behind, or every retry would be a 409.
+    await expect(stat(join(fleetDirectory, "repo", "ws-bad-branch"))).rejects.toThrow(/ENOENT/);
+  });
+
+  test("create rejects a remote whose HEAD resolves to nothing", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-empty-"));
+    const empty = join(base, "empty");
+    try {
+      await Git.init(empty, { initialBranch: "main" });
+
+      await expect(
+        manager.create({ url: empty, repoName: "repo", name: "ws-empty-remote", branch: "main" }),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringMatching(/no usable HEAD/),
+      });
+
+      await expect(stat(join(fleetDirectory, "repo", "ws-empty-remote"))).rejects.toThrow(/ENOENT/);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
+  test("create rolls back a clone that fails partway, on either branch path", async () => {
+    const base = await mkdtemp(join(tmpdir(), "fleet-ship-broken-"));
+    const upstream = join(base, "upstream");
+    try {
+      const git = await Git.init(upstream, { initialBranch: "main" });
+      await git.setConfig("user.email", "test@example.com");
+      await git.setConfig("user.name", "Test");
+      await Bun.write(join(upstream, "ok.txt"), "hi\n");
+      await git.add();
+      await git.commit("base");
+      // A committed path no filesystem can create, so `git clone` fails during its
+      // checkout — after it has already made the destination directory.
+      const blob = (await git.command.run(["hash-object", "-w", "ok.txt"])).trim();
+      await git.command.run([
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${blob},${"x".repeat(300)}`,
+      ]);
+      await git.commit("a path that cannot be checked out");
+
+      for (const [name, branch] of [
+        ["ws-broken-existing", "main"],
+        ["ws-broken-new", "brand-new"],
+      ] as const) {
+        const failure = await manager
+          .create({ url: upstream, repoName: "repo", name, branch })
+          .then(
+            () => null,
+            (error: unknown) => error,
+          );
+        // A clone that dies is the ship's problem, never the caller's branch name, so
+        // it must not be classified as a 400 by the branch-creation mapping.
+        expect(failure).toBeInstanceOf(GitError);
+        expect(failure).not.toBeInstanceOf(WorkspaceError);
+        await expect(stat(join(fleetDirectory, "repo", name))).rejects.toThrow(/ENOENT/);
+      }
     } finally {
       await rm(base, { recursive: true, force: true });
     }
