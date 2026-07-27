@@ -1,12 +1,13 @@
 /**
  * combobox.test.ts — the pure parts of the picker: where the highlight moves,
- * what Enter means, and how a matched string is cut in two for a row that styles
- * its halves differently. The component around them cannot be rendered here —
- * this package has no DOM harness — so everything that can be a function is one.
+ * what Enter means, where the portalled list is placed against the input, and how
+ * a matched string is cut in two for a row that styles its halves differently.
+ * The component around them cannot be rendered here — this package has no DOM
+ * harness — so everything that can be a function is one.
  */
 
 import { describe, expect, test } from "bun:test";
-import { enterAction, moveActive, splitRanges } from "../src/components/ui/combobox";
+import { enterAction, moveActive, placeList, placementStyle, splitRanges } from "../src/components/ui/combobox";
 
 describe("moveActive", () => {
   test("arrives at the first row going down and the last going up", () => {
@@ -52,6 +53,61 @@ describe("enterAction", () => {
   test("with nothing highlighted and no free text, Enter only dismisses", () => {
     expect(enterAction(-1, 3, false)).toBe("dismiss");
     expect(enterAction(-1, 0, false)).toBe("dismiss");
+  });
+});
+
+describe("placeList", () => {
+  /** An input 300px wide, 36px tall, with its top edge at `top`. */
+  const inputAt = (top: number) => ({ top, bottom: top + 36, left: 40, width: 300 });
+
+  test("sits below the input, matching its width and left edge", () => {
+    const placement = placeList(inputAt(100), 800);
+
+    expect(placement).toEqual({ anchor: "below", offset: 142, left: 40, width: 300, maxHeight: 200 });
+  });
+
+  test("flips above when the room below is short and there is more above", () => {
+    // 700px down a 800px viewport: 58px below, 686px above.
+    const placement = placeList(inputAt(700), 800);
+
+    expect(placement.anchor).toBe("above");
+    // Measured from the viewport's bottom edge, so the list ends above the input.
+    expect(placement.offset).toBe(106);
+    expect(placement.maxHeight).toBe(200);
+  });
+
+  test("stays below when neither side fits but below is the roomier one", () => {
+    const placement = placeList(inputAt(120), 300);
+
+    expect(placement.anchor).toBe("below");
+    expect(placement.maxHeight).toBeGreaterThan(0);
+  });
+
+  test("takes only the room it has, and never less than a usable minimum", () => {
+    // Near the top of a short viewport: flipping would be worse, so it takes
+    // what is below — 170px of it, not the full 200.
+    expect(placeList(inputAt(20), 240)).toMatchObject({ anchor: "below", maxHeight: 170 });
+
+    // Cramped on both sides: still a usable list rather than a zero-height one.
+    expect(placeList(inputAt(20), 100).maxHeight).toBe(96);
+  });
+
+  test("style anchors by the top going down and by the bottom going up", () => {
+    // A flipped list cannot be anchored by its top: its height is not known
+    // until it has rendered.
+    const below = placementStyle(placeList(inputAt(100), 800));
+    expect(below).toEqual({ left: 40, width: 300, maxHeight: 200, top: 142 });
+    expect("bottom" in below).toBe(false);
+
+    const above = placementStyle(placeList(inputAt(700), 800));
+    expect(above).toEqual({ left: 40, width: 300, maxHeight: 200, bottom: 106 });
+    expect("top" in above).toBe(false);
+  });
+
+  test("a tall viewport never flips", () => {
+    for (let top = 0; top < 900; top += 50) {
+      expect(placeList(inputAt(top), 1000).anchor).toBe(top + 36 + 14 + 200 <= 1000 ? "below" : "above");
+    }
   });
 });
 

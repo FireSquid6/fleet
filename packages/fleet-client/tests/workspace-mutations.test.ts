@@ -215,6 +215,10 @@ describe("MockFleetBridge create-workspace surface", () => {
 
     const names = (await mock.listRepoBranches(REPO)).map((b) => b.name);
     expect(names).toContain("main");
+    // The bridge answers this route from `ls-remote` sorted by name, and the
+    // picker's tie-breaking inherits that order; a fixture appended out of order
+    // would quietly diverge from it.
+    expect(names).toEqual([...names].sort());
     await expect(mock.listRepoBranches("nope")).rejects.toThrow("repo not found");
   });
 

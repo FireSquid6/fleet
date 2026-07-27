@@ -167,7 +167,9 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
               }}
               placeholder="Search open issues"
               disabled={issuesError !== null}
-              emptyMessage="No open issue matches."
+              // No message while the issues are still on their way: the list
+              // would claim nothing matches over the "listing issues…" below it.
+              emptyMessage={issuesLoading ? undefined : "No open issue matches."}
             />
             {issuesError ? (
               <Note className="text-red-400">Issues could not be listed: {issuesError}</Note>
