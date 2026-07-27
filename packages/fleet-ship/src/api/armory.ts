@@ -36,7 +36,10 @@ export function armoryPlugin(cache: ArmoryCache) {
     });
 }
 
-/** A failed pull is the bridge's fault (502) or the push body's (400), never a plain 500. */
+/**
+ * A failed pull is the bridge's fault (502), the push body's (400), or a push
+ * from a bridge this ship is not pinned to (403) — never a plain 500.
+ */
 function mapArmoryError(err: unknown): { status: number; body: { error: string } } {
   if (err instanceof ArmorySyncError) return { status: err.status, body: { error: err.message } };
   return mapError(err);

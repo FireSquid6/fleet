@@ -72,6 +72,32 @@ A pull is all-or-nothing. One file that fails its hash check, or that the bridge
 will not serve, fails the whole sync: the ship keeps the revision it already had
 and records the reason rather than applying half an armory.
 
+## Which bridge a ship pulls from
+
+The push names the bridge to pull from, and what is pulled gets installed into
+the agent config of whoever runs the ship. So a ship accepts pushes from **one**
+bridge and refuses the rest with `403`, having fetched nothing:
+
+- `fleet ship --bridge-url <url>` pins it explicitly. `fleet launch` sets this
+  for every ship it spawns, from `bridge.publicUrl`.
+- Unset, the ship pins whichever bridge pushes to it first and holds that from
+  then on. The pin lives in
+  `~/.config/autosmith/fleet-ship/armory/state.json`.
+
+The URL is compared as an origin — scheme, host, port, and path — so
+`http://Bridge:4800/` and `http://bridge:4800` are the same bridge. Query strings
+and case are ignored; a different port or host is a different bridge.
+
+:::caution
+This is defence in depth, **not** authentication. A ship's API has no
+authentication at all: anyone who can reach its port can start workspaces and run
+commands on it. Pinning only removes the armory's own contribution to that — an
+unpinned ship would let any caller choose the server it installs skills, plugins,
+and dotfiles from. It does not stop a caller from making a ship re-pull from its
+real bridge, which changes nothing. **Do not expose a ship's port to a network you
+do not trust**; put ships on a private network or behind a tunnel.
+:::
+
 ## Skills fan out to every provider
 
 `skills/<name>/` is a standard skill directory — a `SKILL.md` plus whatever else
@@ -263,6 +289,22 @@ warning: skipped dotfile bashrc: destination "/etc/bashrc" is outside /home/you
 
 The mapping is dropped, not attempted. Use a destination under the ship user's
 home.
+
+**A ship answers the push with `403` and never syncs.** It is pinned to a
+different bridge, so it refused the push without fetching anything:
+
+```
+fleet-bridge: could not push the armory to ship "orca": armory push refused: this ship is pinned to bridge http://10.0.0.2:4800 but the push named http://10.0.0.9:4800; the pin is this ship's configured --bridge-url
+```
+
+The message names both URLs and where the pin came from. If the push is the
+legitimate one, the two are out of step — usually `bridge.publicUrl` (or
+`fleet bridge --public-url`) changed after the ship was pinned. Fix it by making
+them agree: restart the ship with a matching `--bridge-url`, or, for a ship
+pinned by first use rather than configuration, delete
+`~/.config/autosmith/fleet-ship/armory/state.json` on that ship and let the next
+push re-pin it. If the push is *not* one you sent, something else on the network
+is pushing at your ships; see the caution above.
 
 **A large file breaks the sync.** The bridge refuses to serve any single file
 over 10 MiB. It still appears in the manifest, but fetching it answers `413`,

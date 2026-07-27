@@ -11,7 +11,7 @@ import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArmoryEntry, ArmoryManifest } from "fleet-protocol";
-import { ArmoryCache, ArmorySyncError } from "../src/armory/armory-cache";
+import { ArmoryCache, ArmorySyncError, normalizeBridgeUrl } from "../src/armory/armory-cache";
 import { createApp } from "../src/api";
 import { stubConfig, stubManager } from "./helpers";
 
@@ -296,15 +296,19 @@ describe("ArmoryCache", () => {
     const revision = bridge.revision();
 
     expect((await call("GET", "/armory")).body).toMatchObject({ revision: null, fileCount: 0 });
+
+    // The bad pushes come first: once a push succeeds the ship is pinned to that
+    // bridge, and a later push naming another one is refused as a 403 before it
+    // can fail for the reason under test here.
+    const failed = await call("POST", "/armory/sync", { bridgeUrl: "http://127.0.0.1:1/", revision });
+    expect(failed.status).toBe(502);
+    expect((await call("POST", "/armory/sync", { bridgeUrl: "not-a-url", revision })).status).toBe(400);
+
     expect((await call("POST", "/armory/sync", { bridgeUrl: bridge.url, revision })).body).toMatchObject({
       revision,
       fileCount: 1,
     });
     expect((await call("GET", "/armory")).body).toMatchObject({ revision, fileCount: 1 });
-
-    const failed = await call("POST", "/armory/sync", { bridgeUrl: "http://127.0.0.1:1/", revision });
-    expect(failed.status).toBe(502);
-    expect((await call("POST", "/armory/sync", { bridgeUrl: "not-a-url", revision })).status).toBe(400);
   });
 
   test("a cached file that was corrupted on disk is re-downloaded", async () => {
@@ -320,5 +324,145 @@ describe("ArmoryCache", () => {
     await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() });
 
     expect(await read(home, "skills/one/SKILL.md")).toBe("# one");
+  });
+});
+
+/**
+ * The push chooses which server the ship installs from, so it is pinned. These
+ * assert on the fake bridge's request log as much as on the status: the whole
+ * point is that a refused push causes no fetch at all.
+ */
+describe("ArmoryCache bridge pinning", () => {
+  const oneFile = () => new Map<string, FakeFile>([["skills/one/SKILL.md", { bytes: utf8("# one") }]]);
+
+  test("a configured bridge accepts its own pushes and refuses another one without fetching", async () => {
+    const home = await makeHome();
+    const bridge = fakeBridge(oneFile());
+    const attacker = fakeBridge(oneFile());
+    const cache = new ArmoryCache({ homeDirectory: home, bridgeUrl: bridge.url });
+
+    const state = await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() });
+    expect(state.fileCount).toBe(1);
+
+    const error = await rejection(cache.sync({ bridgeUrl: attacker.url, revision: attacker.revision() }));
+
+    expect(error).toBeInstanceOf(ArmorySyncError);
+    expect(error).toMatchObject({ status: 403 });
+    expect(error.message).toContain(bridge.url);
+    expect(error.message).toContain(attacker.url);
+    expect(attacker.requests).toHaveLength(0);
+  });
+
+  test("a configured bridge refuses a push even on a cold cache", async () => {
+    const attacker = fakeBridge(oneFile());
+    const cache = new ArmoryCache({ homeDirectory: await makeHome(), bridgeUrl: "http://bridge.test:4800" });
+
+    await expect(
+      cache.sync({ bridgeUrl: attacker.url, revision: attacker.revision() }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(attacker.requests).toHaveLength(0);
+  });
+
+  test("with no configured bridge the first push pins the ship, and later ones must match it", async () => {
+    const home = await makeHome();
+    const bridge = fakeBridge(oneFile());
+    const attacker = fakeBridge(oneFile());
+    const cache = new ArmoryCache({ homeDirectory: home });
+
+    expect((await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() })).bridgeUrl).toBe(bridge.url);
+
+    await expect(
+      cache.sync({ bridgeUrl: attacker.url, revision: attacker.revision() }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(attacker.requests).toHaveLength(0);
+
+    // The pinned bridge still works afterwards.
+    expect((await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() })).fileCount).toBe(1);
+  });
+
+  test("a refused push leaves the applied state exactly as it was", async () => {
+    const home = await makeHome();
+    const bridge = fakeBridge(oneFile());
+    const attacker = fakeBridge(new Map([["skills/evil/SKILL.md", { bytes: utf8("# evil") }]]));
+    const cache = new ArmoryCache({ homeDirectory: home, bridgeUrl: bridge.url });
+    const good = await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() });
+
+    await expect(
+      cache.sync({ bridgeUrl: attacker.url, revision: attacker.revision() }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    // Not even `lastError`: the ship is in sync, and a refused push is not its failure.
+    expect(await cache.state()).toEqual(good);
+    expect(await read(home, "skills/one/SKILL.md")).toBe("# one");
+    expect(await Bun.file(join(filesRoot(home), "skills/evil/SKILL.md")).exists()).toBe(false);
+  });
+
+  test("the route answers a refused push with 403", async () => {
+    const attacker = fakeBridge(oneFile());
+    const app = createApp(stubManager(), stubConfig, undefined, undefined, new ArmoryCache({
+      homeDirectory: await makeHome(),
+      bridgeUrl: "http://bridge.test:4800",
+    }));
+
+    const response = await app.handle(
+      new Request("http://ship/armory/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bridgeUrl: attacker.url, revision: attacker.revision() }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { error: string }).error).toContain("refused");
+    expect(attacker.requests).toHaveLength(0);
+  });
+
+  test("the pin compares origins, not strings", async () => {
+    const home = await makeHome();
+    const bridge = fakeBridge(oneFile());
+    const port = new URL(bridge.url).port;
+    const cache = new ArmoryCache({ homeDirectory: home, bridgeUrl: bridge.url });
+    const revision = bridge.revision();
+
+    for (const equivalent of [`${bridge.url}/`, `http://LOCALHOST:${port}`, `HTTP://localhost:${port}/`]) {
+      expect((await cache.sync({ bridgeUrl: equivalent, revision })).fileCount).toBe(1);
+    }
+
+    for (const different of [`http://localhost:${Number(port) + 1}`, `http://127.0.0.1:${port}`]) {
+      await expect(cache.sync({ bridgeUrl: different, revision })).rejects.toMatchObject({ status: 403 });
+    }
+  });
+});
+
+describe("normalizeBridgeUrl", () => {
+  test("scheme, host, and a trailing slash do not change a bridge's identity", () => {
+    const canonical = normalizeBridgeUrl("http://bridge:4800");
+    expect(canonical).toBe("http://bridge:4800");
+    for (const equivalent of [
+      "http://Bridge:4800/",
+      "HTTP://BRIDGE:4800",
+      "http://bridge:4800///",
+      "http://bridge:4800/?x=1#frag",
+    ]) {
+      expect(normalizeBridgeUrl(equivalent)).toBe(canonical);
+    }
+  });
+
+  test("a path is part of the identity, and a default port is not", () => {
+    expect(normalizeBridgeUrl("http://bridge/fleet/")).toBe("http://bridge/fleet");
+    expect(normalizeBridgeUrl("http://bridge/fleet")).not.toBe(normalizeBridgeUrl("http://bridge/other"));
+    expect(normalizeBridgeUrl("http://bridge:80/")).toBe(normalizeBridgeUrl("http://bridge"));
+    expect(normalizeBridgeUrl("https://bridge:443/")).toBe(normalizeBridgeUrl("https://bridge"));
+  });
+
+  test("a different host, port, or scheme is a different bridge", () => {
+    expect(normalizeBridgeUrl("http://bridge:4800")).not.toBe(normalizeBridgeUrl("http://bridge:4801"));
+    expect(normalizeBridgeUrl("http://bridge:4800")).not.toBe(normalizeBridgeUrl("http://other:4800"));
+    expect(normalizeBridgeUrl("http://bridge:4800")).not.toBe(normalizeBridgeUrl("https://bridge:4800"));
+  });
+
+  test("what is not a URL is nothing this can match", () => {
+    expect(normalizeBridgeUrl("not-a-url")).toBeNull();
+    expect(normalizeBridgeUrl("")).toBeNull();
   });
 });

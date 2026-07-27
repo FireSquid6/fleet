@@ -370,9 +370,19 @@ and writes `atlas.json` into the fleet directory root.
 | `-p, --port` | `<port>` | `4700` | Port the HTTP + WebSocket API listens on. Must parse as an integer. |
 | `-n, --name` | `<name>` | `ship` | Human-facing name of this ship. Must be a valid [fleet identifier](/reference/protocol/). |
 | `-f, --fleet-directory` | `<dir>` | `./fleet` | Directory holding all workspaces, laid out as `<dir>/<repo>/<name>`. Resolved to an absolute path. |
+| `--bridge-url` | `<url>` | none — the first bridge to push wins | The only bridge whose armory pushes this ship accepts. Must be a URL. |
+
+`--bridge-url` pins the ship: a `POST /armory/sync` naming any other bridge is
+refused with `403` and nothing is fetched. Set it to the same URL the bridge
+pushes with — its `--public-url` / `bridge.publicUrl`, or `http://localhost:<bridge port>`
+when that is unset. Comparison is on scheme, host, port, and path, so a trailing
+slash or a difference in case does not matter. Left unset, the ship pins whichever
+bridge pushes to it first. `fleet launch` sets this for every ship it spawns. See
+[the Armory](/guides/the-armory/).
 
 A non-integer `--port` is rejected by Commander with `must be an integer`. Any
-other startup failure prints `fleet-ship: <message>` and exits 1.
+other startup failure prints `fleet-ship: <message>` and exits 1, which includes
+a `--bridge-url` that is not a URL.
 
 On success it prints
 `fleet-ship "<name>" listening on http://localhost:<port>`.

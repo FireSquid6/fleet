@@ -102,6 +102,18 @@ The value is used verbatim; it is validated as a non-empty string, not parsed or
 normalized like `gui.bridgeUrl`, so write a full URL with its scheme. The
 equivalent flag on a standalone bridge is `fleet bridge --public-url`.
 
+It is also what every `source: local` ship is pinned to (`fleet ship
+--bridge-url`), so those ships refuse an armory push from anywhere else. A value
+that is not an http(s) URL cannot be a pin; rather than fail the launch, it warns
+and starts the ships unpinned:
+
+```
+fleet launch: bridge.publicUrl "bridge:4800" is not an http(s) URL, so ships are started unpinned and will accept the first armory push they receive
+```
+
+Ships registered with `source: remote` are pinned by whatever they were started
+with — `fleet launch` does not configure a ship it did not spawn.
+
 ## `gui`
 
 Both fields are optional, so `gui: {}` is valid — as long as a bridge exists to
@@ -178,9 +190,10 @@ duplicate-port check, then the gui/bridge check.
 
 1. Loads and normalizes the config.
 2. If `bridge` is present, starts the bridge and keeps its manager.
-3. For each ship in map order: starts it if `source: local`, then registers it
-   with the bridge at `http://localhost:<port>` (local) or its `url` (remote),
-   printing `registered ship "<key>" (<url>) with the bridge`.
+3. For each ship in map order: starts it if `source: local` — pinned to the
+   launched bridge's `publicUrl` — then registers it with the bridge at
+   `http://localhost:<port>` (local) or its `url` (remote), printing
+   `registered ship "<key>" (<url>) with the bridge`.
 4. If `gui` is present, serves the GUI against `gui.bridgeUrl` or the local
    bridge.
 

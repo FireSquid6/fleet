@@ -23,6 +23,9 @@
  * `files/`, and every downloaded body is verified against the manifest's sha256
  * before it lands. A single bad file fails the whole sync — a half-applied
  * armory must never be recorded under a revision that promises all of it.
+ *
+ * The push also chooses *which* bridge to pull from, so it is pinned: see
+ * `requirePinnedBridge` for what that does and does not protect against.
  */
 
 import { chmod, lstat, mkdir, readdir, rename, rm, rmdir } from "node:fs/promises";
@@ -66,7 +69,10 @@ export async function cachedDotfileMap(cacheDirectory: string): Promise<DotfileM
 export class ArmorySyncError extends Error {
   constructor(
     message: string,
-    /** 400 for a malformed push, 502 for anything the bridge did or served. */
+    /**
+     * 400 for a malformed push, 403 for a push naming a bridge this ship is not
+     * pinned to, 502 for anything the bridge did or served.
+     */
     readonly status = 502,
   ) {
     super(message);
@@ -103,6 +109,26 @@ const EMPTY_STATE: CachedState = {
   lastError: null,
 };
 
+/**
+ * A bridge URL reduced to the identity two pushes are compared on: scheme, host,
+ * port, and path, with any trailing slash dropped. `new URL` already lowercases
+ * the scheme and host and drops the port when it is the scheme's default, so
+ * `http://Bridge:4800/` and `http://bridge:4800` normalize alike. Query and
+ * fragment are not part of a bridge's identity and are discarded.
+ *
+ * Returns `null` for anything that is not a URL, which can only ever compare
+ * unequal — an unparseable value must not be able to match a pinned bridge.
+ */
+export function normalizeBridgeUrl(bridgeUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(bridgeUrl);
+  } catch {
+    return null;
+  }
+  return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, "")}`;
+}
+
 /** Missing or unreadable is simply a cold cache; the next sync rebuilds it. */
 async function readCachedState(root: string): Promise<CachedState> {
   try {
@@ -121,15 +147,18 @@ export class ArmoryCache {
   private readonly filesRoot: string;
   private readonly statePath: string;
   private readonly fetchImpl: typeof fetch;
+  /** The ship's configured bridge, if it has one; see `requirePinnedBridge`. */
+  private readonly configuredBridgeUrl?: string;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(options?: { homeDirectory?: string; fetch?: typeof fetch }) {
+  constructor(options?: { homeDirectory?: string; fetch?: typeof fetch; bridgeUrl?: string }) {
     this.homeDirectory = resolve(options?.homeDirectory ?? homedir());
     this.root = armoryCacheDirectory(this.homeDirectory);
     this.cacheDirectory = this.root;
     this.filesRoot = join(this.root, "files");
     this.statePath = join(this.root, "state.json");
     this.fetchImpl = options?.fetch ?? fetch;
+    this.configuredBridgeUrl = options?.bridgeUrl;
   }
 
   private serialized<T>(operation: () => Promise<T> | T): Promise<T> {
@@ -158,6 +187,9 @@ export class ArmoryCache {
 
     return this.serialized(async () => {
       const previous = await this.readState();
+      // Before the try: a refused push is not this ship's failure, so it must
+      // not land in `lastError` and make an in-sync ship report as broken.
+      this.requirePinnedBridge(parsed.data.bridgeUrl, previous.bridgeUrl);
       try {
         const next = await this.pull(parsed.data, previous);
         await this.writeState(next);
@@ -186,6 +218,42 @@ export class ArmoryCache {
       await this.writeState(next);
       return reported(next);
     });
+  }
+
+  /**
+   * Refuse a push naming any bridge but the one this ship is pinned to, before
+   * a single byte is fetched.
+   *
+   * What this buys: a push decides which server the ship downloads skills,
+   * plugins, and dotfiles from and installs into the agent config directories of
+   * whoever runs the ship. Letting the caller choose that server is gratuitous,
+   * and pinning takes it away.
+   *
+   * What it does not buy: the ship's API is unauthenticated, so anyone who can
+   * reach the port can still make the ship re-pull from its *real* bridge. That
+   * is harmless — it installs exactly what the operator already publishes. This
+   * is defence in depth, not authentication; a ship's API must still never be
+   * exposed to an untrusted network.
+   *
+   * The pin is the configured `bridgeUrl` when there is one, and otherwise
+   * trust-on-first-use: the first push's bridge is recorded in `state.json` and
+   * every later push must match it. That keeps a hand-started ship usable with
+   * no extra flag, at the cost of the very first push being unchecked.
+   */
+  private requirePinnedBridge(offered: string, recorded: string | null): void {
+    const expected = this.configuredBridgeUrl ?? recorded;
+    if (expected === null || expected === undefined) return;
+
+    const wanted = normalizeBridgeUrl(expected);
+    if (wanted !== null && wanted === normalizeBridgeUrl(offered)) return;
+
+    throw new ArmorySyncError(
+      `armory push refused: this ship is pinned to bridge ${expected} but the push named ${offered}` +
+        (this.configuredBridgeUrl === undefined
+          ? "; the pin is the first bridge that pushed to this ship"
+          : "; the pin is this ship's configured --bridge-url"),
+      403,
+    );
   }
 
   private async pull(request: ArmorySyncRequest, previous: CachedState): Promise<CachedState> {

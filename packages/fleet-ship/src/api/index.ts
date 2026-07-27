@@ -19,7 +19,7 @@ import { MAX_CLIENT_FRAME_BYTES, type TerminalBridge } from "webterm";
 
 export function createApp(
   manager: WorkspaceManager,
-  _config: FleetShipConfig,
+  config: FleetShipConfig,
   createTerminal?: (options: ConstructorParameters<typeof TerminalBridge>[0]) => Pick<TerminalBridge, "handle" | "stop">,
   terminalInitTimeoutMs?: number,
   armory?: ArmoryCache,
@@ -29,7 +29,9 @@ export function createApp(
     .use(workspacesPlugin(manager, createTerminal, terminalInitTimeoutMs))
     .use(eventsPlugin(manager))
     .use(systemResourcesPlugin())
-    .use(armoryPlugin(armory ?? new ArmoryCache()))
+    // The default cache carries the configured bridge pin; a caller passing its
+    // own cache (tests) has already decided what that cache accepts.
+    .use(armoryPlugin(armory ?? new ArmoryCache({ bridgeUrl: config.bridgeUrl })))
 
 }
 

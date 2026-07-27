@@ -272,8 +272,10 @@ This route has no error mapping — it always returns `200` on a healthy host.
 
 The bridge's push telling this ship to re-pull and re-install the
 [armory](/guides/the-armory/). A ship holds no bridge address of its own, so
-`bridgeUrl` is how it learns where to pull from — and it only ever pulls from a
-bridge that has spoken to it.
+`bridgeUrl` is how it learns where to pull from — but only the bridge it is
+pinned to: `fleet ship --bridge-url`, or, unset, whichever bridge pushed to it
+first. Any other origin is refused with `403` before anything is fetched (see
+[the Armory](/guides/the-armory/)).
 
 ```ts
 { bridgeUrl: string; revision: string }   // request
@@ -296,6 +298,7 @@ armory it only half applied.
 | Status | Cause |
 | --- | --- |
 | `400` | `bridge url must be http(s): <url>`; `invalid bridge url: <url>`. |
+| `403` | `armory push refused: this ship is pinned to bridge <expected> but the push named <offered>` — nothing was fetched and the applied state is untouched. |
 | `422` | `bridgeUrl` or `revision` missing. |
 | `500` | `armory install failed: <detail>` — the pull succeeded, the install did not. |
 | `502` | The pull failed: `bridge answered <status> for the armory file <path>`, a manifest or file that did not validate, an unsafe path, or a file whose bytes did not match the manifest hash. |

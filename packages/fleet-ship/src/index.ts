@@ -146,12 +146,17 @@ export const ship = new Command()
   .option("-p, --port <port>", "port the HTTP + WebSocket API listens on", parsePort, DEFAULT_PORT)
   .option("-n, --name <name>", "human-facing name of this ship", "ship")
   .option("-f, --fleet-directory <dir>", "directory holding all workspaces (<dir>/<repo>/<name>)", "./fleet")
-  .action(async (options: { port: number; name: string; fleetDirectory: string }) => {
+  .option(
+    "--bridge-url <url>",
+    "only bridge whose armory pushes this ship accepts (default: whichever bridge pushes first)",
+  )
+  .action(async (options: { port: number; name: string; fleetDirectory: string; bridgeUrl?: string }) => {
     try {
       const config = resolveFleetShipConfig({
         fleetDirectory: options.fleetDirectory,
         port: options.port,
         name: options.name,
+        bridgeUrl: options.bridgeUrl,
       });
       await startShip(config);
     } catch (err) {

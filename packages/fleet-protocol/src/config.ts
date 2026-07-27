@@ -1,7 +1,8 @@
 /**
  * src/config.ts — the Fleet Ship configuration contract.
  *
- * A ship is configured from CLI flags (`fleet ship --port --name --fleet-directory`).
+ * A ship is configured from CLI flags (`fleet ship --port --name --fleet-directory
+ * --bridge-url`).
  * The canonical shape is the zod schema below; the host assembles an object from the
  * flags then validates it against `FleetShipConfigSchema`, and `FleetShipConfig` is
  * inferred from it so the type and the runtime validator can never drift.
@@ -18,6 +19,13 @@ export const FleetShipConfigSchema = z.object({
   port: z.number().int(),
   /** Human-facing name of this ship (surfaced as `ship` on active workspace status). */
   name: FleetIdentifierSchema,
+  /**
+   * The only bridge this ship accepts armory pushes from: a `POST /armory/sync`
+   * naming any other origin is refused before anything is fetched. Left unset,
+   * the ship pins whichever bridge pushes to it first and holds that from then
+   * on, so a hand-started ship needs no extra flag.
+   */
+  bridgeUrl: z.url().optional(),
 });
 
 /** The ship configuration, inferred from the schema. */
