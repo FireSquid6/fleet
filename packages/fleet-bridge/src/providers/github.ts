@@ -15,6 +15,7 @@ import type {
   Issue,
   IssueComment,
   IssueSummary,
+  LinkedBranch,
   ListOptions,
   PullRequest,
   PullRequestSummary,
@@ -34,6 +35,22 @@ export interface GitHubProviderConfig {
 }
 
 const DEFAULT_BASE_URL = "https://api.github.com";
+
+/**
+ * The only way to attach a branch to an issue: GitHub exposes the linkage
+ * through GraphQL alone, with no REST equivalent. The mutation creates the ref
+ * as well, so nothing has to push a branch beforehand.
+ */
+const CREATE_LINKED_BRANCH = `mutation CreateLinkedBranch($issueId: ID!, $oid: GitObjectID!, $name: String!) {
+  createLinkedBranch(input: { issueId: $issueId, oid: $oid, name: $name }) {
+    linkedBranch {
+      ref {
+        name
+        target { oid }
+      }
+    }
+  }
+}`;
 
 /**
  * Extract `{ owner, repo }` from a git clone URL. Handles the https web form
@@ -74,6 +91,8 @@ interface GitHubRepo {
 
 interface GitHubIssue {
   number: number;
+  /** GraphQL global id — the handle `createLinkedBranch` addresses the issue by. */
+  node_id?: string;
   title: string;
   state: string;
   user: GitHubUser | null;
@@ -138,6 +157,24 @@ interface GitHubJob {
   id: number;
   name: string;
   conclusion: string | null;
+}
+
+interface GitHubRef {
+  object?: { sha?: string };
+}
+
+/** Envelope of a GraphQL reply; `errors` can be present alongside HTTP 200. */
+interface GraphQLResponse<T> {
+  data?: T | null;
+  errors?: { message?: unknown }[];
+}
+
+interface CreateLinkedBranchResult {
+  createLinkedBranch?: {
+    linkedBranch?: {
+      ref?: { name?: string; target?: { oid?: string } | null } | null;
+    } | null;
+  } | null;
 }
 
 export class GitHubProvider implements RepoProvider {
@@ -298,6 +335,51 @@ export class GitHubProvider implements RepoProvider {
     return logs;
   }
 
+  /**
+   * Create `branch` off the default branch's head and record it as issue
+   * `issueNumber`'s linked development branch, in one mutation. Needs a token
+   * with repo write scope: it writes a ref and an issue timeline entry.
+   *
+   * Three reads precede the write because the mutation is addressed by GraphQL
+   * node id and a commit oid, neither of which the caller has: the issue's
+   * `node_id`, the repo's default branch, and that branch's head SHA.
+   */
+  async linkBranchToIssue(issueNumber: number, branch: string): Promise<LinkedBranch> {
+    this.requireToken();
+
+    const issue = await this.request<GitHubIssue>(
+      `/repos/${this.owner}/${this.repo}/issues/${issueNumber}`,
+    );
+    if (!issue.node_id) {
+      throw new ProviderError(`GitHub issue ${issueNumber} carried no node id`, 502);
+    }
+
+    const { defaultBranch } = await this.getInfo();
+    // Not URL-encoded: a default branch may legitimately contain "/", which is a
+    // path separator in the ref endpoint rather than data.
+    const ref = await this.request<GitHubRef>(
+      `/repos/${this.owner}/${this.repo}/git/ref/heads/${defaultBranch}`,
+    );
+    if (!ref.object?.sha) {
+      throw new ProviderError(`GitHub returned no head commit for branch ${defaultBranch}`, 502);
+    }
+
+    const result = await this.graphql<CreateLinkedBranchResult>(CREATE_LINKED_BRANCH, {
+      issueId: issue.node_id,
+      oid: ref.object.sha,
+      name: branch,
+    });
+
+    const created = result.createLinkedBranch?.linkedBranch?.ref;
+    if (!created?.name || !created.target?.oid) {
+      throw new ProviderError(
+        `GitHub createLinkedBranch returned no branch for issue ${issueNumber}`,
+        502,
+      );
+    }
+    return { name: created.name, sha: created.target.oid };
+  }
+
   private async postComment(number: number, body: string): Promise<IssueComment> {
     this.requireToken();
     const comment = await this.request<GitHubComment>(
@@ -372,6 +454,32 @@ export class GitHubProvider implements RepoProvider {
     }
 
     return (await response.json()) as T;
+  }
+
+  /**
+   * Run a GraphQL operation through `request`, so it shares the REST path's
+   * headers, auth and failure mapping. GraphQL reports *operation* failures with
+   * HTTP 200 and a populated `errors` array, so a transport success still has to
+   * be inspected before the payload can be trusted.
+   */
+  private async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+    const payload = await this.request<GraphQLResponse<T>>("/graphql", {
+      method: "POST",
+      body: { query, variables },
+    });
+
+    const first = payload.errors?.[0];
+    if (first !== undefined) {
+      const message = typeof first.message === "string" ? first.message : "unknown GraphQL error";
+      // GraphQL has no status of its own, so a name collision — the one failure a
+      // caller can act on — has to be recognized from the message text.
+      const status = /already exists/i.test(message) ? 422 : 502;
+      throw new ProviderError(`GitHub GraphQL request failed: ${message}`, status);
+    }
+    if (payload.data === undefined || payload.data === null) {
+      throw new ProviderError("GitHub GraphQL response carried no data", 502);
+    }
+    return payload.data;
   }
 
   /**

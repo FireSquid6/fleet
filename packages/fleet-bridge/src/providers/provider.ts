@@ -107,6 +107,12 @@ export interface ListOptions {
 
 export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
+/** A branch the provider created and attached to an issue. */
+export interface LinkedBranch {
+  readonly name: string;
+  readonly sha: string;
+}
+
 export interface RepoProvider {
   getInfo(): Promise<RepoInfo>;
   listIssues(options?: ListOptions): Promise<IssueSummary[]>;
@@ -120,4 +126,14 @@ export interface RepoProvider {
   listChecks(ref: string): Promise<CheckRun[]>;
   /** Raw logs of the failed GitHub Actions jobs for a commit-ish. */
   getFailedLogs(ref: string): Promise<FailedJobLog[]>;
+  /**
+   * Create `branch` on the remote *and* record it as the issue's linked
+   * development branch (GitHub's "Development → create a branch for this issue"
+   * relationship). A write: it needs a token with repo write scope.
+   *
+   * Returns the ref the provider actually created — it may differ from the
+   * requested name, because a forge is free to de-duplicate against branches
+   * that already exist.
+   */
+  linkBranchToIssue(issueNumber: number, branch: string): Promise<LinkedBranch>;
 }

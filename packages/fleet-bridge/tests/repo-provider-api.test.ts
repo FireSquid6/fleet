@@ -38,6 +38,7 @@ interface Recorder {
   reviewPr?: { number: number; review: { event: ReviewEvent; body?: string } };
   checksRef?: string;
   failedLogsRef?: string;
+  linkBranch?: { issueNumber: number; branch: string };
 }
 
 const info: RepoInfo = {
@@ -171,6 +172,11 @@ describe("repo provider API", () => {
         guard();
         recorder.failedLogsRef = ref;
         return [failedLog];
+      },
+      async linkBranchToIssue(issueNumber: number, branch: string) {
+        guard();
+        recorder.linkBranch = { issueNumber, branch };
+        return { name: branch, sha: "sha-of-linked-branch" };
       },
     };
   }

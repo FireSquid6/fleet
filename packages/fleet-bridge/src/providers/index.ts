@@ -43,6 +43,7 @@ export type {
   Issue,
   IssueComment,
   IssueSummary,
+  LinkedBranch,
   ListOptions,
   PullRequest,
   PullRequestSummary,

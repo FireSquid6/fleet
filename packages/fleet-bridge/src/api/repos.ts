@@ -58,6 +58,15 @@ export function reposPlugin(manager: FleetManager) {
         return mapped.body;
       }
     })
+    .get("/repos/:name/branches", async ({ params, set }) => {
+      try {
+        return await manager.listRepoBranches(params.name);
+      } catch (err) {
+        const mapped = mapError(err);
+        set.status = mapped.status;
+        return mapped.body;
+      }
+    })
     .get(
       "/repos/:name/issues",
       async ({ params, query, set }) => {

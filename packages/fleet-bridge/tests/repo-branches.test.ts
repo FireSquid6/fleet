@@ -1,0 +1,125 @@
+/**
+ * repo-branches.test.ts — `GET /repos/:name/branches` driven in-process against
+ * a fake `Git.lsRemote`, so the route/manager mapping is exercised without a git
+ * binary or a reachable remote.
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { GitError, type RemoteRef } from "git-bun";
+import { FleetManager } from "../src/fleet-manager";
+import { createApp } from "../src/api";
+import { Store } from "../src/store/store";
+import { makeDeps } from "./helpers";
+
+/** What the fake `lsRemote` was asked, and what it answers with. */
+interface LsRemoteStub {
+  calls: { url: string; cwd: string; heads?: boolean }[];
+  answer: () => RemoteRef[];
+}
+
+describe("GET /repos/:name/branches", () => {
+  let dir: string;
+  let manager: FleetManager;
+  let app: ReturnType<typeof createApp>;
+  let lsRemote: LsRemoteStub;
+
+  async function call(method: string, path: string, body?: unknown) {
+    const res = await app.handle(
+      new Request(`http://bridge${path}`, {
+        method,
+        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    );
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : undefined };
+  }
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "fleet-bridge-branches-"));
+    lsRemote = {
+      calls: [],
+      answer: () => [
+        { sha: "sha-main", ref: "refs/heads/main" },
+        { sha: "sha-feature", ref: "refs/heads/feature/login" },
+        { sha: "sha-alpha", ref: "refs/heads/alpha" },
+      ],
+    };
+    const config = { dataDirectory: dir, port: 4901, name: "bridge" };
+    const store = new Store(dir);
+    await store.load();
+    manager = new FleetManager(config, makeDeps(new Map()), {
+      syncTimeoutMs: 50,
+      store,
+      lsRemote: async (url, options) => {
+        lsRemote.calls.push({ url, cwd: options.cwd, heads: options.heads });
+        return lsRemote.answer();
+      },
+    });
+    await manager.init();
+    app = createApp(manager, config);
+    expect((await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" })).status).toBe(201);
+  });
+  afterEach(async () => {
+    manager.shutdown();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("maps refs/heads/* to {name, sha}, sorted ascending", async () => {
+    const res = await call("GET", "/repos/repo1/branches");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      { name: "alpha", sha: "sha-alpha" },
+      { name: "feature/login", sha: "sha-feature" },
+      { name: "main", sha: "sha-main" },
+    ]);
+  });
+
+  test("probes the repo's url from the bridge's data directory, branches only", async () => {
+    await call("GET", "/repos/repo1/branches");
+
+    expect(lsRemote.calls).toEqual([{ url: "git@fake/repo1.git", cwd: dir, heads: true }]);
+  });
+
+  test("drops refs that are not branches", async () => {
+    lsRemote.answer = () => [
+      { sha: "sha-main", ref: "refs/heads/main" },
+      { sha: "sha-tag", ref: "refs/tags/v1.0.0" },
+      { sha: "sha-pull", ref: "refs/pull/7/head" },
+      { sha: "sha-head", ref: "HEAD" },
+    ];
+
+    const res = await call("GET", "/repos/repo1/branches");
+
+    expect(res.body).toEqual([{ name: "main", sha: "sha-main" }]);
+  });
+
+  test("an unregistered repo returns 404", async () => {
+    expect((await call("GET", "/repos/ghost/branches")).status).toBe(404);
+    expect(lsRemote.calls).toHaveLength(0);
+  });
+
+  test("an invalid repo identifier returns 400", async () => {
+    expect((await call("GET", "/repos/..%2Fescape/branches")).status).toBe(400);
+  });
+
+  test("an unreachable remote surfaces as 502 naming the repo", async () => {
+    lsRemote.answer = () => {
+      throw new GitError(["ls-remote", "--heads", "--", "git@fake/repo1.git"], {
+        stdout: "",
+        stderr: "fatal: repository not found",
+        exitCode: 128,
+      });
+    };
+
+    const res = await call("GET", "/repos/repo1/branches");
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toContain("repo1");
+    expect(res.body.error).toContain("repository not found");
+  });
+});

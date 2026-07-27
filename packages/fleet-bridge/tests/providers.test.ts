@@ -447,6 +447,156 @@ describe("GitHubProvider", () => {
     }
   });
 
+  /**
+   * Drive the three REST reads `linkBranchToIssue` makes, then hand the GraphQL
+   * mutation whatever `graphqlResponse` returns.
+   */
+  function linkBranchFetch(graphqlResponse: () => Response): { fetch: typeof fetch; calls: FetchCall[] } {
+    const calls: FetchCall[] = [];
+    const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({
+        url,
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      if (url.endsWith("/issues/12")) {
+        return Response.json({
+          number: 12,
+          node_id: "I_issue12",
+          title: "a bug",
+          state: "open",
+          user: { login: "alice" },
+          html_url: "https://github.com/owner/repo/issues/12",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          body: null,
+          comments: 0,
+        });
+      }
+      if (url.endsWith("/repos/owner/repo")) return Response.json(repoPayload);
+      if (url.endsWith("/git/ref/heads/main")) return Response.json({ object: { sha: "basesha" } });
+      if (url.endsWith("/graphql")) return graphqlResponse();
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof globalThis.fetch;
+    return { fetch: fn, calls };
+  }
+
+  const linkedBranchPayload = () =>
+    Response.json({
+      data: {
+        createLinkedBranch: {
+          linkedBranch: { ref: { name: "12-a-bug", target: { oid: "newsha" } } },
+        },
+      },
+    });
+
+  test("linkBranchToIssue posts the mutation with the issue node id, base oid and name", async () => {
+    const { fetch, calls } = linkBranchFetch(linkedBranchPayload);
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    const linked = await provider.linkBranchToIssue(12, "12-a-bug");
+
+    expect(linked).toEqual({ name: "12-a-bug", sha: "newsha" });
+
+    const mutation = calls.find((c) => c.url.endsWith("/graphql"))!;
+    expect(mutation.url).toBe("https://api.github.com/graphql");
+    expect(mutation.method).toBe("POST");
+    expect(mutation.headers.get("Authorization")).toBe("Bearer t0ken");
+    const body = JSON.parse(mutation.body!) as { query: string; variables: Record<string, unknown> };
+    expect(body.query).toContain("createLinkedBranch");
+    expect(body.variables).toEqual({ issueId: "I_issue12", oid: "basesha", name: "12-a-bug" });
+  });
+
+  test("linkBranchToIssue returns the name GitHub actually created, not the requested one", async () => {
+    const { fetch } = linkBranchFetch(() =>
+      Response.json({
+        data: {
+          createLinkedBranch: {
+            linkedBranch: { ref: { name: "12-a-bug-1", target: { oid: "newsha" } } },
+          },
+        },
+      }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    expect(await provider.linkBranchToIssue(12, "12-a-bug")).toEqual({ name: "12-a-bug-1", sha: "newsha" });
+  });
+
+  test("linkBranchToIssue throws ProviderError(401) without a token", async () => {
+    const { fetch, calls } = fakeFetch(Response.json({}));
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", fetch });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).status).toBe(401);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  test("a GraphQL error carried on an HTTP 200 becomes a ProviderError(502)", async () => {
+    const { fetch } = linkBranchFetch(() =>
+      Response.json({ data: null, errors: [{ message: "Resource not accessible by integration" }] }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).status).toBe(502);
+      expect((error as ProviderError).message).toContain("Resource not accessible by integration");
+    }
+  });
+
+  test("a GraphQL 'already exists' error becomes a ProviderError(422)", async () => {
+    const { fetch } = linkBranchFetch(() =>
+      Response.json({ errors: [{ message: "A branch with that name already exists" }] }),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect((error as ProviderError).status).toBe(422);
+    }
+  });
+
+  test("a GraphQL payload missing the created ref becomes a ProviderError(502)", async () => {
+    const { fetch } = linkBranchFetch(() => Response.json({ data: { createLinkedBranch: null } }));
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProviderError);
+      expect((error as ProviderError).status).toBe(502);
+      expect((error as ProviderError).message).toContain("no branch");
+    }
+  });
+
+  test("linkBranchToIssue reports an issue with no node id as a 502", async () => {
+    const fetch = (async (input: string | URL | Request) => {
+      if (String(input).endsWith("/issues/12")) return Response.json({ number: 12, title: "a bug" });
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    }) as unknown as typeof globalThis.fetch;
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", token: "t0ken", fetch });
+
+    try {
+      await provider.linkBranchToIssue(12, "12-a-bug");
+      throw new Error("expected linkBranchToIssue to throw");
+    } catch (error) {
+      expect((error as ProviderError).status).toBe(502);
+    }
+  });
+
   test("getFailedLogs returns [] when nothing failed and there are no Actions runs", async () => {
     const fetch = (async (input: string | URL | Request) => {
       const url = String(input);
