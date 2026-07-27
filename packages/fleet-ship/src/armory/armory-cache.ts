@@ -35,11 +35,13 @@ import {
   ArmoryInstallSummarySchema,
   ArmoryManifestSchema,
   ArmorySyncRequestSchema,
+  DotfileMapSchema,
   isSafeArmoryPath,
   type ArmoryEntry,
   type ArmoryInstallSummary,
   type ArmorySyncRequest,
   type ArmorySyncState,
+  type DotfileMap,
 } from "fleet-protocol";
 
 /** The cache root, relative to the home directory. */
@@ -48,6 +50,16 @@ const CACHE_RELATIVE_PATH = join(".config", "autosmith", "fleet-ship", "armory")
 /** Where `ArmoryCache` keeps its mirror, for the installer that reads it back. */
 export function armoryCacheDirectory(homeDirectory: string): string {
   return join(resolve(homeDirectory), CACHE_RELATIVE_PATH);
+}
+
+/**
+ * The dotfile map of the last pull. It lives in `state.json` rather than in
+ * `files/` because it is manifest metadata, not an armory file: the bridge may
+ * serve a map naming sources the ship never caches, and the dotfile linker must
+ * act on exactly the map that came with the revision it is installing.
+ */
+export async function cachedDotfileMap(cacheDirectory: string): Promise<DotfileMap> {
+  return (await readCachedState(resolve(cacheDirectory))).dotfileMap;
 }
 
 /** A sync that failed, carrying the status the ship's route should answer with. */
@@ -72,6 +84,8 @@ const CachedStateSchema = z.object({
   bridgeUrl: z.string().nullable(),
   syncedAt: z.string().nullable(),
   entries: ArmoryEntrySchema.array(),
+  /** Defaulted so a `state.json` written before dotfiles existed still parses. */
+  dotfileMap: DotfileMapSchema.default({}),
   /** Recorded by whoever installs from the cache; the cache never produces it. */
   install: ArmoryInstallSummarySchema.nullable().default(null),
   lastError: z.string().nullable(),
@@ -84,9 +98,20 @@ const EMPTY_STATE: CachedState = {
   bridgeUrl: null,
   syncedAt: null,
   entries: [],
+  dotfileMap: {},
   install: null,
   lastError: null,
 };
+
+/** Missing or unreadable is simply a cold cache; the next sync rebuilds it. */
+async function readCachedState(root: string): Promise<CachedState> {
+  try {
+    const parsed = CachedStateSchema.safeParse(await Bun.file(join(root, "state.json")).json());
+    return parsed.success ? parsed.data : EMPTY_STATE;
+  } catch {
+    return EMPTY_STATE;
+  }
+}
 
 export class ArmoryCache {
   readonly homeDirectory: string;
@@ -178,10 +203,13 @@ export class ArmoryCache {
       bridgeUrl: request.bridgeUrl,
       syncedAt: new Date().toISOString(),
       entries: manifest.entries,
+      dotfileMap: manifest.dotfileMap,
       install: previous.install,
       lastError: null,
     };
 
+    // The revision covers the map too, so an unchanged revision cannot have
+    // brought a new one; `applied` still carries it forward for the installer.
     if (manifest.revision === previous.revision && sameEntries(manifest.entries, previous.entries)) {
       return applied;
     }
@@ -309,13 +337,7 @@ export class ArmoryCache {
   }
 
   private async readState(): Promise<CachedState> {
-    try {
-      const parsed = CachedStateSchema.safeParse(await Bun.file(this.statePath).json());
-      return parsed.success ? parsed.data : EMPTY_STATE;
-    } catch {
-      // Missing or unreadable is simply a cold cache; the next sync rebuilds it.
-      return EMPTY_STATE;
-    }
+    return readCachedState(this.root);
   }
 
   /** Written last and atomically: a crash mid-sync leaves the old state, so the next sync redoes the work. */

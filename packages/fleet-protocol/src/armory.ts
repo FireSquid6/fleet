@@ -166,6 +166,8 @@ export type ArmorySyncRequest = z.infer<typeof ArmorySyncRequestSchema>;
 export const ArmoryInstallSummarySchema = z.object({
   skillCount: z.number().int().nonnegative(),
   pluginCount: z.number().int().nonnegative(),
+  /** Dotfile symlinks in place; a conflicted or skipped mapping is not one. */
+  dotfileCount: z.number().int().nonnegative().default(0),
   /** Files uninstalled because the armory no longer carries them. */
   removedCount: z.number().int().nonnegative(),
   /** Destinations left alone because something unmanaged was already there. */

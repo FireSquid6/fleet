@@ -6,9 +6,10 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readlink, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { DotfileMap } from "fleet-protocol";
 import { installArmory } from "../src/armory/armory-installer";
 
 describe("installArmory", () => {
@@ -39,6 +40,23 @@ describe("installArmory", () => {
     return target;
   };
 
+  /** The one `state.json` field the installer reads back: the dotfile map. */
+  const cachedDotfileMap = async (cacheDirectory: string, dotfileMap: DotfileMap) => {
+    await mkdir(cacheDirectory, { recursive: true });
+    await Bun.write(
+      join(cacheDirectory, "state.json"),
+      JSON.stringify({
+        revision: null,
+        bridgeUrl: null,
+        syncedAt: null,
+        entries: [],
+        dotfileMap,
+        install: null,
+        lastError: null,
+      }),
+    );
+  };
+
   const providers = async (homeDirectory: string, ...names: string[]) => {
     for (const name of names) await mkdir(join(homeDirectory, name), { recursive: true });
   };
@@ -60,6 +78,7 @@ describe("installArmory", () => {
     expect(await installArmory({ homeDirectory })).toEqual({
       skills: [],
       plugins: [],
+      dotfiles: [],
       removed: [],
       conflicts: [],
       warnings: [],
@@ -201,21 +220,51 @@ describe("installArmory", () => {
     expect(await exists(join(homeDirectory, ".claude", "config.json"))).toBe(false);
   });
 
-  test("ignores dotfiles, which install by a different rule", async () => {
+  test("installs no dotfile until the cache has recorded a map for it", async () => {
     const { homeDirectory, cacheDirectory } = await fixture();
     await providers(homeDirectory, ".claude");
     await cached(cacheDirectory, "dotfiles/gitconfig", "[user]\n");
-    await cached(cacheDirectory, "dotfile-map.json", '{"gitconfig":"~/.gitconfig"}\n');
 
     const report = await installArmory({ homeDirectory });
 
     expect(report).toEqual({
       skills: [],
       plugins: [],
+      dotfiles: [],
       removed: [],
       conflicts: [],
       warnings: [],
     });
     expect(await exists(join(homeDirectory, ".gitconfig"))).toBe(false);
+  });
+
+  test("symlinks the cached dotfile map, and unlinks a mapping it drops", async () => {
+    const { homeDirectory, cacheDirectory } = await fixture();
+    await providers(homeDirectory, ".claude");
+    await cached(cacheDirectory, "dotfiles/.tmux.conf", "set -g mouse on\n");
+    await cached(cacheDirectory, "dotfiles/nvim/init.lua", "vim.o.number = true\n");
+    await cachedDotfileMap(cacheDirectory, {
+      ".tmux.conf": "~/.tmux.conf",
+      nvim: "~/.config/nvim",
+    });
+
+    const installed = await installArmory({ homeDirectory });
+
+    const tmux = join(homeDirectory, ".tmux.conf");
+    const nvim = join(homeDirectory, ".config", "nvim");
+    expect(installed.dotfiles.map(({ target, status }) => ({ target, status }))).toEqual([
+      { target: tmux, status: "linked" },
+      { target: nvim, status: "linked" },
+    ]);
+    expect(await readlink(tmux)).toBe(join(cacheDirectory, "files", "dotfiles", ".tmux.conf"));
+    expect(await Bun.file(join(nvim, "init.lua")).text()).toBe("vim.o.number = true\n");
+
+    await cachedDotfileMap(cacheDirectory, { ".tmux.conf": "~/.tmux.conf" });
+    const dropped = await installArmory({ homeDirectory });
+
+    expect(dropped.dotfiles.map(({ status }) => status)).toEqual(["unchanged"]);
+    expect(dropped.removed).toEqual([nvim]);
+    expect(await exists(nvim)).toBe(false);
+    expect(await exists(tmux)).toBe(true);
   });
 });

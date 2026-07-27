@@ -6,6 +6,7 @@
  *
  *   files/skills/<skill>/**        → <every present provider's skills dir>/<skill>/**
  *   files/plugins/<provider>/<rest> → <that provider's config root>/<rest>
+ *   files/dotfiles/<source>         → symlinked wherever the dotfile map says
  *
  * Skills are modelled because every provider agrees on what one is: a directory
  * discovered under a skills root. Plugins are not — each tool's plugin layout
@@ -20,7 +21,9 @@
  * since edited. `<cache>/installed.json` records what this installer wrote, so
  * the next run can tell "removed from the armory" from "never installed".
  *
- * Dotfiles are deliberately untouched here; they install by a different rule.
+ * Dotfiles are the exception: they are symlinked, not copied, which managed-fs
+ * cannot express. `dotfile-linker.ts` owns that phase and its own ownership
+ * record; this module only sequences it and folds its report into this one.
  */
 
 import { lstat, readdir, rename, rm, rmdir } from "node:fs/promises";
@@ -41,7 +44,8 @@ import {
   skillRootsFor,
   type Provider,
 } from "../providers";
-import { armoryCacheDirectory } from "./armory-cache";
+import { armoryCacheDirectory, cachedDotfileMap } from "./armory-cache";
+import { linkDotfiles, type DotfileLink } from "./dotfile-linker";
 
 export type ArmoryInstallOptions = {
   homeDirectory?: string;
@@ -52,6 +56,7 @@ export type ArmoryInstallOptions = {
 export type ArmoryInstallReport = {
   skills: { skill: string; provider: Provider; path: string; status: WriteStatus }[];
   plugins: { provider: Provider; path: string; status: WriteStatus }[];
+  dotfiles: DotfileLink[];
   removed: string[];
   /** Destinations left alone because an unmanaged file was already there. */
   conflicts: string[];
@@ -91,6 +96,7 @@ export async function installArmory(
   const report: ArmoryInstallReport = {
     skills: [],
     plugins: [],
+    dotfiles: [],
     removed: [],
     conflicts: [],
     warnings: [],
@@ -183,8 +189,36 @@ export async function installArmory(
   }
   await writeInstalledRecord(cacheRoot, installed);
 
+  // Third phase, after the copied files: the map comes from the cache's own
+  // state, so a ship installs exactly the map that arrived with the revision it
+  // pulled and never re-asks the bridge.
+  try {
+    const dotfiles = await linkDotfiles({
+      homeDirectory,
+      cacheDirectory: cacheRoot,
+      dotfileMap: await cachedDotfileMap(cacheRoot),
+      force: options.force,
+    });
+    report.dotfiles = dotfiles.links;
+    report.removed.push(...dotfiles.removed);
+    report.conflicts.push(...dotfiles.conflicts);
+    report.warnings.push(...dotfiles.warnings);
+  } catch (error) {
+    // Flattened rather than wrapped: an `AggregateError`'s own message names no
+    // path, and callers render the individual failures.
+    if (error instanceof AggregateError) {
+      failures.push(...error.errors.map(asError));
+    } else {
+      failures.push(new Error("Failed to link the armory dotfiles", { cause: error }));
+    }
+  }
+
   if (failures.length > 0) throw new AggregateError(failures, "Failed to install the armory");
   return report;
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 async function planSkills(

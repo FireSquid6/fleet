@@ -52,7 +52,21 @@ export async function installStartupIntegrations(options: {
     // for the bridge's next push.
     const report = await installers.armory?.({ homeDirectory: options.homeDirectory });
     for (const warning of report?.warnings ?? []) console.warn(`Fleet armory: ${warning}.`);
+    // Dotfile targets are in `conflicts` too, but the remedy differs enough to
+    // be worth its own message.
+    const dotfileConflicts = new Set(
+      (report?.dotfiles ?? [])
+        .filter(({ status }) => status === "conflict")
+        .map(({ target }) => target),
+    );
+    for (const path of dotfileConflicts) {
+      console.warn(
+        `Fleet startup preserved a conflicting dotfile: ${path}. ` +
+          "Move it aside, or re-sync the armory with --force to replace it with the armory's link.",
+      );
+    }
     for (const path of report?.conflicts ?? []) {
+      if (dotfileConflicts.has(path)) continue;
       console.warn(
         `Fleet startup preserved a conflicting armory file: ${path}. ` +
           "Delete it to let the armory install over that path.",

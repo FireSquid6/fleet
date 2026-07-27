@@ -46,6 +46,8 @@ export function summarize(report: ArmoryInstallReport): ArmoryInstallSummary {
   return {
     skillCount: report.skills.length,
     pluginCount: report.plugins.length,
+    dotfileCount: report.dotfiles.filter(({ status }) => status !== "conflict" && status !== "skipped")
+      .length,
     removedCount: report.removed.length,
     conflicts: report.conflicts,
     warnings: report.warnings,

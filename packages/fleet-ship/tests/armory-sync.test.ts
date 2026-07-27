@@ -37,6 +37,10 @@ describe("syncAndInstall", () => {
     const report: ArmoryInstallReport = {
       skills: [{ skill: "demo", provider: "claude-code", path: "/home/x", status: "installed" }],
       plugins: [],
+      dotfiles: [
+        { source: ".tmux.conf", target: "/home/.tmux.conf", status: "linked" },
+        { source: "nvim", target: "/home/.config/nvim", status: "conflict" },
+      ],
       removed: ["/home/y"],
       conflicts: ["/home/z"],
       warnings: ["careful"],
@@ -48,6 +52,8 @@ describe("syncAndInstall", () => {
     expect(state.install).toMatchObject({
       skillCount: 1,
       pluginCount: 0,
+      // The conflicted mapping is not a link in place.
+      dotfileCount: 1,
       removedCount: 1,
       conflicts: ["/home/z"],
       warnings: ["careful"],
