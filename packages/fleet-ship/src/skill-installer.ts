@@ -7,7 +7,7 @@
  */
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 // TypeScript resolves the source extension before Bun's text-loader override.
 // @ts-expect-error Bun imports this Markdown file as a string.
 import embeddedSkill from "../skill/SKILL.md" with { type: "text" };
@@ -20,10 +20,11 @@ import {
   type PresenceState,
   type WriteStatus,
 } from "./managed-fs";
+import { PROVIDERS, configRootFor, skillRootsFor, type Provider } from "./providers";
 
 const SKILL_NAME = "fleet-agent";
 
-type Provider = "claude-code" | "opencode" | "copilot" | "codex";
+export type { Provider };
 
 export type SkillInstallation = {
   provider: Provider;
@@ -54,49 +55,19 @@ type ProviderPaths = {
   directories: string[];
 };
 
+/** One row per (provider, skills directory): codex contributes two. */
 function providerPaths(homeDirectory: string): ProviderPaths[] {
-  const claudeSkills = join(homeDirectory, ".claude", "skills");
-  const openCodeSkills = join(homeDirectory, ".config", "opencode", "skills");
-  const copilotSkills = join(homeDirectory, ".copilot", "skills");
-  const codexSkills = join(homeDirectory, ".codex", "skills");
-  const sharedSkills = join(homeDirectory, ".agents", "skills");
-
-  return [
-    {
-      provider: "claude-code",
-      configRoot: join(homeDirectory, ".claude"),
-      destination: join(claudeSkills, SKILL_NAME, "SKILL.md"),
-      directories: [claudeSkills, join(claudeSkills, SKILL_NAME)],
-    },
-    {
-      provider: "opencode",
-      configRoot: join(homeDirectory, ".config", "opencode"),
-      destination: join(openCodeSkills, SKILL_NAME, "SKILL.md"),
-      directories: [openCodeSkills, join(openCodeSkills, SKILL_NAME)],
-    },
-    {
-      provider: "copilot",
-      configRoot: join(homeDirectory, ".copilot"),
-      destination: join(copilotSkills, SKILL_NAME, "SKILL.md"),
-      directories: [copilotSkills, join(copilotSkills, SKILL_NAME)],
-    },
-    {
-      provider: "codex",
-      configRoot: join(homeDirectory, ".codex"),
-      destination: join(codexSkills, SKILL_NAME, "SKILL.md"),
-      directories: [codexSkills, join(codexSkills, SKILL_NAME)],
-    },
-    {
-      provider: "codex",
-      configRoot: join(homeDirectory, ".codex"),
-      destination: join(sharedSkills, SKILL_NAME, "SKILL.md"),
-      directories: [
-        join(homeDirectory, ".agents"),
-        sharedSkills,
-        join(sharedSkills, SKILL_NAME),
-      ],
-    },
-  ];
+  return PROVIDERS.flatMap((provider) =>
+    skillRootsFor(homeDirectory, provider).map((skillRoot) => ({
+      provider,
+      configRoot: configRootFor(homeDirectory, provider),
+      destination: join(skillRoot, SKILL_NAME, "SKILL.md"),
+      // `dirname(skillRoot)` is the provider's config root for its own skills
+      // directory, but `~/.agents` for the shared one, which nothing else
+      // creates.
+      directories: [dirname(skillRoot), skillRoot, join(skillRoot, SKILL_NAME)],
+    })),
+  );
 }
 
 /** The provider spec rows to act on, optionally narrowed to `providers`. */

@@ -50,6 +50,7 @@ export {
   ArmoryFileSchema,
   ArmorySyncRequestSchema,
   ArmorySyncStateSchema,
+  ArmoryInstallSummarySchema,
   type ArmorySection,
   type ArmoryEntry,
   type DotfileMap,
@@ -57,6 +58,7 @@ export {
   type ArmoryFile,
   type ArmorySyncRequest,
   type ArmorySyncState,
+  type ArmoryInstallSummary,
 } from "./src/armory";
 
 export {

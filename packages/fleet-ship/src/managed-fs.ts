@@ -74,12 +74,24 @@ export type ManagedFileOptions = {
   lockTimeoutMs?: number;
 };
 
+/**
+ * `remove` reports what it did: `removed` when the file was ours and is gone,
+ * `not-owned` when the manifest does not claim it or its bytes have drifted
+ * from what we recorded (a user edit is never deleted), `missing` when there is
+ * nothing at the destination.
+ */
+export type RemoveStatus = "removed" | "not-owned" | "missing";
+
 export type ManagedFileSession = {
   sync(
     destination: string,
-    contents: string,
+    contents: string | Uint8Array,
     ownership: { provider: string; kind: ManagedKind; force?: boolean; mode?: number },
   ): Promise<WriteStatus>;
+  remove(
+    destination: string,
+    ownership: { provider: string; kind: ManagedKind },
+  ): Promise<RemoveStatus>;
 };
 
 const MANIFEST_RELATIVE_PATH = join(
@@ -112,8 +124,9 @@ function sha256(contents: Uint8Array): string {
   return hasher.digest("hex");
 }
 
-function bytes(contents: string): Uint8Array {
-  return new TextEncoder().encode(contents);
+/** Managed contents may be binary (an armory plugin can be), so bytes pass through untouched. */
+function bytes(contents: string | Uint8Array): Uint8Array {
+  return typeof contents === "string" ? new TextEncoder().encode(contents) : contents;
 }
 
 function normalizedDestination(path: string): string {
@@ -959,6 +972,71 @@ export async function withManagedFiles<T>(
           await options.fault?.("after-final-manifest", normalized);
           return status;
         },
+        async remove(destination, ownership) {
+          const normalized = normalizedDestination(destination);
+          const parentStats = await safeDirectoryPath(homeDirectory, dirname(normalized), false);
+          // No parent directory means no file; nothing below can exist either.
+          if (!parentStats) return "missing";
+          if (!parentStats.isDirectory() || parentStats.isSymbolicLink()) {
+            throw new Error(`Refusing to use unsafe parent directory: ${dirname(normalized)}`);
+          }
+          const parent = {
+            path: dirname(normalized),
+            dev: parentStats.dev,
+            ino: parentStats.ino,
+          };
+
+          const pending = manifest.transitions[normalized];
+          let current = await fileSnapshot(normalized);
+          if (pending) {
+            // Settle a write this process crashed halfway through before judging
+            // ownership, exactly as `sync` does.
+            if (snapshotMatches(current, pending.intendedSha256, pending.intendedMode)) {
+              manifest.files[normalized] = transitionEntry(pending);
+            } else if (!snapshotMatches(current, pending.previousSha256, pending.previousMode)) {
+              return "not-owned";
+            }
+            delete manifest.transitions[normalized];
+            await writeManifest(homeDirectory, path, manifest);
+            current = await fileSnapshot(normalized);
+          }
+
+          const recorded = manifest.files[normalized];
+          if (!current) {
+            if (recorded) {
+              delete manifest.files[normalized];
+              await writeManifest(homeDirectory, path, manifest);
+            }
+            return "missing";
+          }
+          if (
+            !recorded ||
+            recorded.provider !== ownership.provider ||
+            recorded.kind !== ownership.kind ||
+            !snapshotMatches(current, recorded.sha256, recorded.mode)
+          ) {
+            return "not-owned";
+          }
+
+          revalidateParentSync(homeDirectory, parent);
+          const confirmed = fileSnapshotSync(normalized);
+          if (!confirmed || !snapshotMatches(confirmed, recorded.sha256, recorded.mode)) {
+            return "not-owned";
+          }
+          // Manifest first: a crash between the two steps must never leave the
+          // manifest claiming a file that is gone, which would let a later
+          // reinstall trust a hash nothing on disk can satisfy. The reverse
+          // failure — an orphaned file we no longer claim — is inert.
+          delete manifest.files[normalized];
+          await writeManifest(homeDirectory, path, manifest);
+          revalidateParentSync(homeDirectory, parent);
+          const latest = fileSnapshotSync(normalized);
+          if (!latest || latest.dev !== confirmed.dev || latest.ino !== confirmed.ino) {
+            throw new Error(`Destination changed while removing: ${normalized}`);
+          }
+          unlinkSync(normalized);
+          return "removed";
+        },
       };
         return await operation(session);
       },
@@ -972,7 +1050,7 @@ export async function withManagedFiles<T>(
 export async function inspectManagedFile(
   homeDirectory: string,
   destination: string,
-  contents: string,
+  contents: string | Uint8Array,
   mode?: number,
 ): Promise<Exclude<PresenceState, "absent">> {
   const normalized = normalizedDestination(destination);

@@ -4,7 +4,9 @@
  * The bridge pushes `POST /armory/sync {bridgeUrl, revision}`; this class does
  * the pulling. It caches files and nothing else: turning the cache into
  * installed skills, plugins, and dotfiles is a separate concern that reads from
- * here.
+ * here (armory-installer.ts, wired up by armory-sync.ts). The one thing it
+ * keeps on that installer's behalf is the summary it reports back, so a single
+ * `state.json` answers "what did this ship pull, and what came of it".
  *
  *   <home>/.config/autosmith/fleet-ship/armory/
  *     files/<armory-relative path>   mirrors the bridge's armory tree
@@ -30,16 +32,23 @@ import { z } from "zod";
 import {
   ArmoryEntrySchema,
   ArmoryFileSchema,
+  ArmoryInstallSummarySchema,
   ArmoryManifestSchema,
   ArmorySyncRequestSchema,
   isSafeArmoryPath,
   type ArmoryEntry,
+  type ArmoryInstallSummary,
   type ArmorySyncRequest,
   type ArmorySyncState,
 } from "fleet-protocol";
 
 /** The cache root, relative to the home directory. */
 const CACHE_RELATIVE_PATH = join(".config", "autosmith", "fleet-ship", "armory");
+
+/** Where `ArmoryCache` keeps its mirror, for the installer that reads it back. */
+export function armoryCacheDirectory(homeDirectory: string): string {
+  return join(resolve(homeDirectory), CACHE_RELATIVE_PATH);
+}
 
 /** A sync that failed, carrying the status the ship's route should answer with. */
 export class ArmorySyncError extends Error {
@@ -63,6 +72,8 @@ const CachedStateSchema = z.object({
   bridgeUrl: z.string().nullable(),
   syncedAt: z.string().nullable(),
   entries: ArmoryEntrySchema.array(),
+  /** Recorded by whoever installs from the cache; the cache never produces it. */
+  install: ArmoryInstallSummarySchema.nullable().default(null),
   lastError: z.string().nullable(),
 });
 
@@ -73,10 +84,14 @@ const EMPTY_STATE: CachedState = {
   bridgeUrl: null,
   syncedAt: null,
   entries: [],
+  install: null,
   lastError: null,
 };
 
 export class ArmoryCache {
+  readonly homeDirectory: string;
+  /** The cache root, so an installer can find `files/` without recomputing it. */
+  readonly cacheDirectory: string;
   private readonly root: string;
   private readonly filesRoot: string;
   private readonly statePath: string;
@@ -84,7 +99,9 @@ export class ArmoryCache {
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(options?: { homeDirectory?: string; fetch?: typeof fetch }) {
-    this.root = join(resolve(options?.homeDirectory ?? homedir()), CACHE_RELATIVE_PATH);
+    this.homeDirectory = resolve(options?.homeDirectory ?? homedir());
+    this.root = armoryCacheDirectory(this.homeDirectory);
+    this.cacheDirectory = this.root;
     this.filesRoot = join(this.root, "files");
     this.statePath = join(this.root, "state.json");
     this.fetchImpl = options?.fetch ?? fetch;
@@ -130,6 +147,22 @@ export class ArmoryCache {
     });
   }
 
+  /**
+   * Record what an installer made of the cache. `lastError` is set separately
+   * from `install` so a failed install can be reported without erasing the
+   * successful pull that preceded it.
+   */
+  async recordInstall(
+    install: ArmoryInstallSummary | null,
+    lastError: string | null = null,
+  ): Promise<ArmorySyncState> {
+    return this.serialized(async () => {
+      const next: CachedState = { ...(await this.readState()), install, lastError };
+      await this.writeState(next);
+      return reported(next);
+    });
+  }
+
   private async pull(request: ArmorySyncRequest, previous: CachedState): Promise<CachedState> {
     const base = this.baseUrl(request.bridgeUrl);
     const manifest = await this.fetchManifest(base);
@@ -145,6 +178,7 @@ export class ArmoryCache {
       bridgeUrl: request.bridgeUrl,
       syncedAt: new Date().toISOString(),
       entries: manifest.entries,
+      install: previous.install,
       lastError: null,
     };
 
@@ -298,6 +332,7 @@ function reported(state: CachedState): ArmorySyncState {
     bridgeUrl: state.bridgeUrl,
     syncedAt: state.syncedAt,
     fileCount: state.entries.length,
+    install: state.install,
     lastError: state.lastError,
   };
 }

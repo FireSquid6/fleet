@@ -236,6 +236,7 @@ describe("ArmoryCache", () => {
       bridgeUrl: null,
       syncedAt: null,
       fileCount: 0,
+      install: null,
       lastError: null,
     });
   });

@@ -158,6 +158,24 @@ export const ArmorySyncRequestSchema = z.object({
 
 export type ArmorySyncRequest = z.infer<typeof ArmorySyncRequestSchema>;
 
+/**
+ * What a ship's most recent armory *install* applied, as opposed to what it
+ * pulled. Counts are files, not skills or plugins: a skill is a directory and a
+ * plugin is an arbitrary tree, so files are the only unit both share.
+ */
+export const ArmoryInstallSummarySchema = z.object({
+  skillCount: z.number().int().nonnegative(),
+  pluginCount: z.number().int().nonnegative(),
+  /** Files uninstalled because the armory no longer carries them. */
+  removedCount: z.number().int().nonnegative(),
+  /** Destinations left alone because something unmanaged was already there. */
+  conflicts: z.string().array(),
+  warnings: z.string().array(),
+  installedAt: z.string().nullable(),
+});
+
+export type ArmoryInstallSummary = z.infer<typeof ArmoryInstallSummarySchema>;
+
 /** What a ship reports about its armory cache. */
 export const ArmorySyncStateSchema = z.object({
   /** The applied revision; `null` until the first successful sync. */
@@ -166,7 +184,9 @@ export const ArmorySyncStateSchema = z.object({
   /** ISO timestamp of the last successful sync. */
   syncedAt: z.string().nullable(),
   fileCount: z.number().int().nonnegative(),
-  /** Message of the most recent failed sync, cleared by the next success. */
+  /** The last install applied from the cache; `null` until one has run. */
+  install: ArmoryInstallSummarySchema.nullable().default(null),
+  /** Message of the most recent failed sync or install, cleared by the next success. */
   lastError: z.string().nullable(),
 });
 
