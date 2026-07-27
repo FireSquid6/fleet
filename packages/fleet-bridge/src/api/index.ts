@@ -19,7 +19,10 @@ import { eventsPlugin } from "./events";
 import { Logestic } from "logestic";
 
 export function createApp(manager: FleetManager, _config: BridgeConfig) {
-  return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES } })
+  // Terminal frames are highly repetitive JSON; permessage-deflate is worth an
+  // order of magnitude on them, and Bun's client WebSocket already offers the
+  // extension, so accepting it here compresses the fleet-client→bridge hop.
+  return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: true } })
     .use(Logestic.preset("commontz"))
     .use(workspacesPlugin(manager))
     .use(shipsPlugin(manager))

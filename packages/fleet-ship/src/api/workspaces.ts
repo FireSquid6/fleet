@@ -11,6 +11,7 @@ import {
   decodeClientMessage,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
+  MAX_PENDING_BYTES,
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_CONFLICT_CLOSE_REASON,
   TERMINAL_TAKEOVER_CLOSE_CODE,
@@ -27,6 +28,26 @@ import { mapError } from "./http";
 // is the incumbent's connection state so a later connection asking for a
 // takeover can evict it through its own `finish`.
 const activeTerminals = new Map<string, TerminalConnectionData>();
+
+/**
+ * Unflushed bytes on the terminal socket past which the bridge stops producing
+ * frames. Matches `MAX_PENDING_BYTES`, the bound every other hop in the chain
+ * uses for the same judgement ("the peer is not draining"), and is several full
+ * snapshots wide at any sane terminal size, so an ordinary in-flight frame
+ * never trips it — this is a backstop under the ack window, not a substitute.
+ */
+const TERMINAL_BACKPRESSURE_BYTES = MAX_PENDING_BYTES;
+
+/**
+ * Elysia's `ws` is a wrapper; `ws.raw` is Bun's `ServerWebSocket`, which does
+ * expose `getBufferedAmount()` even though the `ServerWebSocket` declaration
+ * Elysia bundles predates it. Read defensively rather than widening the type:
+ * a wrapper without it just means no congestion signal, not a crash.
+ */
+function bufferedAmount(ws: unknown): number {
+  const raw = (ws as { raw?: { getBufferedAmount?: () => number } }).raw;
+  return raw?.getBufferedAmount?.() ?? 0;
+}
 
 export const TERMINAL_INIT_TIMEOUT_MS = 5_000;
 export const TERMINAL_INIT_TIMEOUT_CLOSE_CODE = 1008;
@@ -303,6 +324,9 @@ export function workspacesPlugin(
         try {
           const bridge = createTerminal({
             argv: ["tmux", "-L", WORKSPACE_TMUX_NAMESPACE, "attach", "-t", sessionName],
+            // The client's acks pace the stream against the far end; this paces
+            // it against the near one, which the acks cannot see.
+            congested: () => bufferedAmount(ws) > TERMINAL_BACKPRESSURE_BYTES,
             send: (msg: ServerMsg) => {
               if (msg.type === "exit") {
                 try {

@@ -7,10 +7,11 @@ sidebar:
 
 `webterm` carries a live terminal over a WebSocket. Its defining choice is where
 the emulation happens: **the server is the terminal emulator**. It spawns a PTY,
-parses the raw VT bytes with [`bun-vt`](/packages/bun-vt/), and streams full
-cell-grid snapshots to the client. The client only paints cells and sends
-keystrokes — it never sees an escape sequence, never tracks cursor state, and
-never needs a terminal emulator of its own.
+parses the raw VT bytes with [`bun-vt`](/packages/bun-vt/), and streams the cell
+grid to the client — a full snapshot to open the connection, deltas from then
+on. The client only paints cells and sends keystrokes — it never sees an escape
+sequence, never tracks cursor state, and never needs a terminal emulator of its
+own.
 
 The package has two halves:
 
@@ -234,19 +235,73 @@ new TerminalBridge(options: TerminalBridgeOptions)
 | `send` | `(msg: ServerMsg) => void` | Sink for server → client messages. |
 | `frameIntervalMs` | `number?` | Frame coalescing interval. Defaults to `16` (~60fps). |
 | `termName` | `string?` | `TERM` advertised to the child. Defaults to `"xterm-256color"`. |
+| `maxUnackedFrames` | `number?` | Frames allowed in flight unacked before the stream pauses. Defaults to `2`. |
+| `ackTimeoutMs` | `number?` | How long to wait for an ack before sending a full snapshot anyway. Defaults to `5000`. |
+| `congested` | `(() => boolean)?` | Transport-level backpressure signal; while it returns `true` no frame is produced. Defaults to never congested. |
 
 | Method | Signature | Behavior |
 | --- | --- | --- |
 | `start` | `(cols: number, rows: number) => void` | Allocate the VT parser and spawn the PTY. Idempotent. |
 | `input` | `(data: string) => void` | Write to the PTY. |
 | `resize` | `(cols: number, rows: number) => void` | Resize the PTY and the parser, then repaint. |
-| `handle` | `(msg: ClientMsg) => void` | Dispatch a decoded client message to the three methods above. |
+| `handle` | `(msg: ClientMsg) => void` | Dispatch a decoded client message: `init`/`input`/`resize` to the methods above, `ack`/`resync` to the sequencer. |
 | `stop` | `() => void` | Kill the PTY and free the parser. Idempotent; does **not** emit `exit`. |
 
 Bytes arriving from the PTY are written into the VT parser and schedule a frame;
-the frame timer coalesces a burst of output into one snapshot per interval, so a
-process spewing megabytes still produces at most ~60 grid messages a second. When
-the child exits, the bridge sends `{ type: "exit", code }` and cleans up.
+the frame timer coalesces a burst of output into one message per interval, so a
+process spewing megabytes still produces at most ~60 frames a second. Each of
+those frames is a `patch` against the previous one, except where a full `grid` is
+required — see `FrameSequencer` below. A terminal producing no output produces no
+frames at all: an interval where nothing changed, cursor included, sends nothing.
+When the child exits, the bridge sends `{ type: "exit", code }` and cleans up.
+
+The stream is also paced. `ack` frames from the client bound how many frames may
+be in flight; once `maxUnackedFrames` are outstanding the bridge stops producing,
+and the next `ack` restarts it. That is what stops a slow link from accumulating
+unbounded lag — without it a build spewing output for four seconds can leave a
+400 kbps client tens of seconds behind, and the gap only grows. A `resync`
+answers with a full `grid` immediately, whether or not a frame was owed.
+
+### `FrameSequencer`
+
+The rules above live in a separate class that touches no PTY and no socket, so
+they can be tested on their own; `TerminalBridge` forwards its own
+`maxUnackedFrames`/`ackTimeoutMs`/`congested` options to it.
+
+```ts
+import { FrameSequencer, serializeGrid } from "webterm";
+
+const sequencer = new FrameSequencer({ maxUnackedFrames: 2 });
+
+const decision = sequencer.next(serializeGrid(term));
+if (decision.kind === "send") ws.send(JSON.stringify(decision.msg));
+```
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `next` | `(grid: GridMsg) => FrameDecision` | Decide what to send for the terminal's current state. The argument's `seq` is ignored and restamped. |
+| `ack` | `(seq: number) => void` | Advance the acknowledged high-water mark. An ack for an unsent frame, or a stale one, is ignored. |
+| `requestResync` | `() => void` | Send a full snapshot next, and reopen the window. |
+
+A `FrameDecision` is `{ kind: "send", msg }`, `{ kind: "idle" }` (nothing changed
+— no `seq` consumed, nothing sent), or `{ kind: "blocked" }` (the window is
+closed; retry when an ack arrives).
+
+A `send` is a full `grid` for the first frame of a connection, after
+`requestResync`, and whenever the dimensions differ from the last frame — a
+`patch` cannot cross a resize, since `applyPatch` throws on a size mismatch.
+Everything else is a `patch` produced by `diffGrid`. The diff baseline is the
+last frame **actually sent**, never the last one computed, which is what makes
+coalescing and pacing lossless: frames skipped while blocked are simply folded
+into the next patch.
+
+Reopening the window in `requestResync` is not optional. A client that has lost
+sequence stops acking, so a window left closed there would never reopen and the
+terminal would wedge. `ackTimeoutMs` is a second safety valve for the same class
+of failure: if the oldest unacked frame is older than that, one full snapshot
+goes out anyway and the window reopens. A client that never acks at all — an
+older build, a wedged renderer — therefore degrades to a snapshot every five
+seconds rather than hanging.
 
 A minimal server:
 
@@ -265,11 +320,15 @@ Bun.serve<{ bridge?: TerminalBridge }>({
   },
   websocket: {
     maxPayloadLength: MAX_CLIENT_FRAME_BYTES,
+    // Frames are repetitive JSON; permessage-deflate is worth an order of
+    // magnitude on them, and browsers offer the extension by default.
+    perMessageDeflate: true,
 
     open(ws) {
       ws.data.bridge = new TerminalBridge({
         argv: ["bash", "-l"],
         send: (msg) => ws.send(JSON.stringify(msg)),
+        congested: () => ws.getBufferedAmount() > 256 * 1024,
       });
     },
 
@@ -304,7 +363,10 @@ knows their numbering.
 `argv` attaches to the workspace's tmux session, and adds two policies of its
 own on top of the protocol: `init` must be the first message and may not be
 repeated (either violation closes with 1008), and an init that never arrives
-times out. [`fleet-bridge`](/concepts/bridge/) does not emulate anything — it
+times out. It also passes a `congested` predicate built from the socket's own
+buffered amount, so the bridge pauses for the near end as well as the far one,
+and every server in the chain negotiates permessage-deflate.
+[`fleet-bridge`](/concepts/bridge/) does not emulate anything — it
 decodes and re-serializes each client frame, forwards it to the owning ship, and
 buffers up to `MAX_PENDING_BYTES` while the upstream socket is still connecting.
 See [Terminals](/concepts/terminals/) for the end-to-end path.
@@ -415,3 +477,10 @@ runs of `diffGrid(a, b)` to `a` reproduces `b`. `GridStream` is covered on top o
 that: patches accumulate in order, a gap produces exactly one `resync` and then
 silence until a `grid` arrives, and a mismatched patch is a gap rather than a
 throw.
+
+`FrameSequencer` is tested against a hand-built grid fixture and an injected
+clock, with no PTY: the first frame is a full snapshot, an unchanged grid is
+`idle`, a cursor-only move is still a patch, a resize forces a full grid, the
+window closes after `maxUnackedFrames` and reopens on an ack, an unsent or stale
+ack changes nothing, `requestResync` both forces a snapshot and reopens a closed
+window, and the ack timeout fires exactly one snapshot once the clock passes it.

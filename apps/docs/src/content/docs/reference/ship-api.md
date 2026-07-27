@@ -376,8 +376,8 @@ replayed immediately after it, so no event is lost on connect.
 
 Attaches a terminal to the workspace's tmux session by running
 `tmux -L fleet-ship attach -t ws-<sha256>`. The wire format is the webterm
-protocol: the server parses the shell's VT bytes and streams full grid
-snapshots; the client sends keystrokes.
+protocol: the server parses the shell's VT bytes and streams the cell grid; the
+client sends keystrokes and acknowledges frames.
 
 Client → server messages (JSON text only):
 
@@ -385,13 +385,22 @@ Client → server messages (JSON text only):
 { type: "init"; cols: number; rows: number }    // must be first, exactly once
 { type: "input"; data: string }
 { type: "resize"; cols: number; rows: number }
+{ type: "ack"; seq: number }                    // frame `seq` arrived
+{ type: "resync" }                              // sequence lost; send a snapshot
 ```
 
-`cols` is 1–1024, `rows` is 1–512, and `input.data` is at most 256 KiB of UTF-8.
-The socket's max payload is 1,572,992 bytes.
+`cols` is 1–1024, `rows` is 1–512, `input.data` is at most 256 KiB of UTF-8, and
+`seq` is a non-negative integer. The socket's max payload is 1,572,992 bytes, and
+the socket negotiates permessage-deflate when the client offers it.
 
-Server → client messages: `grid` snapshots and a final
-`{ type: "exit", code: number }`.
+Server → client messages: a full `grid` snapshot to open the connection and
+after every resize or `resync`, a `patch` of changed cell runs for every other
+frame, and a final `{ type: "exit", code: number }`.
+
+Frames are paced by the client's acks: with two frames unacknowledged the server
+stops sending until one is acked, or until five seconds pass, after which it
+sends one full snapshot and resumes. A client that never acks therefore sees a
+snapshot every five seconds rather than a live terminal.
 
 Connection rules:
 

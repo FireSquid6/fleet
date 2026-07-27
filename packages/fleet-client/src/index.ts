@@ -143,6 +143,9 @@ export function startClientServer(
     // lost (mirrors the bridge→ship proxy in fleet-bridge's workspaces plugin).
     websocket: {
       maxPayloadLength: MAX_CLIENT_FRAME_BYTES,
+      // Terminal frames are highly repetitive JSON, and this is the hop most
+      // likely to be a slow link — the browser's own connection.
+      perMessageDeflate: true,
       open(ws: ServerWebSocket<BridgeWsData>) {
         const { upstream, buffer, upstreamBuffer } = ws.data;
         upstream.onopen = () => {

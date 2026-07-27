@@ -103,7 +103,8 @@ export function serializeGrid(term: Terminal, seq = 0): GridMsg {
   };
 }
 
-function colorsEqual(a: WireColor | undefined, b: WireColor | undefined): boolean {
+/** Structural color comparison — a palette index only ever equals the same index. */
+export function colorsEqual(a: WireColor | undefined, b: WireColor | undefined): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined || typeof a === "number" || typeof b === "number") return false;
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];

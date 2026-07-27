@@ -6,7 +6,13 @@
  * from `webterm` on the server for the bridge + encoder.
  */
 
-export { TerminalBridge, type TerminalBridgeOptions } from "./server";
+export {
+  TerminalBridge,
+  type TerminalBridgeOptions,
+  FrameSequencer,
+  type FrameSequencerOptions,
+  type FrameDecision,
+} from "./server";
 export { serializeGrid, encodeCell, diffGrid } from "./encode";
 
 export {
