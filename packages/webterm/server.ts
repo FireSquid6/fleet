@@ -13,8 +13,11 @@
 
 import { Terminal as VtTerminal } from "bun-vt";
 import { serializeGrid } from "./encode";
-import { pasteBytes } from "./protocol";
+import { PASTE_END, PASTE_START, pasteBytes } from "./protocol";
 import type { ClientMsg, ServerMsg } from "./protocol";
+
+/** What `pasteBytes` returns, bracketed, for a paste whose payload stripped to nothing. */
+const EMPTY_BRACKETED_PASTE = PASTE_START + PASTE_END;
 
 export interface TerminalBridgeOptions {
   /** argv for the PTY process, e.g. `["tmux", "-L", "fleet-ship", "attach", "-t", name]`. */
@@ -91,7 +94,16 @@ export class TerminalBridge {
    * interval would be worse than sending them plain.
    */
   paste(data: string): void {
-    this.proc?.terminal?.write(pasteBytes(data, this.vt?.bracketedPaste ?? false));
+    const bytes = pasteBytes(data, this.vt?.bracketedPaste ?? false);
+    // A clipboard that survives stripping as nothing — empty, or nothing but
+    // closing markers — must not reach the PTY: bracketed, it would be a bare
+    // marker pair, which an application reports as a paste of no text (Claude Code
+    // renders an empty `[Pasted text …]`). The client drops the empty string
+    // early, but only the post-strip payload settles the marker-only case, and
+    // `pasteBytes` wraps before returning, so the emptiness test is on its output.
+    // Length alone decides it: `bytes` is the payload plus the two markers.
+    if (bytes === "" || bytes === EMPTY_BRACKETED_PASTE) return;
+    this.proc?.terminal?.write(bytes);
   }
 
   /** Resize both the PTY and the VT parser, then repaint. */

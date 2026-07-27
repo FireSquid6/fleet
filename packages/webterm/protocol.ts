@@ -114,9 +114,20 @@ export const PASTE_END = "\x1b[201~";
  * single crafted clipboard would stall every other terminal and route on the
  * process. This pass reaches the same fixpoint: `PASTE_END` has no proper prefix
  * that is also a suffix, so a payload's fully-reduced form is unique and the
- * order deletions are found in cannot change it.
+ * order deletions are found in cannot change it. Changing `PASTE_END` to a value
+ * that overlaps itself would invalidate that argument.
+ *
+ * The early-out is not an optimization to be tidied away later: a payload with no
+ * marker in it is already its own normal form, so returning it is exactly what the
+ * pass would produce, and this is the overwhelmingly common case (an ordinary
+ * clipboard pays one native substring scan instead of building a per-character
+ * array — the scan is also the cheap half of what the pass does anyway). A payload
+ * that does contain a marker still takes the full linear pass, so the worst case
+ * is unchanged.
  */
 function stripPasteEnd(data: string): string {
+  if (!data.includes(PASTE_END)) return data;
+
   const out: string[] = [];
   for (const character of data) {
     out.push(character);

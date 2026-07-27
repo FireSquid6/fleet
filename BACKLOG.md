@@ -37,6 +37,24 @@ copy.
   remedy is xterm.js's approach — an offscreen editable textarea as the key and
   clipboard sink, which would also give selection a home.
 
+## `Shift+Insert` cannot paste in the web terminal
+
+The traditional X11/Windows paste accelerator is still swallowed. `encodeKeyEvent`
+returns `"\x1b[2;2~"` for `Shift+Insert` (the tilde key's modifier form) and
+`TerminalGrid` then calls `preventDefault()`, so the browser never fires its paste
+event — the same trap `Ctrl+Shift+V` was in before issue #9. Browsers do treat the
+chord as a paste accelerator, and xterm binds it to insert-selection rather than
+emitting `CSI 2;2~`, so the current encoding is also at odds with the "matching
+xterm's default keymap" claim in the `keys.ts` header. Issue #9 named only
+`ctrl+shift+v` and `cmd+v`, so rebinding a third chord was left for whoever owns
+that decision.
+
+- Add `Insert` to the leave-it-to-the-browser path when `shiftKey` is set, next to
+  the existing clipboard-chord check.
+- Guard it so plain `Insert` keeps `CSI 2~` and `Ctrl+Shift+Insert` keeps
+  `CSI 2;6~` — only the bare Shift form is a paste chord.
+- Correct or qualify the `keys.ts` header's xterm-keymap claim at the same time.
+
 ## Paste in `fleet client attach`
 
 The web client now sends pastes as a distinct `paste` message that the ship

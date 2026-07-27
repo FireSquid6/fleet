@@ -142,6 +142,22 @@ describe("pasteBytes", () => {
     expect(pasteBytes(nested, true)).toBe(`${PASTE_START}${PASTE_END}`);
   });
 
+  // `TerminalBridge.paste` decides "there is nothing to write" by comparing its
+  // output against these two values, so a payload that strips to nothing must
+  // produce exactly them, and a payload that does not must never collide with
+  // them. A clipboard of nothing but closing markers is the case the client's own
+  // empty-string guard cannot see.
+  test("marks an empty paste by output value alone", () => {
+    for (const nothing of ["", PASTE_END, PASTE_END + PASTE_END, `\x1b[20${PASTE_END}1~`]) {
+      expect(pasteBytes(nothing, false)).toBe("");
+      expect(pasteBytes(nothing, true)).toBe(`${PASTE_START}${PASTE_END}`);
+    }
+    for (const something of ["\n", " ", "a", `a${PASTE_END}`, PASTE_START, "\x1b[201", "~"]) {
+      expect(pasteBytes(something, false)).not.toBe("");
+      expect(pasteBytes(something, true)).not.toBe(`${PASTE_START}${PASTE_END}`);
+    }
+  });
+
   test("passes every other escape sequence through unmodified, opening marker included", () => {
     // Only the closing marker can escape the bracketed region, so only it is
     // removed; an embedded opening marker is literal payload.
