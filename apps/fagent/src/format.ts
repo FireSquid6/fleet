@@ -6,21 +6,7 @@ import type {
   PullRequestSummary,
   RepoInfo,
 } from "fleet-bridge/providers";
-
-/**
- * Copied from the fleet CLI's `format.ts` — the apps do not depend on each
- * other. With no rows, only the header row is returned.
- */
-export function renderTable(headers: readonly string[], rows: readonly (readonly string[])[]): string {
-  const widths = headers.map((header, col) =>
-    Math.max(header.length, ...rows.map((row) => (row[col] ?? "").length)),
-  );
-
-  const formatRow = (cells: readonly string[]): string =>
-    cells.map((cell, col) => cell.padEnd(widths[col] ?? 0)).join("  ").trimEnd();
-
-  return [formatRow(headers), ...rows.map((row) => formatRow(row))].join("\n");
-}
+import { renderTable } from "fleet-cli-kit";
 
 /**
  * The bridge sends timestamps as ISO-8601 strings, but Eden's Treaty client

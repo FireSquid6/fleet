@@ -1,16 +1,12 @@
-export interface GitRunResult {
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number;
-}
+import type { Backend, RunResult } from "cli-bun";
+
+export type GitRunResult = RunResult;
 
 /**
  * The `args` a backend receives already include the `-C <cwd>` working-directory
  * flags, so a backend must never inject its own.
  */
-export interface GitBackend {
-  run(args: readonly string[]): Promise<GitRunResult>;
-}
+export type GitBackend = Backend;
 
 /**
  * Default backend: spawn one-shot `git` processes via Bun's shell. Bun.$

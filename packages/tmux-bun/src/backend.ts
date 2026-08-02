@@ -1,16 +1,12 @@
-export interface TmuxRunResult {
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number;
-}
+import type { Backend, RunResult } from "cli-bun";
+
+export type TmuxRunResult = RunResult;
 
 /**
  * The `args` a backend receives already include the namespace socket flags, so a
  * backend must never inject its own.
  */
-export interface TmuxBackend {
-  run(args: readonly string[]): Promise<TmuxRunResult>;
-}
+export type TmuxBackend = Backend;
 
 /**
  * Default backend: spawn one-shot `tmux` processes via Bun's shell. Bun.$

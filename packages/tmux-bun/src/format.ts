@@ -1,3 +1,4 @@
+import { toInt } from "cli-bun";
 import type { SessionInfo, WindowInfo, PaneInfo } from "./types";
 
 // Field separator woven into every `-F` format string. ASCII Unit Separator
@@ -27,11 +28,6 @@ function parseRows(stdout: string, fields: readonly string[]): Array<Record<stri
       });
       return row;
     });
-}
-
-function toInt(value: string | undefined): number {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isNaN(n) ? 0 : n;
 }
 
 // tmux flag-style variables (`#{session_attached}`, etc.) render as "1"/"0".

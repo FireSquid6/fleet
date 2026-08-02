@@ -1,5 +1,5 @@
 {
-  "name": "tmux-bun",
+  "name": "cli-bun",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -9,9 +9,6 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "cli-bun": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

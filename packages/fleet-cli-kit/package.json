@@ -1,10 +1,10 @@
 {
-  "name": "fagent",
-  "module": "src/index.ts",
+  "name": "fleet-cli-kit",
+  "module": "index.ts",
   "type": "module",
   "private": true,
-  "bin": {
-    "fagent": "src/index.ts"
+  "exports": {
+    ".": "./index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,11 +12,7 @@
   },
   "dependencies": {
     "@elysiajs/eden": "latest",
-    "commander": "latest",
-    "elysia": "latest",
-    "fleet-bridge": "workspace:*",
-    "fleet-cli-kit": "workspace:*",
-    "fleet-protocol": "workspace:*"
+    "fleet-bridge": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest"

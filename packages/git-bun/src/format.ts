@@ -1,3 +1,4 @@
+import { toInt } from "cli-bun";
 import type { BranchInfo, CommitInfo, FileStatus, RemoteRef, StatusInfo, WorktreeInfo } from "./types";
 
 // Field separator woven into every machine-readable `--format`/`--pretty` string.
@@ -5,11 +6,6 @@ import type { BranchInfo, CommitInfo, FileStatus, RemoteRef, StatusInfo, Worktre
 // subjects, author names, branch names, or paths, so splitting on it can't be
 // fooled by content the way a space or tab could.
 export const FIELD_SEP = "\u001f";
-
-function toInt(value: string | undefined): number {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isNaN(n) ? 0 : n;
-}
 
 // %H sha, %h short sha, %an author name, %ae author email, %at author date
 // (unix seconds), %s subject. Every field is single-line, so one commit is one

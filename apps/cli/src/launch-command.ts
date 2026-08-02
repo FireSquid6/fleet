@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { startBridge } from "fleet-bridge";
 import { startShip } from "fleet-ship";
 import { startClientServer } from "fleet-client";
-import { normalizeUrl } from "./client";
+import { normalizeUrl } from "fleet-cli-kit";
 import { CONFIG_TEMPLATE, loadLaunchConfig, publicUrlWarning } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";

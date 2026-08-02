@@ -7,7 +7,8 @@ import {
   TERMINAL_TAKEOVER_CLOSE_CODE,
   type ClientMsg,
 } from "webterm/protocol";
-import { makeClient, unwrap } from "./client";
+import { unwrap } from "fleet-cli-kit";
+import { makeClient } from "./client";
 import { renderGrid } from "./render-grid";
 
 /** Ctrl-] — reserved as the detach key; never forwarded to the PTY. */
@@ -49,10 +50,10 @@ export function attachCloseOutcome(
 
 async function ensureActive(shipUrl: string, repo: string, name: string): Promise<void> {
   const client = makeClient(shipUrl);
-  const status = unwrap(await client.workspaces({ repo })({ name }).get()) as WorkspaceStatus;
+  const status = unwrap(await client.workspaces({ repo })({ name }).get(), "fleet") as WorkspaceStatus;
   if (status.state === "inactive") {
     console.error(`fleet: activating ${repo}/${name}…`);
-    unwrap(await client.workspaces({ repo })({ name }).activate.post());
+    unwrap(await client.workspaces({ repo })({ name }).activate.post(), "fleet");
   }
 }
 

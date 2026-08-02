@@ -1,3 +1,4 @@
+import { CliError } from "cli-bun";
 import type { TmuxRunResult } from "./backend";
 
 /**
@@ -6,21 +7,9 @@ import type { TmuxRunResult } from "./backend";
  * the non-zero exit into `false` — so a TmuxError always signals a genuine
  * failure worth surfacing.
  */
-export class TmuxError extends Error {
-  readonly args: readonly string[];
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number;
-
+export class TmuxError extends CliError {
   constructor(args: readonly string[], result: TmuxRunResult) {
-    // Prefer stderr for the message; fall back to stdout since some tmux errors
-    // land on stdout depending on the subcommand.
-    const detail = result.stderr.trim() || result.stdout.trim() || "no output";
-    super(`tmux ${args.join(" ")} failed (exit ${result.exitCode}): ${detail}`);
+    super("tmux", args, result);
     this.name = "TmuxError";
-    this.args = args;
-    this.stdout = result.stdout;
-    this.stderr = result.stderr;
-    this.exitCode = result.exitCode;
   }
 }
