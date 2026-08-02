@@ -80,11 +80,7 @@ export function upgradeBridgeWebSocket(
   return new Response("Upgrade failed", { status: 500 });
 }
 
-export function startClientServer(
-  bridgeUrl: string,
-  port?: number,
-  deps?: { createWebSocket?: CreateWebSocket },
-) {
+export function startClientServer(bridgeUrl: string, port?: number) {
   const bridgeWSUrl = bridgeUrl.replace(/^http/, "ws");
 
   /** Strip the `/bridge` prefix, preserving path + query (defaults to `/`). */
@@ -103,7 +99,7 @@ export function startClientServer(
     const path = bridgePath(url);
 
     if (req.headers.get("upgrade") === "websocket") {
-      return upgradeBridgeWebSocket(req, server, bridgeWSUrl + path, deps?.createWebSocket);
+      return upgradeBridgeWebSocket(req, server, bridgeWSUrl + path);
     }
 
     const target = bridgeUrl + path;

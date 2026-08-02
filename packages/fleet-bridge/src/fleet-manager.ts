@@ -289,7 +289,9 @@ export class FleetManager {
 
   /** `POST /repos` — register a repo. `provider` defaults to `"custom"`. */
   async addRepo(input: CreateRepoInput): Promise<Repo> {
-    const parsed = this.parseInput(CreateRepoInputSchema, input, "repo");
+    const result = CreateRepoInputSchema.safeParse(input);
+    if (!result.success) throw new BridgeError("invalid repo", 400);
+    const parsed = result.data;
     try {
       return await this.store.createRepo({
         name: parsed.name,
@@ -877,12 +879,6 @@ export class FleetManager {
     if (!FleetIdentifierSchema.safeParse(value).success) {
       throw new BridgeError(`invalid ${label} identifier`, 400);
     }
-  }
-
-  private parseInput<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, value: unknown, label: string): T {
-    const result = schema.safeParse(value);
-    if (!result.success) throw new BridgeError(`invalid ${label}`, 400);
-    return result.data;
   }
 
   private async persist(): Promise<void> {

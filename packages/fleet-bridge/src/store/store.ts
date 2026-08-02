@@ -1,6 +1,8 @@
 import { lstat, open, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { FleetIdentifierSchema, RepoSchema, ShipSchema, type Repo, type Ship } from "fleet-protocol";
+import type { z } from "zod";
+import { SerialQueue } from "../serial-queue";
 
 type Persist = (target: string, contents: string) => Promise<void>;
 
@@ -11,76 +13,130 @@ export class RepoAlreadyExistsError extends Error {
   }
 }
 
-export class Store {
-  private ships = new Map<string, Ship>();
-  private repos = new Map<string, Repo>();
-  private loaded = false;
-  private queue: Promise<unknown> = Promise.resolve();
-  private readonly persist: Persist;
+class JsonCollection<T extends { name: string }> {
+  private map = new Map<string, T>();
 
   constructor(
-    private readonly dataDirectory: string,
-    deps?: { persist?: Persist },
-  ) {
-    this.persist = deps?.persist ?? atomicWrite;
+    private readonly queue: SerialQueue,
+    private readonly schema: z.ZodType<T>,
+    private readonly target: string,
+    private readonly persist: Persist,
+  ) {}
+
+  async read(): Promise<Map<string, T>> {
+    const items = this.schema.array().parse(await readJsonArray(this.target));
+    return new Map(items.map((item) => [item.name, item]));
   }
 
-  private serialized<T>(operation: () => Promise<T> | T): Promise<T> {
-    const result = this.queue.then(operation, operation);
-    this.queue = result.then(
-      () => undefined,
-      () => undefined,
+  adopt(map: Map<string, T>): void {
+    this.map = map;
+  }
+
+  getAll(): Promise<T[]> {
+    return this.queue.run(() => [...this.map.values()]);
+  }
+
+  get(name: string): Promise<T | undefined> {
+    return this.queue.run(() => this.map.get(name));
+  }
+
+  put(item: T, guard?: (current: ReadonlyMap<string, T>) => void): Promise<T> {
+    const parsed = this.schema.parse(item);
+    return this.queue.run(async () => {
+      guard?.(this.map);
+      const next = new Map(this.map).set(parsed.name, parsed);
+      await this.write(next);
+      this.map = next;
+      return parsed;
+    });
+  }
+
+  update(name: string, values: Partial<Omit<T, "name">>): Promise<T | undefined> {
+    FleetIdentifierSchema.parse(name);
+    return this.queue.run(async () => {
+      const existing = this.map.get(name);
+      if (!existing) return undefined;
+      const updated = this.schema.parse({ ...existing, ...values, name });
+      const next = new Map(this.map).set(name, updated);
+      await this.write(next);
+      this.map = next;
+      return updated;
+    });
+  }
+
+  delete(name: string): Promise<T | undefined> {
+    FleetIdentifierSchema.parse(name);
+    return this.queue.run(async () => {
+      const existing = this.map.get(name);
+      if (!existing) return undefined;
+      const next = new Map(this.map);
+      next.delete(name);
+      await this.write(next);
+      this.map = next;
+      return existing;
+    });
+  }
+
+  replaceAll(items: T[]): Promise<void> {
+    const parsed = this.schema.array().parse(items);
+    return this.queue.run(async () => {
+      const next = new Map(parsed.map((item) => [item.name, item]));
+      await this.write(next);
+      this.map = next;
+    });
+  }
+
+  private write(map: Map<string, T>): Promise<void> {
+    return this.persist(this.target, stringify([...map.values()]));
+  }
+}
+
+export class Store {
+  private loaded = false;
+  private readonly queue = new SerialQueue();
+  private readonly shipCollection: JsonCollection<Ship>;
+  private readonly repoCollection: JsonCollection<Repo>;
+
+  constructor(
+    dataDirectory: string,
+    deps?: { persist?: Persist },
+  ) {
+    const persist = deps?.persist ?? atomicWrite;
+    this.shipCollection = new JsonCollection(
+      this.queue,
+      ShipSchema,
+      join(dataDirectory, "ships.json"),
+      persist,
     );
-    return result;
+    this.repoCollection = new JsonCollection(
+      this.queue,
+      RepoSchema,
+      join(dataDirectory, "repos.json"),
+      persist,
+    );
   }
 
   async load(): Promise<void> {
-    return this.serialized(async () => {
+    return this.queue.run(async () => {
       if (this.loaded) return;
-      const ships = ShipSchema.array().parse(await this.readFile<unknown>("ships.json"));
-      const repos = RepoSchema.array().parse(await this.readFile<unknown>("repos.json"));
-      this.ships = new Map(ships.map((ship) => [ship.name, ship]));
-      this.repos = new Map(repos.map((repo) => [repo.name, repo]));
+      const ships = await this.shipCollection.read();
+      const repos = await this.repoCollection.read();
+      this.shipCollection.adopt(ships);
+      this.repoCollection.adopt(repos);
       this.loaded = true;
     });
   }
 
-  private async readFile<T>(name: string): Promise<T[]> {
-    const target = join(this.dataDirectory, name);
-    try {
-      const info = await lstat(target);
-      if (!info.isFile()) throw new Error(`refusing to read non-file store path: ${target}`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
-    }
-    return (await Bun.file(target).json()) as T[];
-  }
-
-  private persistShips(ships: Map<string, Ship>): Promise<void> {
-    return this.persist(join(this.dataDirectory, "ships.json"), stringify([...ships.values()]));
-  }
-
-  private persistRepos(repos: Map<string, Repo>): Promise<void> {
-    return this.persist(join(this.dataDirectory, "repos.json"), stringify([...repos.values()]));
-  }
-
   async getAllShips(): Promise<Ship[]> {
-    return this.serialized(() => [...this.ships.values()]);
+    return this.shipCollection.getAll();
   }
 
   async getShip(name: string): Promise<Ship | undefined> {
-    return this.serialized(() => this.ships.get(name));
+    return this.shipCollection.get(name);
   }
 
   async createShip(ship: Ship): Promise<Ship> {
-    ship = ShipSchema.parse(ship);
-    return this.serialized(async () => {
-      const ships = new Map(this.ships).set(ship.name, ship);
-      await this.persistShips(ships);
-      this.ships = ships;
-      return ship;
-    });
+    return this.shipCollection.put(ship);
   }
 
   async upsertShip(ship: Ship): Promise<Ship> {
@@ -88,94 +144,53 @@ export class Store {
   }
 
   async updateShip(name: string, values: Partial<Omit<Ship, "name">>): Promise<Ship | undefined> {
-    FleetIdentifierSchema.parse(name);
-    return this.serialized(async () => {
-      const existing = this.ships.get(name);
-      if (!existing) return undefined;
-      const updated = ShipSchema.parse({ ...existing, ...values, name });
-      const ships = new Map(this.ships).set(name, updated);
-      await this.persistShips(ships);
-      this.ships = ships;
-      return updated;
-    });
+    return this.shipCollection.update(name, values);
   }
 
   async deleteShip(name: string): Promise<Ship | undefined> {
-    FleetIdentifierSchema.parse(name);
-    return this.serialized(async () => {
-      const existing = this.ships.get(name);
-      if (!existing) return undefined;
-      const ships = new Map(this.ships);
-      ships.delete(name);
-      await this.persistShips(ships);
-      this.ships = ships;
-      return existing;
-    });
+    return this.shipCollection.delete(name);
   }
 
   async replaceAllShips(ships: Ship[]): Promise<void> {
-    ships = ShipSchema.array().parse(ships);
-    return this.serialized(async () => {
-      const replacement = new Map(ships.map((ship) => [ship.name, ship]));
-      await this.persistShips(replacement);
-      this.ships = replacement;
-    });
+    return this.shipCollection.replaceAll(ships);
   }
 
   async getAllRepos(): Promise<Repo[]> {
-    return this.serialized(() => [...this.repos.values()]);
+    return this.repoCollection.getAll();
   }
 
   async getRepo(name: string): Promise<Repo | undefined> {
-    return this.serialized(() => this.repos.get(name));
+    return this.repoCollection.get(name);
   }
 
   async createRepo(repo: Repo): Promise<Repo> {
-    repo = RepoSchema.parse(repo);
-    return this.serialized(async () => {
-      if (this.repos.has(repo.name)) throw new RepoAlreadyExistsError(repo.name);
-      const repos = new Map(this.repos).set(repo.name, repo);
-      await this.persistRepos(repos);
-      this.repos = repos;
-      return repo;
+    return this.repoCollection.put(repo, (current) => {
+      if (current.has(repo.name)) throw new RepoAlreadyExistsError(repo.name);
     });
   }
 
   async upsertRepo(repo: Repo): Promise<Repo> {
-    repo = RepoSchema.parse(repo);
-    return this.serialized(async () => {
-      const repos = new Map(this.repos).set(repo.name, repo);
-      await this.persistRepos(repos);
-      this.repos = repos;
-      return repo;
-    });
+    return this.repoCollection.put(repo);
   }
 
   async updateRepo(name: string, values: Partial<Omit<Repo, "name">>): Promise<Repo | undefined> {
-    FleetIdentifierSchema.parse(name);
-    return this.serialized(async () => {
-      const existing = this.repos.get(name);
-      if (!existing) return undefined;
-      const updated = RepoSchema.parse({ ...existing, ...values, name });
-      const repos = new Map(this.repos).set(name, updated);
-      await this.persistRepos(repos);
-      this.repos = repos;
-      return updated;
-    });
+    return this.repoCollection.update(name, values);
   }
 
   async deleteRepo(name: string): Promise<Repo | undefined> {
-    FleetIdentifierSchema.parse(name);
-    return this.serialized(async () => {
-      const existing = this.repos.get(name);
-      if (!existing) return undefined;
-      const repos = new Map(this.repos);
-      repos.delete(name);
-      await this.persistRepos(repos);
-      this.repos = repos;
-      return existing;
-    });
+    return this.repoCollection.delete(name);
   }
+}
+
+async function readJsonArray(target: string): Promise<unknown[]> {
+  try {
+    const info = await lstat(target);
+    if (!info.isFile()) throw new Error(`refusing to read non-file store path: ${target}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  return (await Bun.file(target).json()) as unknown[];
 }
 
 async function atomicWrite(target: string, contents: string): Promise<void> {

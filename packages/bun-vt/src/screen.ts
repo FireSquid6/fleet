@@ -58,7 +58,6 @@ export class Screen {
   tabStops: boolean[];
 
   #saved: SavedCursor | null = null;
-  #altGrid: Row[] | null = null;
   #savedForAlt: SavedCursor | null = null;
 
   constructor(cols: number, rows: number, maxScrollback: number) {
@@ -260,12 +259,7 @@ export class Screen {
       if (intoScrollback) this.#pushScrollback(leaving);
     }
 
-    for (let y = top; y <= bottom - count; y++) {
-      this.grid[y] = this.grid[y + count]!;
-    }
-    for (let y = bottom - count + 1; y <= bottom; y++) {
-      this.grid[y] = this.#blankRow();
-    }
+    this.#shiftRowsUp(top, bottom, count);
   }
 
   /** Scroll the scroll region down by `n` lines (content moves down). */
@@ -275,6 +269,19 @@ export class Screen {
     const count = Math.min(n, bottom - top + 1);
     if (count <= 0) return;
 
+    this.#shiftRowsDown(top, bottom, count);
+  }
+
+  #shiftRowsUp(top: number, bottom: number, count: number): void {
+    for (let y = top; y <= bottom - count; y++) {
+      this.grid[y] = this.grid[y + count]!;
+    }
+    for (let y = bottom - count + 1; y <= bottom; y++) {
+      this.grid[y] = this.#blankRow();
+    }
+  }
+
+  #shiftRowsDown(top: number, bottom: number, count: number): void {
     for (let y = bottom; y >= top + count; y--) {
       this.grid[y] = this.grid[y - count]!;
     }
@@ -307,12 +314,7 @@ export class Screen {
     if (this.cursor.y < this.scrollTop || this.cursor.y > this.scrollBottom) return;
     const bottom = this.scrollBottom;
     const count = Math.min(n, bottom - this.cursor.y + 1);
-    for (let y = bottom; y >= this.cursor.y + count; y--) {
-      this.grid[y] = this.grid[y - count]!;
-    }
-    for (let y = this.cursor.y; y < this.cursor.y + count; y++) {
-      this.grid[y] = this.#blankRow();
-    }
+    this.#shiftRowsDown(this.cursor.y, bottom, count);
     this.cursor.x = 0;
     this.cursor.pendingWrap = false;
   }
@@ -321,12 +323,7 @@ export class Screen {
     if (this.cursor.y < this.scrollTop || this.cursor.y > this.scrollBottom) return;
     const bottom = this.scrollBottom;
     const count = Math.min(n, bottom - this.cursor.y + 1);
-    for (let y = this.cursor.y; y <= bottom - count; y++) {
-      this.grid[y] = this.grid[y + count]!;
-    }
-    for (let y = bottom - count + 1; y <= bottom; y++) {
-      this.grid[y] = this.#blankRow();
-    }
+    this.#shiftRowsUp(this.cursor.y, bottom, count);
     this.cursor.x = 0;
     this.cursor.pendingWrap = false;
   }
@@ -370,25 +367,25 @@ export class Screen {
     this.cursor.pendingWrap = false;
   }
 
+  #blankRows(from: number, to: number): void {
+    for (let y = from; y < to; y++) {
+      for (const c of this.grid[y]!) this.#blank(c);
+    }
+  }
+
   eraseDisplay(mode: number): void {
     if (mode === 2 || mode === 3) {
-      for (let y = 0; y < this.rows; y++) {
-        for (const c of this.grid[y]!) this.#blank(c);
-      }
+      this.#blankRows(0, this.rows);
       if (mode === 3) this.scrollback = [];
       this.cursor.pendingWrap = false;
       return;
     }
     if (mode === 0) {
       this.eraseLine(0);
-      for (let y = this.cursor.y + 1; y < this.rows; y++) {
-        for (const c of this.grid[y]!) this.#blank(c);
-      }
+      this.#blankRows(this.cursor.y + 1, this.rows);
     } else if (mode === 1) {
       this.eraseLine(1);
-      for (let y = 0; y < this.cursor.y; y++) {
-        for (const c of this.grid[y]!) this.#blank(c);
-      }
+      this.#blankRows(0, this.cursor.y);
     }
     this.cursor.pendingWrap = false;
   }
@@ -458,9 +455,9 @@ export class Screen {
   enterAlt(saveCursor: boolean, clear: boolean): void {
     if (this.onAlt) return;
     if (saveCursor) this.#savedForAlt = this.#snapshotCursor();
-    this.#altGrid = Array.from({ length: this.rows }, () => this.#blankRow());
+    const altGrid = Array.from({ length: this.rows }, () => this.#blankRow());
     this.#primaryGrid = this.grid;
-    this.grid = this.#altGrid;
+    this.grid = altGrid;
     this.onAlt = true;
     if (clear) this.eraseDisplay(2);
     if (saveCursor) {
@@ -475,7 +472,6 @@ export class Screen {
     if (!this.onAlt) return;
     this.grid = this.#primaryGrid!;
     this.#primaryGrid = null;
-    this.#altGrid = null;
     this.onAlt = false;
     if (restoreCursor) this.#applyCursor(this.#savedForAlt);
     this.#savedForAlt = null;

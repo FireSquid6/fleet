@@ -336,10 +336,7 @@ export class GitHubProvider implements RepoProvider {
     }
   }
 
-  private async request<T>(
-    path: string,
-    init?: { method?: string; body?: unknown },
-  ): Promise<T> {
+  private baseHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: "application/vnd.github+json",
       "User-Agent": "fleet-bridge",
@@ -347,6 +344,14 @@ export class GitHubProvider implements RepoProvider {
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
+    return headers;
+  }
+
+  private async request<T>(
+    path: string,
+    init?: { method?: string; body?: unknown },
+  ): Promise<T> {
+    const headers = this.baseHeaders();
     if (init?.body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
@@ -371,13 +376,7 @@ export class GitHubProvider implements RepoProvider {
    * auth headers at all.
    */
   private async downloadText(path: string): Promise<string> {
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "fleet-bridge",
-    };
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
-    }
+    const headers = this.baseHeaders();
 
     let response = await this.fetchImpl(`${this.baseUrl}${path}`, { headers, redirect: "manual" });
 

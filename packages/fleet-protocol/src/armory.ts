@@ -44,12 +44,14 @@ function isSafeDotfileDestination(destination: string): boolean {
   return destination.startsWith("~/") || destination.startsWith("/");
 }
 
+const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "must be a lowercase hex sha256");
+
 const ArmoryFileFactsSchema = z.object({
   /** POSIX-separated, relative to the armory root, e.g. `skills/my-skill/SKILL.md`. */
   path: z.string().min(1).refine(isSafeArmoryPath, "must be a safe armory-relative path"),
   section: z.enum(ARMORY_SECTIONS),
   size: z.number().int().nonnegative(),
-  sha256: z.string().regex(/^[0-9a-f]{64}$/, "must be a lowercase hex sha256"),
+  sha256: Sha256Hex,
   /** Normalized to `0o755` (executable) or `0o644`; host mode bits never leak. */
   mode: z.number().int(),
 });
@@ -102,7 +104,7 @@ export type DotfileMap = z.infer<typeof DotfileMapSchema>;
 
 export const ArmoryManifestSchema = z.object({
   /** Content address of the whole armory. */
-  revision: z.string().regex(/^[0-9a-f]{64}$/, "must be a lowercase hex sha256"),
+  revision: Sha256Hex,
   /** Every scanned file, sorted by `path`. */
   entries: ArmoryEntrySchema.array(),
   dotfileMap: DotfileMapSchema,
@@ -129,7 +131,7 @@ export type ArmoryFile = z.infer<typeof ArmoryFileSchema>;
  */
 export const ArmorySyncRequestSchema = z.object({
   bridgeUrl: z.url(),
-  revision: z.string().regex(/^[0-9a-f]{64}$/, "must be a lowercase hex sha256"),
+  revision: Sha256Hex,
 });
 
 export type ArmorySyncRequest = z.infer<typeof ArmorySyncRequestSchema>;

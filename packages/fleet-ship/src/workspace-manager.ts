@@ -42,8 +42,6 @@ export class WorkspaceError extends Error {
   }
 }
 
-export type CreateWorkspaceOptions = CreateWorkspaceRequest;
-
 export interface SwitchBranchOptions {
   readonly branch: string;
 }
@@ -197,16 +195,11 @@ export class WorkspaceManager {
 
   /** Whether the workspace directory exists on disk (is a git working tree). */
   async has(repoName: string, name: string): Promise<boolean> {
-    this.validateIdentifiers(repoName, name);
     try {
-      const dir = await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
-      const gitStat = await lstat(containedPath(dir, ".git"));
-      if (!gitStat.isDirectory()) throw new ContainedPathError(`git metadata is not a directory: ${dir}/.git`);
-      await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+      await this.requireWorkspace(repoName, name);
       return true;
     } catch (error) {
-      if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
-      if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+      if (error instanceof WorkspaceError && error.status === 404) return false;
       throw error;
     }
   }
@@ -409,7 +402,7 @@ export class WorkspaceManager {
     return status;
   }
 
-  async create(options: CreateWorkspaceOptions): Promise<WorkspaceSummary> {
+  async create(options: CreateWorkspaceRequest): Promise<WorkspaceSummary> {
     const parsed = CreateWorkspaceRequestSchema.safeParse(options);
     if (!parsed.success) throw new WorkspaceError("invalid workspace create request", 400);
     const { url, repoName, name } = parsed.data;

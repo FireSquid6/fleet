@@ -5,21 +5,17 @@
 import { type Pen } from "./cell";
 import { DEFAULT_COLOR, palette, rgb, NamedColor } from "./color";
 
-interface Group {
-  readonly parts: readonly number[];
-}
-
-function toGroups(params: readonly number[], colon: readonly boolean[]): Group[] {
-  const groups: Group[] = [];
+function toGroups(params: readonly number[], colon: readonly boolean[]): number[][] {
+  const groups: number[][] = [];
   let cur: number[] = [];
   for (let i = 0; i < params.length; i++) {
     if (i > 0 && !colon[i]) {
-      groups.push({ parts: cur });
+      groups.push(cur);
       cur = [];
     }
     cur.push(params[i]!);
   }
-  if (cur.length > 0 || params.length === 0) groups.push({ parts: cur });
+  if (cur.length > 0 || params.length === 0) groups.push(cur);
   return groups;
 }
 
@@ -41,13 +37,13 @@ function colorFromSubParams(sub: readonly number[]) {
 export function applySgr(pen: Pen, params: readonly number[], colon: readonly boolean[]): void {
   const groups = toGroups(params, colon);
   // An empty SGR (`CSI m`) means reset.
-  if (groups.length === 1 && groups[0]!.parts.length === 0) {
+  if (groups.length === 1 && groups[0]!.length === 0) {
     pen.resetAttributes();
     return;
   }
 
   for (let gi = 0; gi < groups.length; gi++) {
-    const parts = groups[gi]!.parts;
+    const parts = groups[gi]!;
     const code = parts.length === 0 ? 0 : parts[0]!;
 
     switch (code) {
@@ -157,7 +153,7 @@ function clampUnderline(n: number): number {
  * spreads them across the following single-value groups.
  */
 function readExtendedColor(
-  groups: readonly Group[],
+  groups: readonly (readonly number[])[],
   gi: number,
   parts: readonly number[],
 ): { color: ReturnType<typeof palette> | null; nextGi: number } {
@@ -166,15 +162,15 @@ function readExtendedColor(
     return { color: colorFromSubParams(parts.slice(1)), nextGi: gi };
   }
   // Semicolon form: pull following groups as flat values.
-  const type = groups[gi + 1]?.parts[0];
+  const type = groups[gi + 1]?.[0];
   if (type === 5) {
-    const idx = groups[gi + 2]?.parts[0];
+    const idx = groups[gi + 2]?.[0];
     return { color: idx != null ? palette(idx) : null, nextGi: gi + 2 };
   }
   if (type === 2) {
-    const r = groups[gi + 2]?.parts[0];
-    const g = groups[gi + 3]?.parts[0];
-    const b = groups[gi + 4]?.parts[0];
+    const r = groups[gi + 2]?.[0];
+    const g = groups[gi + 3]?.[0];
+    const b = groups[gi + 4]?.[0];
     if (r != null && g != null && b != null) {
       return { color: rgb(r, g, b), nextGi: gi + 4 };
     }

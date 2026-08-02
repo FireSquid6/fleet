@@ -1,6 +1,6 @@
 import { chmod, lstat, mkdir, readdir, rename, rm, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
   ArmoryEntrySchema,
@@ -16,6 +16,7 @@ import {
   type ArmorySyncState,
   type DotfileMap,
 } from "fleet-protocol";
+import { isStrictDescendant } from "../contained-path";
 
 // Under HOME, not the ship's `fleetDirectory`: `WorkspaceManager` enumerates
 // every top-level directory there as a candidate repo, and HOME is the root the
@@ -113,7 +114,6 @@ export class ArmoryCache {
   readonly homeDirectory: string;
   /** The cache root, so an installer can find `files/` without recomputing it. */
   readonly cacheDirectory: string;
-  private readonly root: string;
   private readonly filesRoot: string;
   private readonly statePath: string;
   private readonly fetchImpl: typeof fetch;
@@ -122,10 +122,9 @@ export class ArmoryCache {
 
   constructor(options?: { homeDirectory?: string; fetch?: typeof fetch; bridgeUrl?: string }) {
     this.homeDirectory = resolve(options?.homeDirectory ?? homedir());
-    this.root = armoryCacheDirectory(this.homeDirectory);
-    this.cacheDirectory = this.root;
-    this.filesRoot = join(this.root, "files");
-    this.statePath = join(this.root, "state.json");
+    this.cacheDirectory = armoryCacheDirectory(this.homeDirectory);
+    this.filesRoot = join(this.cacheDirectory, "files");
+    this.statePath = join(this.cacheDirectory, "state.json");
     this.fetchImpl = options?.fetch ?? fetch;
     this.configuredBridgeUrl = options?.bridgeUrl;
   }
@@ -252,6 +251,8 @@ export class ArmoryCache {
     }
 
     await mkdir(this.filesRoot, { recursive: true });
+    // Uncaught on purpose: one bad file fails the whole sync, so a half-applied
+    // armory is never recorded under a revision that promises all of it.
     for (const entry of manifest.entries) await this.materialize(base, entry);
     await this.prune(new Set(manifest.entries.map((entry) => entry.path)));
     return applied;
@@ -372,12 +373,12 @@ export class ArmoryCache {
   }
 
   private async readState(): Promise<CachedState> {
-    return readCachedState(this.root);
+    return readCachedState(this.cacheDirectory);
   }
 
   /** Written last and atomically: a crash mid-sync leaves the old state, so the next sync redoes the work. */
   private async writeState(state: CachedState): Promise<void> {
-    await mkdir(this.root, { recursive: true });
+    await mkdir(this.cacheDirectory, { recursive: true });
     await atomicWrite(this.statePath, new TextEncoder().encode(`${JSON.stringify(state, null, 2)}\n`), 0o600);
   }
 }
@@ -465,11 +466,6 @@ async function hashFile(target: string): Promise<string> {
     hasher.update(value);
   }
   return hasher.digest("hex");
-}
-
-function isStrictDescendant(root: string, target: string): boolean {
-  const within = relative(root, target);
-  return within !== "" && !within.startsWith("..") && !within.startsWith(sep) && !/^[A-Za-z]:/.test(within);
 }
 
 /** Zod's default rendering is a JSON blob; this keeps the message readable in an HTTP body. */

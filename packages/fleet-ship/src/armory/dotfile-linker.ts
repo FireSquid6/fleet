@@ -1,14 +1,9 @@
-// Fleet refuses to touch symlinks everywhere else (see managed-fs.ts, which
-// manages regular files by content hash); this module is the sole exception,
-// and only for links it can prove point inside the cache's `files/dotfiles/`.
-// Do not route dotfiles through managed-fs, and do not weaken its checks to
-// make that possible. The map is untrusted network input, so a destination must
-// resolve strictly inside this ship's home directory.
-
 import { lstat, mkdir, readlink, rename, rm, symlink, unlink } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { isSafeArmoryPath, type DotfileMap } from "fleet-protocol";
+import { isStrictDescendant } from "../contained-path";
+import { readOwnershipRecord, writeRecordAtomically } from "./record-file";
 
 export type DotfileLinkStatus = "linked" | "unchanged" | "relinked" | "conflict" | "skipped";
 
@@ -45,10 +40,14 @@ const OwnedLinksSchema = z.object({
 
 type OwnedLink = z.infer<typeof OwnedLinksSchema>["links"][number];
 
+const OwnedLinksArraySchema = OwnedLinksSchema.transform((record) => record.links);
+
 type PlannedLink = { source: string; target: string; sourcePath: string };
 
 type Placement = { status: Exclude<DotfileLinkStatus, "skipped">; detail?: string };
 
+// The sole place Fleet creates symlinks: managed-fs refuses them outright, and
+// dotfiles must not be routed through it to make this work.
 export async function linkDotfiles(options: LinkDotfilesOptions): Promise<DotfileLinkReport> {
   const homeDirectory = resolve(options.homeDirectory);
   const cacheRoot = resolve(options.cacheDirectory);
@@ -81,7 +80,13 @@ export async function linkDotfiles(options: LinkDotfilesOptions): Promise<Dotfil
     }
   }
 
-  for (const previous of await readOwnedLinks(cacheRoot, report.warnings)) {
+  const previouslyOwned = await readOwnershipRecord(
+    ownedLinksPath(cacheRoot),
+    OwnedLinksArraySchema,
+    report.warnings,
+    "previously linked dotfiles",
+  );
+  for (const previous of previouslyOwned) {
     if (retained.has(previous.target)) continue;
     try {
       await unlinkOwned(previous.target, dotfilesRoot, report);
@@ -94,7 +99,7 @@ export async function linkDotfiles(options: LinkDotfilesOptions): Promise<Dotfil
 
   // Before the throw: links that did land are ours whether or not a sibling
   // mapping failed, and a record that omits them would orphan them forever.
-  await writeOwnedLinks(cacheRoot, owned);
+  await writeRecordAtomically(ownedLinksPath(cacheRoot), { version: 1, links: owned });
 
   if (failures.length > 0) throw new AggregateError(failures, "Failed to link the armory dotfiles");
   return report;
@@ -126,6 +131,7 @@ async function plan(
       skip(target, `"${source}" is not a safe path under dotfiles/`);
       continue;
     }
+    // The map is untrusted network input, so never weaken this check.
     if (!isStrictDescendant(homeDirectory, target)) {
       skip(target, `destination "${destination}" is outside ${homeDirectory}`);
       continue;
@@ -227,44 +233,4 @@ async function entry(path: string) {
 
 function ownedLinksPath(cacheRoot: string): string {
   return join(cacheRoot, "dotfiles.json");
-}
-
-async function readOwnedLinks(cacheRoot: string, warnings: string[]): Promise<OwnedLink[]> {
-  const path = ownedLinksPath(cacheRoot);
-  let parsed: unknown;
-  try {
-    parsed = await Bun.file(path).json();
-  } catch (error) {
-    // A first run has no record; an unreadable one must not block linking, but
-    // it does mean this run cannot undo what the last one linked.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      warnings.push(`ignored unreadable ${path}: previously linked dotfiles cannot be removed`);
-    }
-    return [];
-  }
-  const record = OwnedLinksSchema.safeParse(parsed);
-  if (!record.success) {
-    warnings.push(`ignored invalid ${path}: previously linked dotfiles cannot be removed`);
-    return [];
-  }
-  return record.data.links;
-}
-
-async function writeOwnedLinks(cacheRoot: string, links: OwnedLink[]): Promise<void> {
-  const path = ownedLinksPath(cacheRoot);
-  const body = `${JSON.stringify({ version: 1, links }, null, 2)}\n`;
-  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    await mkdir(cacheRoot, { recursive: true });
-    await Bun.write(temporary, body);
-    await rename(temporary, path);
-  } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    throw error;
-  }
-}
-
-function isStrictDescendant(root: string, target: string): boolean {
-  const within = relative(root, target);
-  return within !== "" && !within.startsWith("..") && !within.startsWith(sep) && !isAbsolute(within);
 }

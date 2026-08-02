@@ -1,4 +1,7 @@
-/** An HTTP-shaped provider failure; `status` is the status a route should surface. */
+/**
+ * An HTTP-shaped provider failure; `status` is the status a route should surface.
+ * Mirrors — but deliberately never imports — the manager's `BridgeError`, so the provider layer stays free of the HTTP framework.
+ */
 export class ProviderError extends Error {
   readonly status: number;
 

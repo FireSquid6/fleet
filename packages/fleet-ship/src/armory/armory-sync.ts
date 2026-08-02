@@ -33,7 +33,7 @@ export async function syncAndInstall(
   return cache.recordInstall(summarize(report));
 }
 
-export function summarize(report: ArmoryInstallReport): ArmoryInstallSummary {
+function summarize(report: ArmoryInstallReport): ArmoryInstallSummary {
   return {
     skillCount: report.skills.length,
     pluginCount: report.plugins.length,

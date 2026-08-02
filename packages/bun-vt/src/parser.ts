@@ -341,17 +341,19 @@ export class Parser {
     }
   }
 
+  #sequence(final: number): CsiSequence {
+    return {
+      params: this.#params.slice(),
+      colon: this.#colon.slice(),
+      intermediates: this.#intermediates,
+      prefix: this.#prefix,
+      final: String.fromCharCode(final),
+    };
+  }
+
   #csiDispatch(final: number): void {
     this.#commitParam();
-    if (!this.#overflow) {
-      this.h.csiDispatch({
-        params: this.#params.slice(),
-        colon: this.#colon.slice(),
-        intermediates: this.#intermediates,
-        prefix: this.#prefix,
-        final: String.fromCharCode(final),
-      });
-    }
+    if (!this.#overflow) this.h.csiDispatch(this.#sequence(final));
     this.#state = S.GROUND;
     this.#clear();
   }
@@ -423,13 +425,7 @@ export class Parser {
       this.#state = S.DCS_IGNORE;
       return;
     }
-    this.h.dcsHook?.({
-      params: this.#params.slice(),
-      colon: this.#colon.slice(),
-      intermediates: this.#intermediates,
-      prefix: this.#prefix,
-      final: String.fromCharCode(final),
-    });
+    this.h.dcsHook?.(this.#sequence(final));
     this.#state = S.DCS_PASSTHROUGH;
   }
 

@@ -1,8 +1,4 @@
-export {
-  FleetIdentifierSchema,
-  parseFleetIdentifier,
-  type FleetIdentifier,
-} from "./src/identifier";
+export { FleetIdentifierSchema, parseFleetIdentifier } from "./src/identifier";
 export {
   DEFAULT_PORT,
   ATLAS_FILENAME,

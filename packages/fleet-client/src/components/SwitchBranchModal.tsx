@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useFleet } from "@/data/FleetContext";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Field, ModalActions } from "@/routes/ReposRoute";
+import { useSubmitAction } from "@/lib/useSubmitAction";
 
 interface Props {
   repo: string;
@@ -14,22 +15,7 @@ interface Props {
 export function SwitchBranchModal({ repo, name, currentBranch, onClose }: Props) {
   const { switchBranch } = useFleet();
   const [branch, setBranch] = useState(currentBranch);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setPending(true);
-    setError(null);
-    try {
-      await switchBranch(repo, name, branch.trim());
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setPending(false);
-    }
-  };
+  const { error, pending, submit } = useSubmitAction(() => switchBranch(repo, name, branch.trim()), onClose);
 
   const target = branch.trim();
 

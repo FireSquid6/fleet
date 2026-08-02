@@ -11,8 +11,6 @@ export const FleetIdentifierSchema = z
   .refine((value) => !/\p{Cc}/u.test(value), "must not contain Unicode control characters")
   .refine((value) => !/\p{Cs}/u.test(value), "must be well-formed Unicode");
 
-export type FleetIdentifier = z.infer<typeof FleetIdentifierSchema>;
-
-export function parseFleetIdentifier(value: unknown): FleetIdentifier {
+export function parseFleetIdentifier(value: unknown): string {
   return FleetIdentifierSchema.parse(value);
 }

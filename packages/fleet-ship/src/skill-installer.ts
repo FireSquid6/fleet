@@ -38,8 +38,6 @@ export type InstallFleetSkillOptions = {
   force?: boolean;
 };
 
-export type InspectFleetSkillOptions = InstallFleetSkillOptions;
-
 type ProviderPaths = {
   provider: Provider;
   configRoot: string;
@@ -133,7 +131,7 @@ export async function installFleetSkill(
 
 /** Codex contributes two rows (native + shared `~/.agents`). */
 export async function inspectFleetSkill(
-  options: InspectFleetSkillOptions = {},
+  options: InstallFleetSkillOptions = {},
 ): Promise<SkillStatus[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
   const source = options.sourcePath ? await Bun.file(options.sourcePath).text() : embeddedSkill;

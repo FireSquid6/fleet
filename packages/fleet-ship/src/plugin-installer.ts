@@ -45,8 +45,6 @@ export type InstallFleetPluginOptions = {
   force?: boolean;
 };
 
-export type InspectFleetPluginOptions = InstallFleetPluginOptions;
-
 type FileMapping = {
   contents: () => Promise<string>;
   destination: string;
@@ -262,7 +260,7 @@ export async function installFleetPlugin(
  * hook-trust step, so it cannot be installed unattended — see docs/codex.md.
  */
 export async function inspectFleetPlugin(
-  options: InspectFleetPluginOptions = {},
+  options: InstallFleetPluginOptions = {},
 ): Promise<PluginStatus[]> {
   const homeDirectory = options.homeDirectory ?? homedir();
   const pluginsDirectory = options.pluginsDirectory;

@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 export type Provider = "claude-code" | "opencode" | "copilot" | "codex";
 
-export const PROVIDERS: readonly Provider[] = ["claude-code", "opencode", "copilot", "codex"];
+export const PROVIDERS = ["claude-code", "opencode", "copilot", "codex"] as const satisfies readonly Provider[];
 
 export function isProvider(value: string): value is Provider {
   return (PROVIDERS as readonly string[]).includes(value);

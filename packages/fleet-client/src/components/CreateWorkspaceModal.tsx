@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useFleet } from "@/data/FleetContext";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Field, ModalActions } from "@/routes/ReposRoute";
+import { useSubmitAction } from "@/lib/useSubmitAction";
 
 interface Props {
   repoName: string;
@@ -16,24 +17,13 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
   const [selectedShip, setSelectedShip] = useState(ship ?? ships[0]?.name ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
 
   const shipName = ship ?? selectedShip;
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setPending(true);
-    setError(null);
-    try {
-      await createWorkspace({ ship: shipName, repoName, name: name.trim(), branch: branch.trim() });
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setPending(false);
-    }
-  };
+  const { error, pending, submit } = useSubmitAction(
+    () => createWorkspace({ ship: shipName, repoName, name: name.trim(), branch: branch.trim() }),
+    onClose,
+  );
 
   return (
     <Modal open title="New Workspace" onClose={onClose}>

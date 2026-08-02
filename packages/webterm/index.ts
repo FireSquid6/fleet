@@ -11,12 +11,6 @@ export { serializeGrid, encodeCell, diffGrid } from "./encode";
 
 export {
   ATTR,
-  UNDERLINE,
-  WIDTH,
-  MIN_TERMINAL_COLS,
-  MAX_TERMINAL_COLS,
-  MIN_TERMINAL_ROWS,
-  MAX_TERMINAL_ROWS,
   MAX_INPUT_BYTES,
   MAX_PENDING_BYTES,
   MAX_CLIENT_FRAME_BYTES,

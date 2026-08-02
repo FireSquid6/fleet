@@ -12,9 +12,10 @@ import {
   type ArmorySection,
   type DotfileMap,
 } from "fleet-protocol";
+import { SerialQueue } from "../serial-queue";
 
 /** Ceiling on a single `readFile`; oversized files are still listed in the manifest. */
-export const MAX_ARMORY_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_ARMORY_FILE_BYTES = 10 * 1024 * 1024;
 
 const IGNORED_NAMES = new Set([".git", ".DS_Store"]);
 
@@ -60,24 +61,15 @@ export class ArmoryMapError extends Error {
 
 export class ArmoryService {
   private cached: ArmoryManifest | undefined;
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly queue = new SerialQueue();
   private readonly root: string;
 
   constructor(armoryDirectory: string) {
     this.root = resolve(armoryDirectory);
   }
 
-  private serialized<T>(operation: () => Promise<T> | T): Promise<T> {
-    const result = this.queue.then(operation, operation);
-    this.queue = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  }
-
   async manifest(): Promise<ArmoryManifest> {
-    return this.serialized(async () => {
+    return this.queue.run(async () => {
       if (this.cached) return this.cached;
       this.cached = await this.scan();
       return this.cached;
