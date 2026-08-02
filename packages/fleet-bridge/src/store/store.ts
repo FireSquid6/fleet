@@ -139,16 +139,8 @@ export class Store {
     return this.shipCollection.put(ship);
   }
 
-  async upsertShip(ship: Ship): Promise<Ship> {
-    return this.createShip(ship);
-  }
-
   async updateShip(name: string, values: Partial<Omit<Ship, "name">>): Promise<Ship | undefined> {
     return this.shipCollection.update(name, values);
-  }
-
-  async deleteShip(name: string): Promise<Ship | undefined> {
-    return this.shipCollection.delete(name);
   }
 
   async replaceAllShips(ships: Ship[]): Promise<void> {
@@ -167,10 +159,6 @@ export class Store {
     return this.repoCollection.put(repo, (current) => {
       if (current.has(repo.name)) throw new RepoAlreadyExistsError(repo.name);
     });
-  }
-
-  async upsertRepo(repo: Repo): Promise<Repo> {
-    return this.repoCollection.put(repo);
   }
 
   async updateRepo(name: string, values: Partial<Omit<Repo, "name">>): Promise<Repo | undefined> {
