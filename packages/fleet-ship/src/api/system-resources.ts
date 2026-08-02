@@ -1,14 +1,7 @@
-/**
- * api/system-resources.ts — the ship's `GET /system-resources` route, as its own
- * Elysia plugin. Reports a point-in-time snapshot of the host (uptime, OS, CPU,
- * memory) via `node:os`. One Elysia chain so route types stay inferable for Eden.
- */
-
 import os from "node:os";
 import { Elysia } from "elysia";
 import type { SystemResources } from "fleet-protocol";
 
-/** Aggregate CPU idle/total tick counts across all logical cores. */
 function cpuTicks(): { idle: number; total: number } {
   let idle = 0;
   let total = 0;
@@ -31,7 +24,6 @@ async function sampleCpuUsage(sampleMs = 100): Promise<number> {
   return Math.min(1, Math.max(0, 1 - idle / total));
 }
 
-/** Collect a full system-resources snapshot for this host. */
 export async function collectSystemResources(): Promise<SystemResources> {
   const cpus = os.cpus();
   const [load1, load5, load15] = os.loadavg();
@@ -65,7 +57,6 @@ export async function collectSystemResources(): Promise<SystemResources> {
   };
 }
 
-/** Elysia plugin exposing `GET /system-resources`. */
 export function systemResourcesPlugin() {
   return new Elysia({ name: "ship-system-resources" }).get(
     "/system-resources",

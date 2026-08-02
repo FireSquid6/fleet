@@ -1,15 +1,6 @@
-/**
- * src/sgr.ts — Select Graphic Rendition (CSI … m) application.
- *
- * Applies a CSI SGR parameter list to a `Pen`, supporting both the classic
- * semicolon form (`38;2;r;g;b`, `38;5;n`) and the ISO 8613-6 colon sub-parameter
- * form (`38:2::r:g:b`, `38:5:n`, `4:3` for underline styles).
- *
- * The two forms are disambiguated by first splitting the flat parameter list
- * into *groups*: consecutive parameters joined by colons form one group; a
- * semicolon starts a new group. Extended-color codes then read either the rest
- * of their own group (colon form) or the following groups (semicolon form).
- */
+// Params are first split into groups (colon-joined params form one group) so the
+// ISO 8613-6 colon form (`38:2::r:g:b`) and the classic semicolon form
+// (`38;2;r;g;b`) can be told apart at dispatch.
 
 import { type Pen } from "./cell";
 import { DEFAULT_COLOR, palette, rgb, NamedColor } from "./color";

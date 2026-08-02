@@ -1,17 +1,3 @@
-/**
- * providers/provider.ts — the framework-free `RepoProvider` abstraction.
- *
- * The bridge only knows GitHub today, but a repo's `provider` field already
- * admits "gitlab"/"custom". This module defines a host-agnostic interface and a
- * clean set of DTOs so the rest of the bridge can query issues/PRs without
- * touching any single forge's REST shapes. Like `types.ts`, these result types
- * are plain TypeScript (consumed through Elysia/Eden inference), not zod schemas.
- *
- * `ProviderError` deliberately mirrors — but does not import — the manager's
- * `BridgeError`: the provider layer stays free of the HTTP framework, and a
- * later step maps its `status` onto the API's error responses.
- */
-
 /** An HTTP-shaped provider failure; `status` is the status a route should surface. */
 export class ProviderError extends Error {
   readonly status: number;
@@ -76,7 +62,6 @@ export interface CheckRun {
   readonly completedAt: string | null;
 }
 
-/** The raw log of one failed GitHub Actions job, tagged with its workflow/job. */
 export interface FailedJobLog {
   readonly workflow: string;
   readonly job: string;

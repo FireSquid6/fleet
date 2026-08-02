@@ -1,7 +1,3 @@
-/**
- * test/cursor.test.ts — cursor movement, editing, and erasing.
- */
-
 import { test, expect, describe } from "bun:test";
 import { Terminal } from "../src/index";
 

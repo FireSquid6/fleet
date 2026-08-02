@@ -1,16 +1,8 @@
-/**
- * client.ts — the Eden Treaty client fagent uses to talk to a Fleet Bridge,
- * plus small helpers for normalizing the `--bridge-url` option and unwrapping
- * Eden's `{ data, error }` result shape. fagent only ever reaches the bridge
- * (never a ship, never GitHub directly), so this is the bridge client only.
- */
-
 import { treaty } from "@elysiajs/eden";
 import type { App as BridgeApp } from "fleet-bridge/api";
 
 export type FleetBridgeClient = ReturnType<typeof treaty<BridgeApp>>;
 
-/** Build an Eden Treaty client pointed at a Fleet Bridge `url` (already normalized). */
 export function makeBridgeClient(url: string): FleetBridgeClient {
   return treaty<BridgeApp>(url);
 }
@@ -37,7 +29,6 @@ export function normalizeUrl(input: string): string {
   return `http://${trimmed}`;
 }
 
-/** Shape every Eden Treaty call resolves to. */
 export interface EdenResult<T> {
   data: T | null;
   error: { status: number; value: unknown } | null;

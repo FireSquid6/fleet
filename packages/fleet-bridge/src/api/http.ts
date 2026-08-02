@@ -1,10 +1,3 @@
-/**
- * api/http.ts — shared HTTP error mapping for the bridge's Elysia plugins.
- *
- * Mirrors the ship's `mapError`: a `BridgeError` (or a provider-layer
- * `ProviderError`) carries the status to surface; anything else is a 500.
- */
-
 import { BridgeError } from "../fleet-manager";
 import { ProviderError } from "../providers";
 

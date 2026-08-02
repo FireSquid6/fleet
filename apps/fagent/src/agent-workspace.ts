@@ -1,9 +1,6 @@
 /**
- * Locate the fleet workspace containing a directory.
- *
- * The ship writes `atlas.json` to its data directory, while workspaces live at
- * `<dataDir>/<repo>/<name>`. Walking upward finds the ship and derives the
- * workspace identity from the first two path segments below it.
+ * The ship writes `atlas.json` to its data directory; workspaces live at
+ * `<dataDir>/<repo>/<name>`.
  */
 
 import { dirname, join, relative, resolve, sep } from "node:path";

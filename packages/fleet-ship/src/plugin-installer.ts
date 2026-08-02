@@ -1,27 +1,3 @@
-/**
- * plugin-installer.ts — install the startup plugin/hook that tells an agent to
- * activate the `fleet-agent` skill when it boots inside a fleet workspace.
- *
- * Each supported provider's plugin runs the same logic — `fagent agent
- * in-workspace`, and on success inject an "activate the fleet-agent skill"
- * instruction — but the packaging differs per provider:
- *
- *   - claude-code: a plugin directory tree auto-loaded from `~/.claude/skills/`
- *     (`.claude-plugin/plugin.json` + a SessionStart command hook).
- *   - opencode:    a single `session.start` plugin module auto-loaded from
- *     `~/.config/opencode/plugins/`.
- *   - copilot:     a single `sessionStart` hook JSON auto-loaded from
- *     `~/.copilot/hooks/`.
- *
- * All three install by mirroring source files into an auto-discovered location,
- * so they share one symlink-safe copy routine (see managed-fs.ts). Codex is not
- * handled here: it has no drop-in directory and requires the `codex plugin` CLI
- * plus a manual hook-trust step, so it can't be installed unattended — see
- * docs/codex.md.
- *
- * Source plugins live under `packages/fleet-ship/plugins/`.
- */
-
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import claudeManifest from "../plugins/claude-code/.claude-plugin/plugin.json" with { type: "text" };
@@ -86,7 +62,6 @@ type PluginSpec = {
   files: () => Promise<FileMapping[]>;
 };
 
-/** Map every file in a source directory tree onto the destination directory. */
 async function treeFiles(sourceDir: string, destinationDir: string): Promise<FileMapping[]> {
   const mappings: FileMapping[] = [];
   for await (const relative of new Bun.Glob("**/*").scan({ cwd: sourceDir, dot: true })) {
@@ -162,7 +137,6 @@ function pluginSpecs(homeDirectory: string, pluginsDir?: string): PluginSpec[] {
   ];
 }
 
-/** The plugin specs to act on, optionally narrowed to `providers`. */
 function selectedSpecs(
   homeDirectory: string,
   pluginsDir?: string,
@@ -284,9 +258,8 @@ export async function installFleetPlugin(
 }
 
 /**
- * Report the install state of the plugin for each provider, without writing.
- * A provider's files are aggregated into a single state. Codex isn't included —
- * it has no drop-in plugin (see the module header).
+ * Codex is not included: it has no drop-in plugin directory and needs a manual
+ * hook-trust step, so it cannot be installed unattended — see docs/codex.md.
  */
 export async function inspectFleetPlugin(
   options: InspectFleetPluginOptions = {},

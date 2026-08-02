@@ -1,19 +1,14 @@
 /**
- * keys.ts — encode a browser keydown into the raw bytes a PTY expects, matching
- * xterm's default (non-application) keymap. Returned bytes go out as a webterm
- * `InputMsg`; `null` means "not ours — let the browser handle it".
+ * Raw bytes a PTY expects, matching xterm's default (non-application) keymap;
+ * `null` means "not ours — let the browser handle it".
  *
- * Modifiers on navigation/editing keys use xterm's parameterized CSI form:
- * `CSI 1 ; <mod> <letter>` for arrows/Home/End and `CSI <n> ; <mod> ~` for the
- * tilde keys, where `<mod> = 1 + Shift(1) + Alt(2) + Ctrl(4)`. Shift-Tab is the
- * back-tab (CBT) sequence `CSI Z`, which apps like Claude Code read to cycle
- * modes — without it, Shift-Tab would collapse to a plain Tab.
+ * Shift-Tab is the back-tab (CBT) sequence `CSI Z`, which apps like Claude Code
+ * read to cycle modes — without it, Shift-Tab would collapse to a plain Tab.
  *
  * Known gap: no IME/composition handling (`compositionstart`/`end`), so composed
  * CJK input won't work. Acceptable for an ASCII-dominated agent/ops console.
  */
 
-/** The subset of `KeyboardEvent` this encoder reads. */
 export interface KeyEventLike {
   readonly key: string;
   readonly ctrlKey: boolean;

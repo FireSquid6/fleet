@@ -1,12 +1,3 @@
-/**
- * repo-command.ts — the `fagent repo …` command group.
- *
- * Repo operations (info, issues, PRs, comments, reviews) that an agent drives
- * from inside a workspace. Everything flows THROUGH the fleet bridge — fagent
- * never calls GitHub directly. The repo name is auto-detected from the current
- * workspace path (via `findWorkspace`) unless overridden with `--repo`.
- */
-
 import { Command } from "commander";
 import type {
   CheckRun,
@@ -42,10 +33,7 @@ function bridge() {
   return makeBridgeClient(normalizeUrl(repoCommand.opts().bridgeUrl));
 }
 
-/**
- * Resolve the repo name to act on: the explicit `--repo`, else the repo of the
- * workspace the CWD lives in. Exits 1 when neither is available.
- */
+/** Exits 1 when there is neither a `--repo` nor a workspace to infer one from. */
 async function resolveRepo(): Promise<string> {
   const override = repoCommand.opts().repo as string | undefined;
   if (override) return override;

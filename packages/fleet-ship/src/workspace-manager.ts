@@ -1,12 +1,3 @@
-/**
- * workspace-manager.ts — owns the on-disk workspace layout, the tmux namespace
- * that tracks active/inactive state, and the git operations on each workspace.
- *
- * A workspace is a git clone of a repo on a branch, living at
- * `<fleetDirectory>/<repoName>/<name>`, where `<repoName>` is the bridge-assigned
- * repo name. It is identified by the `(repoName, name)` pair.
- */
-
 import { lstat, readdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Git, GitError, type DiffOptions } from "git-bun";
@@ -185,18 +176,15 @@ export class WorkspaceManager {
     for (const listener of this.listeners) listener(event);
   }
 
-  /** Common event fields: the emitting ship's name and an ISO timestamp. */
   private stamp(): { ship: string; at: string } {
     return { ship: this.config.name, at: new Date().toISOString() };
   }
 
-  /** Map key for the `(repoName, name)` pair that identifies a workspace. */
   private key(repoName: string, name: string): string {
     this.validateIdentifiers(repoName, name);
     return `${repoName}/${name}`;
   }
 
-  /** Deterministic tmux session name for a `(repoName, name)` pair. */
   sessionName(repoName: string, name: string): string {
     this.validateIdentifiers(repoName, name);
     return workspaceSessionName(repoName, name);
@@ -394,7 +382,6 @@ export class WorkspaceManager {
     return status;
   }
 
-  /** Current agent status for a workspace, or `null` if none is attached. */
   agentStatus(repoName: string, name: string): AgentStatus | null {
     this.validateIdentifiers(repoName, name);
     return this.agentStatuses.get(this.key(repoName, name)) ?? null;

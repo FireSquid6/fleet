@@ -200,16 +200,13 @@ describe("installFleetSkill", () => {
     const { homeDirectory, sourcePath } = fixtureOptions;
     const source = await Bun.file(sourcePath).text();
 
-    // absent: no config root at all yet.
     let statuses = await inspectFleetSkill(fixtureOptions);
     expect(statuses.every((status) => status.state === "absent")).toBe(true);
 
-    // claude-code present but not installed → missing.
     await mkdir(join(homeDirectory, ".claude"));
     statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
     expect(statuses[0]?.state).toBe("missing");
 
-    // install → current.
     await installFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
     statuses = await inspectFleetSkill({ ...fixtureOptions, providers: ["claude-code"] });
     expect(statuses[0]?.state).toBe("current");

@@ -1,9 +1,3 @@
-/**
- * api/system-resources.ts — the bridge's system-resources routes: an aggregate
- * across all ships, plus a per-ship proxy. One Elysia chain so route types stay
- * inferable for Eden.
- */
-
 import { Elysia } from "elysia";
 import type { FleetManager } from "../fleet-manager";
 import { mapError } from "./http";

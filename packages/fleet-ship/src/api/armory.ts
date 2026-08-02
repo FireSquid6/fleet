@@ -1,10 +1,3 @@
-/**
- * api/armory.ts — the ship's armory routes: the bridge pushes `/armory/sync` to
- * say "re-pull and re-install", and anyone can read back what this ship
- * currently has cached and applied.
- * One Elysia chain so route types stay inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import { ArmoryCache, ArmorySyncError } from "../armory/armory-cache";
 import { syncAndInstall } from "../armory/armory-sync";

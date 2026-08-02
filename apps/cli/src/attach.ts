@@ -1,15 +1,3 @@
-/**
- * attach.ts — `fleet client attach`: drive a workspace's webterm terminal from a
- * real TTY.
- *
- * Output direction: the server streams snapshots and deltas, which a `GridStream`
- * folds back into full grids for `renderGrid` to repaint (the renderer always
- * paints the whole screen). Input direction is trivial — a TTY in raw mode
- * already emits the exact byte sequences a PTY expects (arrows, ctrl chars, …),
- * so we forward raw stdin straight through as `input` messages. Ctrl-] detaches
- * without killing the shell (the tmux session survives for re-attach).
- */
-
 import type { WorkspaceStatus } from "fleet-protocol";
 import {
   decodeServerMessage,
@@ -33,7 +21,6 @@ function terminalSize(): { cols: number; rows: number } {
   return { cols: process.stdout.columns ?? 80, rows: process.stdout.rows ?? 24 };
 }
 
-/** Build the terminal websocket URL from a normalized ship base URL. */
 function terminalWsUrl(shipUrl: string, repo: string, name: string): string {
   const base = shipUrl.replace(/^http/, "ws");
   return `${base}/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
@@ -60,7 +47,6 @@ export function attachCloseOutcome(
   return { exitCode: 0 };
 }
 
-/** Ensure the workspace has a running session, activating it if inactive. */
 async function ensureActive(shipUrl: string, repo: string, name: string): Promise<void> {
   const client = makeClient(shipUrl);
   const status = unwrap(await client.workspaces({ repo })({ name }).get()) as WorkspaceStatus;
@@ -70,10 +56,7 @@ async function ensureActive(shipUrl: string, repo: string, name: string): Promis
   }
 }
 
-/**
- * Attach to `repo/name`'s terminal until the shell exits or the user detaches.
- * Resolves with the exit code to hand to `process.exit`.
- */
+/** Resolves with the exit code to hand to `process.exit`. */
 export async function attachToWorkspace(shipUrl: string, repo: string, name: string): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error("fleet: attach requires an interactive terminal");

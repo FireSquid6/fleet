@@ -1,11 +1,3 @@
-/**
- * skill-installer.ts — install the `fleet-agent` SKILL.md into each agent
- * provider's skills directory.
- *
- * This module owns *skill* installation only. The startup plugins/hooks that
- * tell an agent to activate the skill live in plugin-installer.ts.
- */
-
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 // TypeScript resolves the source extension before Bun's text-loader override.
@@ -70,7 +62,6 @@ function providerPaths(homeDirectory: string): ProviderPaths[] {
   );
 }
 
-/** The provider spec rows to act on, optionally narrowed to `providers`. */
 function selectedPaths(homeDirectory: string, providers?: readonly string[]): ProviderPaths[] {
   const all = providerPaths(homeDirectory);
   return providers ? all.filter((paths) => providers.includes(paths.provider)) : all;
@@ -140,10 +131,7 @@ export async function installFleetSkill(
   return installations;
 }
 
-/**
- * Report the install state of the skill for each provider spec row, without
- * writing anything. Codex contributes two rows (native + shared `~/.agents`).
- */
+/** Codex contributes two rows (native + shared `~/.agents`). */
 export async function inspectFleetSkill(
   options: InspectFleetSkillOptions = {},
 ): Promise<SkillStatus[]> {

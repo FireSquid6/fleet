@@ -1,9 +1,3 @@
-// The transport seam. Every git invocation in this library flows through a
-// GitBackend, so an alternative backend (e.g. a long-lived `git cat-file --batch`
-// process, or a libgit2 binding) could be dropped in without touching any call
-// site — only this interface must be satisfied.
-
-/** Raw result of a single `git` invocation. */
 export interface GitRunResult {
   readonly stdout: string;
   readonly stderr: string;
@@ -11,9 +5,8 @@ export interface GitRunResult {
 }
 
 /**
- * A transport that runs one git command and reports its raw result. The `args`
- * it receives already include the `-C <cwd>` working-directory flags, so a
- * backend must never inject its own — it just executes what it is given.
+ * The `args` a backend receives already include the `-C <cwd>` working-directory
+ * flags, so a backend must never inject its own.
  */
 export interface GitBackend {
   run(args: readonly string[]): Promise<GitRunResult>;

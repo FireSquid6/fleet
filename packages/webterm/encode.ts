@@ -1,9 +1,3 @@
-/**
- * encode.ts — turn a bun-vt `Terminal`'s current grid into a `GridMsg`
- * snapshot, using the compact per-cell encoding from `protocol.ts`, and diff
- * two snapshots into the runs of a `PatchMsg`.
- */
-
 import type { Cell, CellStyle, Color, Terminal } from "bun-vt";
 import {
   ATTR,
@@ -51,7 +45,6 @@ export function encodeCell(cell: Cell): WireCell {
   const u = (UNDERLINE as readonly string[]).indexOf(cell.style.underline);
   const w = (WIDTH as readonly string[]).indexOf(cell.width);
 
-  // The overwhelmingly common case: blank space, default colors, no styling.
   if (blankGlyph && f === undefined && b === undefined && a === 0 && u <= 0 && w <= 0) {
     return 0;
   }
@@ -66,11 +59,7 @@ export function encodeCell(cell: Cell): WireCell {
   return out;
 }
 
-/**
- * Serialize the terminal's whole active screen into a `GridMsg`. `seq` is the
- * connection's frame counter, which only the caller streaming the frames knows;
- * a one-off snapshot can leave it at the default.
- */
+/** `seq` is the streaming caller's frame counter; a one-off snapshot can leave it at the default. */
 export function serializeGrid(term: Terminal, seq = 0): GridMsg {
   const rows = term.rows;
   const cols = term.cols;
@@ -103,7 +92,6 @@ export function serializeGrid(term: Terminal, seq = 0): GridMsg {
   };
 }
 
-/** Structural color comparison — a palette index only ever equals the same index. */
 export function colorsEqual(a: WireColor | undefined, b: WireColor | undefined): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined || typeof a === "number" || typeof b === "number") return false;
@@ -111,10 +99,10 @@ export function colorsEqual(a: WireColor | undefined, b: WireColor | undefined):
 }
 
 /**
- * Structural cell comparison. Deliberately not a `JSON.stringify` comparison:
- * key order is an encoder implementation detail, and this runs over every cell
- * of every frame. The blank literal `0` only ever equals another `0` — the
- * encoder never emits an all-defaults object, so an object is assumed to differ.
+ * Deliberately not a `JSON.stringify` comparison: key order is an encoder
+ * implementation detail, and this runs over every cell of every frame. The blank
+ * literal `0` only ever equals another `0` — the encoder never emits an
+ * all-defaults object, so an object is assumed to differ.
  */
 function cellsEqual(a: WireCell, b: WireCell): boolean {
   if (a === b) return true;
@@ -130,11 +118,9 @@ function cellsEqual(a: WireCell, b: WireCell): boolean {
 }
 
 /**
- * Diff two same-sized snapshots into the runs of a `PatchMsg` — empty when
- * nothing changed. Runs rather than per-cell entries because a scroll or a
- * repainted status line changes whole spans at once.
- *
- * Throws on a dimension mismatch; the caller sends a full snapshot instead.
+ * Runs rather than per-cell entries because a scroll or a repainted status line
+ * changes whole spans at once. Throws on a dimension mismatch; the caller sends
+ * a full snapshot instead.
  */
 export function diffGrid(prev: GridMsg, next: GridMsg): PatchRun[] {
   if (prev.cols !== next.cols || prev.rows !== next.rows) {

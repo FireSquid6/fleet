@@ -1,14 +1,3 @@
-/**
- * src/cell.ts — the cell model.
- *
- * `Cell` is the immutable snapshot returned by `Terminal.cell()`; it mirrors the
- * shape produced by libghostty-bun so this port is a drop-in replacement.
- *
- * `Pen` is the mutable internal storage the grid keeps per cell. It also doubles
- * as the "current graphic rendition" (the active SGR state the cursor writes
- * with): printing copies the cursor's pen into the target cell.
- */
-
 import { type Color, DEFAULT_COLOR, colorsEqual } from "./color";
 
 export type UnderlineStyle =
@@ -58,7 +47,6 @@ export interface CellStyle {
   readonly underline: UnderlineStyle;
 }
 
-/** A single terminal grid cell snapshot (public, immutable). */
 export interface Cell {
   /** The primary character of the cell, or "" if the cell is empty. */
   readonly char: string;
@@ -71,10 +59,8 @@ export interface Cell {
   readonly style: CellStyle;
 }
 
-/**
- * Mutable per-cell storage. Kept as a small class (not an object literal) so
- * rows are arrays of homogeneous instances; the grid reuses these in place.
- */
+// Kept as a class (not an object literal) so rows are arrays of homogeneous
+// instances; the grid reuses these in place rather than reallocating.
 export class Pen {
   cp = 0;
   wide: number = Wide.NARROW;
@@ -98,7 +84,6 @@ export class Pen {
     this.wide = Wide.NARROW;
   }
 
-  /** Reset everything to defaults (blank cell, default attributes). */
   reset(): void {
     this.cp = 0;
     this.wide = Wide.NARROW;
@@ -130,7 +115,6 @@ export class Pen {
     this.underline = 0;
   }
 
-  /** Copy graphic rendition (colors + attributes) from another pen. */
   copyAttributesFrom(o: Pen): void {
     this.fg = o.fg;
     this.bg = o.bg;
@@ -145,7 +129,6 @@ export class Pen {
     this.underline = o.underline;
   }
 
-  /** Copy the full cell (glyph + width + attributes) from another pen. */
   copyFrom(o: Pen): void {
     this.cp = o.cp;
     this.wide = o.wide;
@@ -168,7 +151,6 @@ export class Pen {
     );
   }
 
-  /** Produce the immutable public snapshot for this cell. */
   toCell(): Cell {
     const cp = this.cp;
     return {

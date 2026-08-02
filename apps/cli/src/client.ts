@@ -1,9 +1,3 @@
-/**
- * client.ts — the Eden Treaty client the CLI uses to talk to a Fleet Ship
- * host, plus small helpers for normalizing the `--url` option and unwrapping
- * Eden's `{ data, error }` result shape.
- */
-
 import { treaty } from "@elysiajs/eden";
 import type { App } from "fleet-ship/api";
 import type { App as BridgeApp } from "fleet-bridge/api";
@@ -11,12 +5,10 @@ import type { App as BridgeApp } from "fleet-bridge/api";
 export type FleetClient = ReturnType<typeof treaty<App>>;
 export type FleetBridgeClient = ReturnType<typeof treaty<BridgeApp>>;
 
-/** Build an Eden Treaty client pointed at a Fleet Ship `url` (already normalized). */
 export function makeClient(url: string): FleetClient {
   return treaty<App>(url);
 }
 
-/** Build an Eden Treaty client pointed at a Fleet Bridge `url` (already normalized). */
 export function makeBridgeClient(url: string): FleetBridgeClient {
   return treaty<BridgeApp>(url);
 }
@@ -43,7 +35,6 @@ export function normalizeUrl(input: string): string {
   return `http://${trimmed}`;
 }
 
-/** Shape every Eden Treaty call resolves to. */
 export interface EdenResult<T> {
   data: T | null;
   error: { status: number; value: unknown } | null;

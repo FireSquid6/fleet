@@ -1,31 +1,3 @@
-/**
- * armory/armory-installer.ts — turn the cached armory into installed files.
- *
- * `ArmoryCache` mirrors the bridge's armory under `<cache>/files/`; this module
- * is the half that acts on it:
- *
- *   files/skills/<skill>/**        → <every present provider's skills dir>/<skill>/**
- *   files/plugins/<provider>/<rest> → <that provider's config root>/<rest>
- *   files/dotfiles/<source>         → symlinked wherever the dotfile map says
- *
- * Skills are modelled because every provider agrees on what one is: a directory
- * discovered under a skills root. Plugins are not — each tool's plugin layout
- * differs and changes — so the armory author, who can read their own tool's
- * docs, chooses the path and the ship simply places the file inside that
- * provider's config root. A `plugins/<name>` that is not a known provider is
- * skipped with a warning rather than guessed at.
- *
- * Everything is written through `managed-fs`, never directly: that is what
- * gives adopt/conflict semantics, a crash-recoverable manifest, and — via
- * `session.remove` — an uninstall that refuses to delete a file the user has
- * since edited. `<cache>/installed.json` records what this installer wrote, so
- * the next run can tell "removed from the armory" from "never installed".
- *
- * Dotfiles are the exception: they are symlinked, not copied, which managed-fs
- * cannot express. `dotfile-linker.ts` owns that phase and its own ownership
- * record; this module only sequences it and folds its report into this one.
- */
-
 import { lstat, readdir, rename, rm, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";

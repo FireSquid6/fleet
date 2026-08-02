@@ -1,7 +1,3 @@
-/**
- * test/scroll.test.ts — scrolling, scroll regions (DECSTBM), and scrollback.
- */
-
 import { test, expect, describe } from "bun:test";
 import { Screen, Terminal } from "../src/index";
 
@@ -66,8 +62,6 @@ describe("scrollback", () => {
   test("respects the max-scrollback bound (no unbounded growth)", () => {
     const t = new Terminal({ cols: 5, rows: 2, maxScrollback: 3 });
     for (let i = 0; i < 100; i++) t.write(`${i}\r\n`);
-    // Visible area still shows the two most recent lines; the emulator did not
-    // throw and the terminal remains usable.
     expect(t.rows).toBe(2);
     expect(t.cursor().y).toBe(1);
   });

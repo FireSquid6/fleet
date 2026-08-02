@@ -14,6 +14,5 @@ if (import.meta.hot) {
   const root = (import.meta.hot.data.root ??= createRoot(elem));
   root.render(app);
 } else {
-  // The hot module reloading API is not available in production.
   createRoot(elem).render(app);
 }

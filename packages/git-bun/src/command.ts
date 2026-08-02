@@ -1,7 +1,6 @@
 import { ShellBackend, type GitBackend, type GitRunResult } from "./backend";
 import { GitError } from "./errors";
 
-/** Construction options shared by {@link GitCommand} and the root {@link Git}. */
 export interface GitCommandOptions {
   /**
    * Working directory, injected as `-C <cwd>` on every invocation. Git resolves
@@ -23,8 +22,7 @@ export interface GitCommandOptions {
 /**
  * The single choke point through which every git command passes. It prepends
  * `-C <cwd>` to every invocation, which is what makes the working directory a
- * hard guarantee: no higher-level method can construct a call that runs against
- * a different directory, because none of them touch the `-C` flag at all.
+ * hard guarantee: no higher-level method touches the `-C` flag at all.
  */
 export class GitCommand {
   readonly cwd: string;
@@ -36,9 +34,8 @@ export class GitCommand {
   }
 
   /**
-   * The working-directory flags prepended to every command. `-C <cwd>` runs git
-   * as if it had been started in `cwd`, without changing the parent process's
-   * own working directory.
+   * `-C <cwd>` runs git as if it had been started in `cwd`, without changing the
+   * parent process's own working directory.
    */
   private globalArgs(): readonly string[] {
     return ["-C", this.cwd];

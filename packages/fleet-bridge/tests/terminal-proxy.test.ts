@@ -1,11 +1,3 @@
-/**
- * terminal-proxy.test.ts — exercises the bridge's `/workspaces/:repo/:name/terminal`
- * WebSocket proxy end-to-end against a real (stub) upstream ship. Both the bridge
- * and the stub listen on ephemeral ports; a real browser-style `WebSocket` drives
- * the bridge. Covers: bidirectional forwarding (incl. buffered-before-open frames),
- * upstream-close propagation, and the unknown-workspace exit path.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

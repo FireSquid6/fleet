@@ -1,33 +1,9 @@
-/**
- * armory/dotfile-linker.ts — put the armory's dotfiles in place, as symlinks.
- *
- * `dotfile-map.json` names `dotfiles/`-relative sources and where each belongs:
- *
- *   ".tmux.conf": "~/.tmux.conf"   → ~/.tmux.conf   -> <cache>/files/dotfiles/.tmux.conf
- *   "nvim":       "~/.config/nvim" → ~/.config/nvim -> <cache>/files/dotfiles/nvim
- *
- * Links, not copies, and deliberately so: the cache is already an exact mirror
- * of the bridge's armory, so a content edit reaches the user through the link on
- * the next pull with nothing to reinstall, and a directory source is one link
- * rather than a copy per file. This is the one place Fleet's blanket refusal to
- * touch symlinks (see managed-fs.ts, which refuses them on every path it
- * touches) is relaxed — and only for links this module can prove it created:
- * every decision is made on `lstat`/`readlink` of the target itself, and a link
- * is only ever replaced or removed while it still points inside this cache's
- * `files/dotfiles/`. Anything else at a target belongs to the user or to their
- * own dotfile manager and is left exactly as found. managed-fs cannot serve
- * this: it manages regular files by content hash. Do not route dotfiles through
- * it, and do not weaken its checks to make that possible.
- *
- * `<cache>/dotfiles.json` records the links this module put in place, so a
- * mapping that later leaves the map can be undone without guessing.
- *
- * The map is untrusted network input. A destination is resolved against *this
- * ship's* home directory and must land strictly inside it, so no bridge can
- * make a fleet symlink into `/etc` or `/usr`. That confinement is lexical: a
- * user who has symlinked a directory of their own home elsewhere is taken at
- * their word, the same way the rest of their dotfile setup takes them.
- */
+// Fleet refuses to touch symlinks everywhere else (see managed-fs.ts, which
+// manages regular files by content hash); this module is the sole exception,
+// and only for links it can prove point inside the cache's `files/dotfiles/`.
+// Do not route dotfiles through managed-fs, and do not weaken its checks to
+// make that possible. The map is untrusted network input, so a destination must
+// resolve strictly inside this ship's home directory.
 
 import { lstat, mkdir, readlink, rename, rm, symlink, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";

@@ -1,7 +1,3 @@
-/**
- * test/sgr.test.ts — Select Graphic Rendition: colors and attributes.
- */
-
 import { test, expect, describe } from "bun:test";
 import { Terminal } from "../src/index";
 

@@ -1,8 +1,3 @@
-/**
- * api/ships.ts — the bridge-only ship-management routes. One Elysia chain so
- * route types stay inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import type { FleetManager } from "../fleet-manager";
 import { mapError } from "./http";

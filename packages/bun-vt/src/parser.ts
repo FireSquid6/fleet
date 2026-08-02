@@ -1,22 +1,6 @@
-/**
- * src/parser.ts — a VT500-series escape-sequence parser.
- *
- * This is a faithful implementation of Paul Williams' DEC-compatible parser
- * state machine (the same design libghostty's `Parser.zig` is built on),
- * extended with:
- *   - UTF-8 decoding in the ground state (so `print` delivers Unicode scalars,
- *     not raw bytes), and
- *   - colon-separated CSI sub-parameters (needed for SGR forms like `4:3` and
- *     `38:2::r:g:b`).
- *
- * The parser is a pure byte→action translator: it never touches terminal state.
- * It drives a `Handler` via callbacks, exactly like a SAX parser. All terminal
- * semantics live in the handler (see terminal.ts).
- *
- * Robustness: the machine is hardened against arbitrary/malformed input — every
- * byte has a defined transition and nothing throws. This matches the guarantee
- * libghostty-vt makes about untrusted data.
- */
+// State machine follows Paul Williams' DEC-compatible VT500 parser, extended
+// with ground-state UTF-8 decoding and colon-separated CSI sub-parameters.
+// Every byte has a defined transition; nothing throws on malformed input.
 
 export interface CsiSequence {
   /** Numeric parameters. An omitted parameter is 0 (handlers apply defaults). */
@@ -88,7 +72,6 @@ function isExecutable(b: number): boolean {
 export class Parser {
   #state: S = S.GROUND;
 
-  // -- CSI / escape accumulators --
   // `#params`/`#colon` hold already-finalized parameters. `#curParam` is the
   // in-progress parameter being accumulated; `#curColon` records the separator
   // that preceded it (a colon makes it a sub-parameter of the prior group).
@@ -101,10 +84,8 @@ export class Parser {
   #prefix = "";
   #overflow = false; // too many params → dispatch is dropped
 
-  // -- OSC accumulator (raw bytes, decoded as UTF-8 at completion) --
   #osc: number[] = [];
 
-  // -- UTF-8 ground decoder --
   #utf8Remaining = 0;
   #utf8Cp = 0;
 
@@ -117,13 +98,11 @@ export class Parser {
     this.#utf8Cp = 0;
   }
 
-  /** Feed a whole buffer. */
   write(bytes: Uint8Array): void {
     for (let i = 0; i < bytes.length; i++) this.next(bytes[i]!);
   }
 
   next(b: number): void {
-    // --- UTF-8 continuation handling (only meaningful in the ground state) ---
     if (this.#utf8Remaining > 0) {
       if (b >= 0x80 && b <= 0xbf) {
         this.#utf8Cp = (this.#utf8Cp << 6) | (b & 0x3f);
@@ -133,7 +112,6 @@ export class Parser {
       // Malformed sequence: emit a replacement char and reprocess this byte.
       this.#utf8Remaining = 0;
       this.h.print(REPLACEMENT);
-      // fall through
     }
 
     // --- Anywhere transitions ---
@@ -200,8 +178,6 @@ export class Parser {
     }
   }
 
-  // --- ground -------------------------------------------------------------
-
   #ground(b: number): void {
     if (isExecutable(b)) {
       this.h.execute(b);
@@ -236,8 +212,6 @@ export class Parser {
     }
     this.h.print(cp);
   }
-
-  // --- escape -------------------------------------------------------------
 
   #escape(b: number): void {
     if (isExecutable(b)) return this.h.execute(b);
@@ -274,7 +248,6 @@ export class Parser {
       this.#clear();
       return;
     }
-    // Anything else: back to ground.
     this.#state = S.GROUND;
     this.#clear();
   }
@@ -300,8 +273,6 @@ export class Parser {
       this.#clear();
     }
   }
-
-  // --- CSI ----------------------------------------------------------------
 
   #csiEntry(b: number): void {
     if (isExecutable(b)) return this.h.execute(b);
@@ -384,8 +355,6 @@ export class Parser {
     this.#state = S.GROUND;
     this.#clear();
   }
-
-  // --- DCS ----------------------------------------------------------------
 
   #dcsEntry(b: number): void {
     if (b === 0x7f) return;
@@ -482,8 +451,6 @@ export class Parser {
     }
   }
 
-  // --- OSC ----------------------------------------------------------------
-
   #oscString(b: number): void {
     if (b === 0x07) {
       // BEL terminator
@@ -526,8 +493,6 @@ export class Parser {
     this.h.oscDispatch(data);
   }
 
-  // --- SOS/PM/APC (consumed and ignored) ----------------------------------
-
   #sosPmApc(b: number): void {
     if (b === 0x9c) {
       this.#state = S.GROUND;
@@ -536,8 +501,6 @@ export class Parser {
     // ESC handled by the anywhere transition (→ escape, then ST no-ops).
   }
 
-  // --- param helpers ------------------------------------------------------
-
   #pushDigit(b: number): void {
     if (this.#overflow) return;
     this.#hasDigits = true;
@@ -545,7 +508,6 @@ export class Parser {
     if (this.#curParam > 0xffff) this.#curParam = 0xffff; // clamp, matches xterm
   }
 
-  /** Finalize the current parameter and open a new one after a separator. */
   #nextParam(isColon: boolean): void {
     if (this.#overflow) return;
     if (this.#params.length >= MAX_PARAMS) {
@@ -559,7 +521,6 @@ export class Parser {
     this.#curColon = isColon;
   }
 
-  /** Finalize the trailing parameter at dispatch time. */
   #commitParam(): void {
     if (this.#overflow) return;
     // Push the final parameter unless the whole sequence was empty (e.g. `CSI m`).

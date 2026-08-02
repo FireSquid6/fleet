@@ -2,10 +2,6 @@ import { Link } from "react-router-dom";
 import type { Workspace } from "@/data/types";
 import { agentStateColor } from "@/lib/agent-status";
 
-/**
- * A workspace tile in the Bridge grid. The outline/active fill and radius come
- * from the `--node-*` tokens (a border shorthand, so applied via inline style).
- */
 export function WorkspaceNode({ ws }: { ws: Workspace }) {
   const color = ws.agent ? agentStateColor(ws.agent.state) : ws.active ? "var(--dim)" : "var(--line)";
 

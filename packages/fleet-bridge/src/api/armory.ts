@@ -1,11 +1,3 @@
-/**
- * api/armory.ts — the read side of the Armory: the manifest of the bridge's
- * `armory/` directory, the contents of any file it lists, and what each ship has
- * applied. Ships poll the first two to decide whether to re-pull; the last is for
- * operators watching the fleet converge. One Elysia chain so route types stay
- * inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import type { FleetManager } from "../fleet-manager";
 import { mapError } from "./http";

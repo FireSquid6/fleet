@@ -1,8 +1,3 @@
-/**
- * fleet-protocol — the shared API + config contract between the Fleet Ship host
- * and the Fleet CLI. Pure types plus a couple of constants; no runtime deps.
- */
-
 export {
   FleetIdentifierSchema,
   parseFleetIdentifier,

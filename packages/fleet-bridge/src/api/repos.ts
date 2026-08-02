@@ -1,9 +1,3 @@
-/**
- * api/repos.ts — the bridge's repo registry: list, register, and remove the repos
- * the fleet can create workspaces from. One Elysia chain so route types stay
- * inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import type { FleetManager } from "../fleet-manager";
 import { mapError } from "./http";
@@ -189,12 +183,10 @@ export function reposPlugin(manager: FleetManager) {
 /** `:number` path param coerced to a number; non-numeric values are rejected (422). */
 const numberParams = t.Object({ name: t.String(), number: t.Numeric() });
 
-/** Optional `?state=open|closed|all` filter shared by the list endpoints. */
 const stateQuery = t.Object({
   state: t.Optional(t.Union([t.Literal("open"), t.Literal("closed"), t.Literal("all")])),
 });
 
-/** `?ref=<commit-ish>` or `?pr=<number>` — the target a checks/logs query resolves. */
 const checkTargetQuery = t.Object({
   ref: t.Optional(t.String()),
   pr: t.Optional(t.Numeric()),

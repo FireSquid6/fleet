@@ -1,12 +1,3 @@
-/**
- * plugin-command.ts — the `ship plugin` command group.
- *
- * `doctor` reports, read-only, the install state of the fleet-agent skill and
- * the startup plugin for every provider. `install <provider|all>` (re)installs
- * both the skill and the plugin for one provider or all of them, reusing the
- * same installers the ship runs on boot.
- */
-
 import { homedir } from "node:os";
 import { Command } from "commander";
 import {
@@ -26,7 +17,6 @@ import type { PresenceState } from "./managed-fs";
 /** Providers a user may pass to `install`; codex has a skill but no plugin. */
 const PROVIDERS = ["claude-code", "opencode", "copilot", "codex"] as const;
 
-/** Display order for `doctor`, matching PROVIDERS. */
 const DISPLAY_ORDER = PROVIDERS;
 
 /** The command each provider's harness is invoked as — what a skill/plugin is useless without. */

@@ -1,12 +1,3 @@
-/**
- * armory-ships.test.ts — the aggregate `GET /armory/ships`, which reports what
- * every member ship has pulled and installed.
- *
- * The point of the aggregate is that it degrades per ship rather than as a
- * whole, so the cases here are a healthy ship, an offline one, and one whose
- * call fails — all in the same response.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

@@ -1,14 +1,3 @@
-/**
- * providers/github.ts — a `RepoProvider` backed by GitHub's REST API v3.
- *
- * Every dependency (owner/repo, token, `fetch`, base URL) is injected through
- * the constructor so the provider is exercisable in unit tests without env vars
- * or the network. GitHub's `/issues` endpoint also returns pull requests, so
- * `listIssues` filters out any element carrying a `pull_request` key to keep the
- * two streams distinct. Write operations require a token — GitHub cannot accept
- * anonymous comments/reviews — so those methods reject early with a 401.
- */
-
 import type {
   CheckRun,
   FailedJobLog,
@@ -174,6 +163,7 @@ export class GitHubProvider implements RepoProvider {
     const issues = await this.request<GitHubIssue[]>(
       `/repos/${this.owner}/${this.repo}/issues?state=${state}`,
     );
+    // GitHub's `/issues` endpoint returns pull requests too.
     return issues
       .filter((issue) => issue.pull_request === undefined)
       .map((issue) => this.toIssueSummary(issue));

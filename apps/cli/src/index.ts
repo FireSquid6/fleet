@@ -1,11 +1,4 @@
 #!/usr/bin/env bun
-/**
- * index.ts — Fleet CLI entry point.
- *
- * A Commander.js CLI that drives a Fleet Ship host's HTTP API through a
- * type-safe Elysia Eden Treaty client (see client.ts). No terminal/websocket
- * command — that's deliberately out of scope here.
- */
 
 import { Command } from "commander";
 import {

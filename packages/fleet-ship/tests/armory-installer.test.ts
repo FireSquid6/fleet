@@ -1,9 +1,5 @@
-/**
- * armory-installer.test.ts — drives `installArmory` against a temp home holding
- * both a fabricated armory cache and fabricated provider config roots. The
- * cache is written as real files rather than mocked because what the installer
- * has to get right is bytes and modes reaching provider directories.
- */
+// The cache is written as real files rather than mocked because what the
+// installer has to get right is bytes and modes reaching provider directories.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, lstat, mkdir, mkdtemp, readlink, rm, stat } from "node:fs/promises";

@@ -1,7 +1,6 @@
 import { ShellBackend, type TmuxBackend, type TmuxRunResult } from "./backend";
 import { TmuxError } from "./errors";
 
-/** Construction options shared by {@link TmuxCommand} and the root {@link Tmux}. */
 export interface TmuxCommandOptions {
   /** Server namespace, injected as `-L <namespace>`. Runs a private tmux server. */
   namespace: string;
@@ -24,8 +23,7 @@ export interface TmuxCommandOptions {
 /**
  * The single choke point through which every tmux command passes. It prepends
  * the namespace socket flags to every invocation, which is what makes namespace
- * isolation a hard guarantee: no higher-level method can construct a call that
- * escapes its server, because none of them touch the socket flags at all.
+ * isolation a hard guarantee: no higher-level method touches the socket flags.
  */
 export class TmuxCommand {
   readonly namespace: string;

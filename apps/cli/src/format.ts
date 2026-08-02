@@ -1,16 +1,8 @@
-/**
- * format.ts — pure formatting helpers for CLI output (no network, no I/O).
- */
-
 import type { ArmoryEntry, ArmorySyncState, WorkspaceSummary } from "fleet-protocol";
 import type { Repo } from "fleet-protocol";
 import type { ShipInfo, BridgeWorkspaceSummary, ShipArmoryState } from "fleet-bridge/types";
 
-/**
- * Render an aligned, human-readable table: a header row followed by one row per
- * entry, each column padded to its widest cell. With no rows, only the header is
- * returned.
- */
+/** With no rows, only the header row is returned. */
 export function renderTable(headers: readonly string[], rows: readonly (readonly string[])[]): string {
   const widths = headers.map((header, col) =>
     Math.max(header.length, ...rows.map((row) => (row[col] ?? "").length)),
@@ -22,7 +14,6 @@ export function renderTable(headers: readonly string[], rows: readonly (readonly
   return [formatRow(headers), ...rows.map((row) => formatRow(row))].join("\n");
 }
 
-/** Render a list of workspace summaries as an aligned, human-readable table. */
 export function formatWorkspaceTable(rows: readonly WorkspaceSummary[]): string {
   return renderTable(
     ["REPO", "NAME", "BRANCH", "ACTIVE"],
@@ -30,7 +21,6 @@ export function formatWorkspaceTable(rows: readonly WorkspaceSummary[]): string 
   );
 }
 
-/** Render a fleet-wide workspace list, annotating each row with its owning ship. */
 export function formatFleetWorkspaceTable(rows: readonly BridgeWorkspaceSummary[]): string {
   return renderTable(
     ["SHIP", "REPO", "NAME", "BRANCH", "ACTIVE"],
@@ -38,7 +28,6 @@ export function formatFleetWorkspaceTable(rows: readonly BridgeWorkspaceSummary[
   );
 }
 
-/** Render the bridge's registered ships as a table. */
 export function formatShipTable(rows: readonly ShipInfo[]): string {
   return renderTable(
     ["NAME", "URL", "STATUS"],
@@ -46,7 +35,6 @@ export function formatShipTable(rows: readonly ShipInfo[]): string {
   );
 }
 
-/** Render the bridge's registered repos as a table. */
 export function formatRepoTable(rows: readonly Repo[]): string {
   return renderTable(
     ["NAME", "URL", "PROVIDER"],
@@ -54,7 +42,6 @@ export function formatRepoTable(rows: readonly Repo[]): string {
   );
 }
 
-/** Placeholder for a column whose value does not exist yet. */
 const MISSING = "-";
 
 /** Revisions are 64 hex characters; 12 is plenty to compare two by eye. */
@@ -62,7 +49,6 @@ export function abbreviateRevision(revision: string | null): string {
   return revision ? revision.slice(0, 12) : MISSING;
 }
 
-/** Where a ship stands against the bridge's armory. */
 export type ArmoryShipState = "in sync" | "behind" | "never" | "error" | "unknown";
 
 /**
@@ -83,8 +69,6 @@ export function armoryShipState(bridgeRevision: string, state: ArmorySyncState |
 }
 
 /**
- * Render a timestamp as ISO-8601, or the placeholder when there is none.
- *
  * Accepts a `Date` despite `ArmorySyncState.syncedAt` being typed `string`:
  * Eden Treaty revives ISO strings in a response body into `Date` objects, so the
  * declared type is not what actually arrives.
@@ -101,9 +85,8 @@ function formatMode(mode: number): string {
 }
 
 /**
- * Render armory manifest entries as a table. `PATH` keeps its section prefix even
- * though `SECTION` repeats it, so a row can be pasted straight into
- * `fleet client armory cat`.
+ * `PATH` keeps its section prefix even though `SECTION` repeats it, so a row can
+ * be pasted straight into `fleet client armory cat`.
  */
 export function formatArmoryTable(rows: readonly ArmoryEntry[]): string {
   return renderTable(
@@ -112,7 +95,6 @@ export function formatArmoryTable(rows: readonly ArmoryEntry[]): string {
   );
 }
 
-/** Render each ship's armory state against the bridge's current `bridgeRevision`. */
 export function formatArmoryShipTable(
   bridgeRevision: string,
   rows: readonly ShipArmoryState[],

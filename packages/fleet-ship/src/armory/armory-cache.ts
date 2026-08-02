@@ -1,33 +1,3 @@
-/**
- * armory/armory-cache.ts — the ship's local mirror of a bridge's armory.
- *
- * The bridge pushes `POST /armory/sync {bridgeUrl, revision}`; this class does
- * the pulling. It caches files and nothing else: turning the cache into
- * installed skills, plugins, and dotfiles is a separate concern that reads from
- * here (armory-installer.ts, wired up by armory-sync.ts). The one thing it
- * keeps on that installer's behalf is the summary it reports back, so a single
- * `state.json` answers "what did this ship pull, and what came of it".
- *
- *   <home>/.config/autosmith/fleet-ship/armory/
- *     files/<armory-relative path>   mirrors the bridge's armory tree
- *     state.json                     the applied revision and its entry list
- *
- * The location is deliberate. It is *not* under the ship's `fleetDirectory`,
- * where `WorkspaceManager` enumerates every top-level directory as a candidate
- * repo and would walk the cache as if it were one. It is under HOME because
- * that is the root the shared managed-file machinery validates every path
- * against, so the installers built on top of this cache need no new roots.
- *
- * A manifest is untrusted network input: every path is re-validated with
- * `isSafeArmoryPath`, every destination is proved a strict descendant of
- * `files/`, and every downloaded body is verified against the manifest's sha256
- * before it lands. A single bad file fails the whole sync — a half-applied
- * armory must never be recorded under a revision that promises all of it.
- *
- * The push also chooses *which* bridge to pull from, so it is pinned: see
- * `requirePinnedBridge` for what that does and does not protect against.
- */
-
 import { chmod, lstat, mkdir, readdir, rename, rm, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
@@ -47,10 +17,11 @@ import {
   type DotfileMap,
 } from "fleet-protocol";
 
-/** The cache root, relative to the home directory. */
+// Under HOME, not the ship's `fleetDirectory`: `WorkspaceManager` enumerates
+// every top-level directory there as a candidate repo, and HOME is the root the
+// shared managed-file machinery already validates every path against.
 const CACHE_RELATIVE_PATH = join(".config", "autosmith", "fleet-ship", "armory");
 
-/** Where `ArmoryCache` keeps its mirror, for the installer that reads it back. */
 export function armoryCacheDirectory(homeDirectory: string): string {
   return join(resolve(homeDirectory), CACHE_RELATIVE_PATH);
 }
@@ -65,7 +36,6 @@ export async function cachedDotfileMap(cacheDirectory: string): Promise<DotfileM
   return (await readCachedState(resolve(cacheDirectory))).dotfileMap;
 }
 
-/** A sync that failed, carrying the status the ship's route should answer with. */
 export class ArmorySyncError extends Error {
   constructor(
     message: string,
@@ -147,7 +117,6 @@ export class ArmoryCache {
   private readonly filesRoot: string;
   private readonly statePath: string;
   private readonly fetchImpl: typeof fetch;
-  /** The ship's configured bridge, if it has one; see `requirePinnedBridge`. */
   private readonly configuredBridgeUrl?: string;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -288,7 +257,6 @@ export class ArmoryCache {
     return applied;
   }
 
-  /** Bring one entry's file on disk in line with the manifest. */
   private async materialize(base: string, entry: ArmoryEntry): Promise<void> {
     const target = resolve(this.filesRoot, entry.path);
     if (!isStrictDescendant(this.filesRoot, target)) {
@@ -399,7 +367,6 @@ export class ArmoryCache {
     return bridgeUrl.replace(/\/+$/, "");
   }
 
-  /** Delete every cached file the manifest no longer names, and any directory that leaves empty. */
   private async prune(keep: Set<string>): Promise<void> {
     await pruneDirectory(this.filesRoot, "", keep);
   }

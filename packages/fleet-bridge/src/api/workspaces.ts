@@ -1,10 +1,3 @@
-/**
- * api/workspaces.ts — the bridge's workspace routes: a superset of the ship's
- * workspace API, with the owning ship abstracted away (routing handled by the
- * `FleetManager`) but kept visible on every response. Built as one Elysia chain
- * so route types stay inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import {
   BINARY_MESSAGE_CLOSE_CODE,

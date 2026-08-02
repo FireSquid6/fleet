@@ -1,8 +1,3 @@
-/**
- * api/workspaces.ts — the ship's workspace routes plus the per-workspace
- * terminal WebSocket. One Elysia chain so route types stay inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import { AGENT_STATES } from "fleet-protocol";
 import {

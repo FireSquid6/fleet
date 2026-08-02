@@ -1,10 +1,6 @@
-/**
- * armory-cache.test.ts — drives `ArmoryCache` against a real HTTP bridge
- * (`Bun.serve`) and a temp home. The fake bridge is real rather than a stubbed
- * `fetch` because the whole point of the cache is what it does with bytes off
- * the wire; it also counts requests, which is how "downloads nothing" is
- * asserted.
- */
+// The fake bridge is a real `Bun.serve` rather than a stubbed `fetch` because
+// the point of the cache is what it does with bytes off the wire; it also counts
+// requests, which is how "downloads nothing" is asserted.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";

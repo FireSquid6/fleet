@@ -1,20 +1,8 @@
-/**
- * launch-config.ts — the `fleet launch` configuration contract.
- *
- * `fleet launch` reads a single `fleet-config.yaml` describing a whole fleet:
- * an optional `bridge`, an optional `gui`, and an optional map of `ships`. This
- * module owns the zod schema, the YAML loader, and the normalization step that
- * fills per-field defaults (a ship's `name`/`fleetDirectory` default from its
- * map key) and validates cross-section constraints (unique local ports, a gui
- * always has a bridge to reach).
- */
-
 import { resolve } from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import { FleetIdentifierSchema } from "fleet-protocol";
 
-/** Default bridge dataDirectory when the `bridge` section omits it. */
 const DEFAULT_BRIDGE_DATA_DIRECTORY = "./.fleet/bridge";
 const DEFAULT_BRIDGE_PORT = 4800;
 const DEFAULT_BRIDGE_NAME = "bridge";
@@ -41,7 +29,6 @@ const GuiSectionSchema = z.object({
   bridgeUrl: z.string().min(1).optional(),
 });
 
-/** A ship the launch spawns itself (`source: local`, the default). */
 const LocalShipSchema = z.object({
   source: z.literal("local"),
   fleetDirectory: z.string().min(1).optional(),
@@ -49,13 +36,11 @@ const LocalShipSchema = z.object({
   name: FleetIdentifierSchema.optional(),
 });
 
-/** A ship already running elsewhere, registered by URL (`source: remote`). */
 const RemoteShipSchema = z.object({
   source: z.literal("remote"),
   url: z.string().min(1),
 });
 
-/** A ship entry — `source` defaults to `local` when omitted. */
 const ShipSchema = z.preprocess(
   (value) =>
     value && typeof value === "object" && !Array.isArray(value) && !("source" in value)
@@ -112,11 +97,6 @@ export interface NormalizedLaunchConfig {
   ships: NormalizedShip[];
 }
 
-/**
- * Validate and normalize a raw (already YAML-parsed) launch config: fill
- * key-derived ship defaults, resolve `fleetDirectory` to an absolute path, and
- * enforce cross-section constraints. Pure — no IO — so it's directly testable.
- */
 export function parseLaunchConfig(raw: unknown): NormalizedLaunchConfig {
   const parsed = LaunchConfigSchema.parse(raw);
 
@@ -180,7 +160,6 @@ export function publicUrlWarning(config: NormalizedLaunchConfig): string | null 
   );
 }
 
-/** Standard scaffold written by `fleet launch init` (commented for humans to edit). */
 export const CONFIG_TEMPLATE = `# fleet-config.yaml — configuration for \`fleet launch\`.
 # Every section is optional; only the sections present are started.
 
@@ -211,7 +190,6 @@ ships:
   #   url: http://another-host:4700
 `;
 
-/** Read, parse, and normalize a `fleet-config.yaml` at `path`. */
 export async function loadLaunchConfig(path: string): Promise<NormalizedLaunchConfig> {
   const file = Bun.file(path);
   if (!(await file.exists())) {

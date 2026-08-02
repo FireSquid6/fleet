@@ -59,7 +59,6 @@ export function handleServerFrame(
   }
 }
 
-/** Status a closed socket leaves behind, derived from the ship's close code. */
 export function closeStatus(code: number): WebtermStatus {
   if (code === TERMINAL_CONFLICT_CLOSE_CODE) return "conflict";
   if (code === TERMINAL_TAKEOVER_CLOSE_CODE) return "superseded";
@@ -73,7 +72,6 @@ export function terminalPath(repo: string, name: string, takeover = false): stri
 
 interface UseWebtermResult {
   status: WebtermStatus;
-  /** Write keystroke/paste bytes to the PTY. */
   send: (data: string) => void;
   /**
    * Reconnect, evicting whichever connection currently owns the workspace's
@@ -89,9 +87,8 @@ interface UseWebtermResult {
 }
 
 /**
- * Connect to a workspace's live terminal over the webterm grid protocol. Opens
- * the WebSocket only while `active`, tearing it down (and releasing the ship's
- * single-terminal guard) when `active` goes false or the component unmounts.
+ * Opens the WebSocket only while `active`, tearing it down (and releasing the
+ * ship's single-terminal guard) when `active` goes false or on unmount.
  */
 export function useWebterm(
   repo: string,
@@ -124,7 +121,6 @@ export function useWebterm(
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
-  /** Send `init` the first time, `resize` thereafter. */
   const sendSize = useCallback((ws: WebSocket, cols: number, rows: number) => {
     ({ cols, rows } = clampTerminalSize(cols, rows));
     const type = initializedRef.current ? "resize" : "init";

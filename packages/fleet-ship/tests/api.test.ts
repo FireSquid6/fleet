@@ -1,10 +1,3 @@
-/**
- * api.test.ts — drives the ship's composed Elysia app in-process via
- * `app.handle(Request)` over a stub WorkspaceManager (no tmux/git). Asserts route
- * wiring, the `active` query parsing, status codes, and the `WorkspaceError → status`
- * mapping from `api/http.ts`.
- */
-
 import { describe, expect, test } from "bun:test";
 import { createApp } from "../src/api";
 import { WorkspaceError } from "../src/workspace-manager";

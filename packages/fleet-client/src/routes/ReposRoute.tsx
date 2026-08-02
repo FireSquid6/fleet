@@ -196,7 +196,6 @@ export function ConfirmDeleteModal({
   );
 }
 
-/** Mobile-only inline field label for the stacked-card table rows (hidden at `md`). */
 export function RowLabel({ children }: { children: ReactNode }) {
   return (
     <span className="mr-2 font-mono text-[9px] font-semibold tracking-[.14em] text-dim2 md:hidden">

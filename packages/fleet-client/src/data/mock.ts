@@ -14,13 +14,6 @@ import type {
   WorkspaceEvent,
 } from "./types";
 
-/**
- * In-memory implementation of {@link FleetBridge}. Seed data is ported from the
- * design prototype (`support.js`); the `active` flags are mutable so
- * activate/deactivate persist for the session. The live terminal is not mocked —
- * it streams over a real WebSocket (see the Terminal component's `useWebterm`).
- */
-
 const SHIPS: Ship[] = [
   { name: "forge-01", spec: "2×A100 · us-east-1", status: "online" },
   { name: "forge-02", spec: "2×A100 · us-east-1", status: "online" },
@@ -53,14 +46,12 @@ function key(repo: string, name: string): string {
   return `${repo}/${name}`;
 }
 
-/** Deterministic pseudo-pid from a workspace name (matches the prototype hash). */
 function hashPid(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return 10000 + (Math.abs(h) % 89999);
 }
 
-/** Deterministic mock working-tree diff for an active workspace. */
 function mockDiff(name: string): WorkspaceDiff {
   const h = Math.abs(hashPid(name));
   return { added: 8 + (h % 40), removed: h % 15, commits: 1 + (h % 3) };
@@ -335,7 +326,6 @@ const SEED_ARMORY_SHIP_STATES: Record<string, ArmorySyncState> = {
   },
 };
 
-/** Seed the repo registry from the distinct repo names in the seed workspaces. */
 function seedRepos(): Repo[] {
   const names: string[] = [];
   for (const w of SEED_WORKSPACES) {

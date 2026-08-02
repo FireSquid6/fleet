@@ -1,10 +1,6 @@
 /**
- * View-model types for the Bridge UI.
- *
- * These reuse the real fleet contract from `fleet-protocol` wherever possible.
  * The bridge-local shapes (`ShipInfo`, the ship-annotated workspace DTOs) are not
- * exported from `fleet-bridge`, so they are mirrored here — a real client would
- * instead read them straight off `treaty<App>`'s inferred types.
+ * exported from `fleet-bridge`, so they are mirrored here.
  */
 
 import type { ArmorySyncState, WorkspaceSummary, WorkspaceStatus } from "fleet-protocol";
@@ -22,17 +18,13 @@ export type {
 /** Whether the bridge currently has a live connection to a ship. */
 export type ShipStatus = "online" | "offline";
 
-/**
- * A ship (host). `spec` is the human-facing hardware/region blurb the bridge
- * would derive from the ship's `SystemResources` (e.g. "2×A100 · us-east-1").
- */
+/** `spec` is a human-facing hardware/region blurb (e.g. "2×A100 · us-east-1"). */
 export interface Ship {
   readonly name: string;
   readonly spec: string;
   readonly status: ShipStatus;
 }
 
-/** List row: a `WorkspaceSummary` annotated with its hosting ship. */
 export type Workspace = WorkspaceSummary & { readonly ship: string };
 
 export type WorkspaceEvent =
@@ -53,8 +45,8 @@ export type WorkspaceEvent =
 export type WorkspaceDetail = WorkspaceStatus & { readonly ship: string };
 
 /**
- * A row of `GET /armory/ships`: what one ship has pulled and installed. `state`
- * is null when the bridge could not ask the ship — offline, or the call failed.
+ * A row of `GET /armory/ships`. `state` is null when the bridge could not ask
+ * the ship — offline, or the call failed.
  */
 export interface ArmoryShipState {
   readonly ship: string;

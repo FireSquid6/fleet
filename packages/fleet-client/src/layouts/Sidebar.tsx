@@ -2,7 +2,6 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useFleet } from "@/data/FleetContext";
 
-/** Overlay that marks the current nav item: accent wash + accent left border. */
 function ActiveFill() {
   return (
     <span className="pointer-events-none absolute inset-0 rounded-[3px] border-l-2 border-accent bg-accent-soft" />

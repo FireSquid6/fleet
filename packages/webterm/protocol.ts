@@ -1,14 +1,4 @@
-/**
- * webterm/protocol.ts — the JSON-over-WebSocket contract between the browser and
- * the Bun server. Both sides import from this file. It contains only type
- * definitions plus a few pure data tables (no PTY / no VT emulator), so it is
- * safe to bundle straight into the browser.
- *
- * The server is the terminal emulator: it parses the shell's raw VT bytes with
- * bun-vt into a cell grid and streams it to the client, either as a full `grid`
- * snapshot or as a `patch` delta against the previous frame. The client only
- * paints cells and sends keystrokes.
- */
+/** Browser-safe by construction: no PTY and no VT emulator may be imported here. */
 
 import { z } from "zod";
 
@@ -64,10 +54,6 @@ const ClientMsgSchema = z.discriminatedUnion("type", [
   ResyncMsgSchema,
 ]);
 
-// ---------------------------------------------------------------------------
-// Client → server
-// ---------------------------------------------------------------------------
-
 /** First message: allocate a Terminal and spawn the shell at this size. */
 export interface InitMsg {
   readonly type: "init";
@@ -75,7 +61,6 @@ export interface InitMsg {
   readonly rows: number;
 }
 
-/** Keystrokes / paste bytes to write to the PTY. */
 export interface InputMsg {
   readonly type: "input";
   readonly data: string;
@@ -88,7 +73,6 @@ export interface ResizeMsg {
   readonly rows: number;
 }
 
-/** Acknowledge receipt of the server frame with this `seq`. */
 export interface AckMsg {
   readonly type: "ack";
   readonly seq: number;
@@ -101,13 +85,8 @@ export interface ResyncMsg {
 
 export type ClientMsg = InitMsg | InputMsg | ResizeMsg | AckMsg | ResyncMsg;
 
-// ---------------------------------------------------------------------------
-// Server → client
-// ---------------------------------------------------------------------------
-
 export type WireCursorShape = "block" | "underline" | "bar";
 
-/** Cursor position and appearance within the active screen. */
 export interface WireCursor {
   readonly x: number;
   readonly y: number;
@@ -118,10 +97,9 @@ export interface WireCursor {
 }
 
 /**
- * A full active-screen snapshot to paint. `cells` is indexed `cells[row][col]`.
- *
- * `seq` counts frames on this connection: it is the anchor a `patch` deltas
- * against, so a client that misses a frame can detect the gap and `resync`.
+ * `cells` is indexed `cells[row][col]`. `seq` counts frames on this connection:
+ * it is the anchor a `patch` deltas against, so a client that misses a frame can
+ * detect the gap and `resync`.
  */
 export interface GridMsg {
   readonly type: "grid";
@@ -155,10 +133,6 @@ export interface ExitMsg {
 }
 
 export type ServerMsg = GridMsg | PatchMsg | ExitMsg;
-
-// ---------------------------------------------------------------------------
-// Compact cell encoding
-// ---------------------------------------------------------------------------
 
 /**
  * A cell color.
@@ -276,10 +250,8 @@ export function decodeServerMessage(frame: unknown): ServerMsg {
 }
 
 /**
- * Apply a delta to the snapshot it was computed against, returning the new
- * snapshot. `prev` is never mutated — the client repaints from the object it
- * already holds — and rows no run touches are shared with `prev` rather than
- * copied.
+ * `prev` is never mutated — the client repaints from the object it already holds
+ * — and rows no run touches are shared with `prev` rather than copied.
  *
  * Throws on a dimension mismatch: the patch anchors to a differently sized
  * frame, and the caller's recovery is to ask for a full `grid`.
@@ -308,21 +280,16 @@ export function applyPatch(prev: GridMsg, patch: PatchMsg): GridMsg {
 export interface GridStreamResult {
   /** The grid to paint, when this frame produced a new one. */
   readonly grid: GridMsg | null;
-  /** What to send back: an ack for an accepted frame, or a request for a full snapshot. */
   readonly reply: AckMsg | ResyncMsg | null;
 }
 
-/**
- * The client half of the frame protocol: holds the current snapshot, folds
- * patches into it, and decides what to send back. Both clients drive one of
- * these so the sequencing rules live in one place.
- */
+/** The client half of the frame protocol; both the web and CLI clients drive one. */
 export class GridStream {
   #grid: GridMsg | null = null;
   /**
-   * Set when a frame could not be applied. Only one `resync` goes out per gap:
-   * re-requesting on every following patch would pile a burst of requests onto
-   * the congested link that probably caused the gap in the first place.
+   * Only one `resync` goes out per gap: re-requesting on every following patch
+   * would pile a burst of requests onto the congested link that probably caused
+   * the gap in the first place.
    */
   #awaitingSnapshot = false;
 
@@ -338,8 +305,8 @@ export class GridStream {
   }
 
   /**
-   * Take a server frame. Only frames that were actually applied are acked: an
-   * ack means "I have this frame", and the server's pacing depends on that.
+   * Only frames that were actually applied are acked: an ack means "I have this
+   * frame", and the server's pacing depends on that.
    */
   accept(msg: GridMsg | PatchMsg): GridStreamResult {
     if (msg.type === "grid") {
@@ -396,10 +363,6 @@ export function splitInput(data: string): string[] {
   if (chunk) chunks.push(chunk);
   return chunks;
 }
-
-// ---------------------------------------------------------------------------
-// Shared index tables (pure data — used by both encoder and renderer)
-// ---------------------------------------------------------------------------
 
 /** Bitmask of text-decoration flags for `WireCellObject.a`. */
 export const ATTR = {

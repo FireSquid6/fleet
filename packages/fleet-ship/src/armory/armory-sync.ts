@@ -1,12 +1,3 @@
-/**
- * armory/armory-sync.ts — pull the armory, then install it.
- *
- * `ArmoryCache` stays a pure puller and `installArmory` a pure installer; this
- * is the only place that knows both. It exists so the ship's route can stay a
- * handler: the ordering rule — a failed install is reported without discarding
- * the successful pull that preceded it — belongs here, not in HTTP glue.
- */
-
 import type { ArmoryInstallSummary, ArmorySyncRequest, ArmorySyncState } from "fleet-protocol";
 import { ArmoryCache, ArmorySyncError } from "./armory-cache";
 import { installArmory, type ArmoryInstallReport } from "./armory-installer";

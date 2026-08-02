@@ -1,7 +1,3 @@
-// Typed structs parsed out of git plumbing/porcelain output, plus the options
-// objects each Git method accepts. Field names favor the git concept they come
-// from (e.g. `shortSha` from `%h`, `ahead`/`behind` from `branch.ab`).
-
 /** A commit as reported by `git log` with a machine-readable `--pretty` format. */
 export interface CommitInfo {
   /** Full 40-char commit hash (`%H`). Usable directly as a ref. */
@@ -68,7 +64,6 @@ export interface WorktreeInfo {
 export interface BranchInfo {
   /** Short branch name, e.g. `"main"`. */
   name: string;
-  /** Commit hash the branch points at. */
   sha: string;
   current: boolean;
   /** Upstream tracking branch (e.g. `"origin/main"`), or `undefined` if none. */
@@ -77,9 +72,7 @@ export interface BranchInfo {
 
 /** A configured remote as reported by `git remote -v`. */
 export interface RemoteInfo {
-  /** Remote name, e.g. `"origin"`. */
   name: string;
-  /** URL used for fetching. */
   fetchUrl: string;
   /** URL used for pushing (usually identical to {@link fetchUrl}). */
   pushUrl: string;
@@ -87,7 +80,6 @@ export interface RemoteInfo {
 
 /** A single ref advertised by `git ls-remote`. */
 export interface RemoteRef {
-  /** Commit hash the ref points at. */
   sha: string;
   /** Fully qualified ref name, e.g. `"refs/heads/main"`. */
   ref: string;
@@ -96,7 +88,6 @@ export interface RemoteRef {
 /** Mode passed to {@link Git.reset}: how far the reset reaches. */
 export type ResetMode = "soft" | "mixed" | "hard";
 
-/** Options for {@link Git.init}. */
 export interface InitOptions {
   /** Create a bare repository (`--bare`). */
   bare?: boolean;
@@ -108,7 +99,6 @@ export interface InitOptions {
   env?: Record<string, string>;
 }
 
-/** Options for {@link Git.clone}. */
 export interface CloneOptions {
   /** Branch or tag to check out (`--branch`). */
   branch?: string;
@@ -124,7 +114,6 @@ export interface CloneOptions {
   env?: Record<string, string>;
 }
 
-/** Options for {@link Git.log}. */
 export interface LogOptions {
   /** Limit to the most recent N commits (`-n`). */
   maxCount?: number;
@@ -134,7 +123,6 @@ export interface LogOptions {
   paths?: string[];
 }
 
-/** Options for {@link Git.diff}. */
 export interface DiffOptions {
   /** Diff the index against HEAD (`--staged`) instead of the working tree. */
   staged?: boolean;
@@ -159,19 +147,16 @@ export interface DiffOptions {
   includeUntracked?: boolean;
 }
 
-/** Options for {@link Git.show}. */
 export interface ShowOptions {
   /** Emit a diffstat summary (`--stat`) instead of the full patch. */
   stat?: boolean;
 }
 
-/** Options for {@link Git.add}. */
 export interface AddOptions {
   /** Stage all changes including deletions (`-A`), ignoring the `paths` argument. */
   all?: boolean;
 }
 
-/** Options for {@link Git.commit}. */
 export interface CommitOptions {
   /** Automatically stage modified/deleted tracked files before committing (`-a`). */
   all?: boolean;
@@ -183,7 +168,6 @@ export interface CommitOptions {
   author?: string;
 }
 
-/** Options for {@link Git.reset}. */
 export interface ResetOptions {
   /** How far to reset: `"soft"`, `"mixed"` (default), or `"hard"`. */
   mode?: ResetMode;
@@ -193,7 +177,6 @@ export interface ResetOptions {
   paths?: string[];
 }
 
-/** Options for {@link Git.restore}. */
 export interface RestoreOptions {
   /** Restore the index (`--staged`) rather than the working tree. */
   staged?: boolean;
@@ -201,7 +184,6 @@ export interface RestoreOptions {
   source?: string;
 }
 
-/** Options for {@link Git.branches}. */
 export interface ListBranchesOptions {
   /** Include remote-tracking branches as well as local ones (`-a`). */
   all?: boolean;
@@ -209,19 +191,16 @@ export interface ListBranchesOptions {
   remote?: boolean;
 }
 
-/** Options for {@link Git.createBranch}. */
 export interface CreateBranchOptions {
   /** Commit/branch to start the new branch from. Defaults to HEAD. */
   startPoint?: string;
 }
 
-/** Options for {@link Git.checkout}. */
 export interface CheckoutOptions {
   /** Create the branch before checking it out (`-b`). */
   create?: boolean;
 }
 
-/** Options for {@link Git.switchBranch}. */
 export interface SwitchOptions {
   /** Create the branch before switching to it (`-c`). */
   create?: boolean;
@@ -234,13 +213,11 @@ export interface SwitchOptions {
   startPoint?: string;
 }
 
-/** Options for {@link Git.deleteBranch}. */
 export interface DeleteBranchOptions {
   /** Force deletion of an unmerged branch (`-D` instead of `-d`). */
   force?: boolean;
 }
 
-/** Options for {@link Git.fetch}. */
 export interface FetchOptions {
   /** Remote to fetch from. Defaults to git's default (usually `origin`). */
   remote?: string;
@@ -250,7 +227,6 @@ export interface FetchOptions {
   all?: boolean;
 }
 
-/** Options for {@link Git.pull}. */
 export interface PullOptions {
   /** Rebase local commits onto the fetched head instead of merging (`--rebase`). */
   rebase?: boolean;
@@ -260,7 +236,6 @@ export interface PullOptions {
   branch?: string;
 }
 
-/** Options for {@link Git.push}. */
 export interface PushOptions {
   /** Remote to push to. */
   remote?: string;
@@ -274,7 +249,6 @@ export interface PushOptions {
   tags?: boolean;
 }
 
-/** Options for {@link Git.lsRemote}. */
 export interface LsRemoteOptions {
   /**
    * Directory to run from; must already exist. `ls-remote` talks to `url`, but
@@ -298,7 +272,6 @@ export interface LsRemoteOptions {
   env?: Record<string, string>;
 }
 
-/** Options for {@link Git.worktreeAdd}. */
 export interface WorktreeAddOptions {
   /** Create a new branch for the worktree (`-b <newBranch>`). */
   newBranch?: string;
@@ -310,13 +283,11 @@ export interface WorktreeAddOptions {
   commitish?: string;
 }
 
-/** Options for {@link Git.worktreeRemove}. */
 export interface WorktreeRemoveOptions {
   /** Remove even with uncommitted changes or a locked worktree (`--force`). */
   force?: boolean;
 }
 
-/** Scope for {@link Git.getConfig} / {@link Git.setConfig}. */
 export interface ConfigScope {
   /** Operate on the global (`--global`) config rather than the repository's. */
   global?: boolean;

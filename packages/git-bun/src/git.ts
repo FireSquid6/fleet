@@ -40,24 +40,17 @@ import type {
   WorktreeRemoveOptions,
 } from "./types";
 
-/** Construction options for {@link Git}. */
 export type GitOptions = GitCommandOptions;
 
 /**
- * Root handle for a single git working directory. Every operation reachable
- * from a `Git` instance runs against its `cwd`: the underlying
- * {@link GitCommand} injects `-C <cwd>` into every invocation, so no method can
- * touch a repository outside the directory this handle is bound to.
- *
- * Operations that produce a new working directory — {@link init}, {@link clone},
- * {@link worktreeAdd} — return a fresh `Git` bound to that directory, so an
- * orchestrator can hand the returned handle straight to whatever will work in it.
+ * Every operation reachable from a `Git` instance runs against its `cwd`: the
+ * underlying {@link GitCommand} injects `-C <cwd>` into every invocation, so no
+ * method can touch a repository outside the directory this handle is bound to.
  */
 export class Git {
   /**
-   * The low-level command helper, exposed as an escape hatch for git
-   * subcommands this library does not wrap. Calls still go through `-C <cwd>`,
-   * so the working-directory guarantee holds here too.
+   * Escape hatch for git subcommands this library does not wrap. Calls still go
+   * through `-C <cwd>`, so the working-directory guarantee holds here too.
    */
   readonly command: GitCommand;
   private readonly binary?: string;
@@ -73,11 +66,8 @@ export class Git {
     return this.command.cwd;
   }
 
-  // --- lifecycle -----------------------------------------------------------
-
   /**
-   * Initialize a new repository at `dir` and return a handle bound to it. The
-   * creating command is scoped to `dirname(dir)` (which must already exist),
+   * The creating command is scoped to `dirname(dir)` (which must already exist),
    * since `-C <dir>` would fail before `init` runs when `dir` does not yet exist.
    */
   static async init(dir: string, options: InitOptions = {}, backend?: GitBackend): Promise<Git> {
@@ -94,8 +84,8 @@ export class Git {
   }
 
   /**
-   * Clone `url` into `dir` and return a handle bound to it. Like {@link init},
-   * the creating command is scoped to `dirname(dir)`, which must already exist.
+   * Like {@link init}, the creating command is scoped to `dirname(dir)`, which
+   * must already exist.
    */
   static async clone(
     url: string,
@@ -128,9 +118,6 @@ export class Git {
     return (await this.command.run(["rev-parse", "--show-toplevel"])).trim();
   }
 
-  // --- inspect -------------------------------------------------------------
-
-  /** Working-tree and index status, parsed from NUL-terminated porcelain v2. */
   async status(): Promise<StatusInfo> {
     const out = await this.command.run([
       "status",
@@ -155,7 +142,6 @@ export class Git {
     return (await this.command.run(["rev-parse", "HEAD"])).trim();
   }
 
-  /** Resolve an arbitrary revision to its commit hash (`rev-parse <ref>`). */
   async revParse(ref: string): Promise<string> {
     return (await this.command.run(["rev-parse", ref])).trim();
   }
@@ -169,12 +155,11 @@ export class Git {
     return parseLog(await this.command.run(args));
   }
 
-  /** Best common ancestor of two commits (`merge-base`). */
   async mergeBase(a: string, b = "HEAD"): Promise<string> {
     return (await this.command.run(["merge-base", a, b])).trim();
   }
 
-  /** Raw diff text (`diff`). Returns the working-tree diff unless options narrow it. */
+  /** Returns the working-tree diff unless options narrow it. */
   async diff(options: DiffOptions = {}): Promise<string> {
     const range =
       options.mergeBase && options.range !== undefined
@@ -202,7 +187,6 @@ export class Git {
     return out;
   }
 
-  /** Raw output of `show` for a commit/object. */
   async show(ref: string, options: ShowOptions = {}): Promise<string> {
     const args = ["show"];
     if (options.stat) args.push("--stat");
@@ -210,11 +194,9 @@ export class Git {
     return this.command.run(args);
   }
 
-  // --- stage / commit ------------------------------------------------------
-
   /**
-   * Stage paths (`add`). Defaults to staging everything in `cwd` (`.`). Pass
-   * `{ all: true }` to stage all changes including deletions across the repo (`-A`).
+   * Defaults to staging everything in `cwd` (`.`). Pass `{ all: true }` to stage
+   * all changes including deletions across the repo (`-A`).
    */
   async add(paths: string | string[] = ["."], options: AddOptions = {}): Promise<void> {
     const args = ["add"];
@@ -239,7 +221,6 @@ export class Git {
     return this.headSha();
   }
 
-  /** Reset HEAD/index/working tree (`reset`). Path-scoped when `paths` is set. */
   async reset(options: ResetOptions = {}): Promise<void> {
     const args = ["reset"];
     if (options.paths !== undefined && options.paths.length > 0) {
@@ -252,7 +233,6 @@ export class Git {
     await this.command.run(args);
   }
 
-  /** Restore working-tree or index paths (`restore`). */
   async restore(paths: string | string[], options: RestoreOptions = {}): Promise<void> {
     const args = ["restore"];
     if (options.staged) args.push("--staged");
@@ -262,9 +242,6 @@ export class Git {
     await this.command.run(args);
   }
 
-  // --- branches ------------------------------------------------------------
-
-  /** List branches (`branch`), parsed into {@link BranchInfo}. */
   async branches(options: ListBranchesOptions = {}): Promise<BranchInfo[]> {
     const args = ["branch", `--format=${BRANCH_FORMAT}`];
     if (options.all) args.push("-a");
@@ -306,9 +283,6 @@ export class Git {
     await this.command.run(["branch", options.force ? "-D" : "-d", name]);
   }
 
-  // --- remotes / sync ------------------------------------------------------
-
-  /** Fetch from a remote (`fetch`). */
   async fetch(options: FetchOptions = {}): Promise<void> {
     const args = ["fetch"];
     if (options.all) args.push("--all");
@@ -317,7 +291,6 @@ export class Git {
     await this.command.run(args);
   }
 
-  /** Integrate a remote branch (`pull`). */
   async pull(options: PullOptions = {}): Promise<void> {
     const args = ["pull"];
     if (options.rebase) args.push("--rebase");
@@ -326,7 +299,6 @@ export class Git {
     await this.command.run(args);
   }
 
-  /** Publish local commits (`push`). */
   async push(options: PushOptions = {}): Promise<void> {
     const args = ["push"];
     if (options.setUpstream) args.push("-u");
@@ -358,7 +330,6 @@ export class Git {
     return [...map.values()];
   }
 
-  /** Add a remote (`remote add <name> <url>`). */
   async addRemote(name: string, url: string): Promise<void> {
     await this.command.run(["remote", "add", name, url]);
   }
@@ -393,13 +364,9 @@ export class Git {
     return parseLsRemote(await command.run(args));
   }
 
-  // --- worktrees -----------------------------------------------------------
-
   /**
-   * Add a worktree at `path` (`worktree add`) and return a `Git` handle bound
-   * to it — the isolation primitive for giving a task its own working directory.
-   * This runs from the current repo's `cwd`, so unlike {@link init}/{@link clone}
-   * no parent-scoping is needed; only the returned handle points at `path`.
+   * Runs from the current repo's `cwd`, so unlike {@link init}/{@link clone} no
+   * parent-scoping is needed; only the returned handle points at `path`.
    */
   async worktreeAdd(path: string, options: WorktreeAddOptions = {}): Promise<Git> {
     const args = ["worktree", "add"];
@@ -425,12 +392,9 @@ export class Git {
     await this.command.run(args);
   }
 
-  /** Prune stale worktree administrative entries (`worktree prune`). */
   async worktreePrune(): Promise<void> {
     await this.command.run(["worktree", "prune"]);
   }
-
-  // --- config --------------------------------------------------------------
 
   /**
    * Read a config value (`config --get`). Returns `undefined` when the key is
@@ -449,7 +413,6 @@ export class Git {
     return res.stdout.replace(/\n$/, "");
   }
 
-  /** Set a config value (`config`). Pass `{ global: true }` for `--global`. */
   async setConfig(key: string, value: string, scope: ConfigScope = {}): Promise<void> {
     const args = ["config"];
     if (scope.global) args.push("--global");

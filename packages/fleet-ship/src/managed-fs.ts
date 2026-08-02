@@ -1,5 +1,3 @@
-/** Filesystem ownership and atomic writes shared by Fleet's integration installers. */
-
 import {
   lstat,
   mkdir,

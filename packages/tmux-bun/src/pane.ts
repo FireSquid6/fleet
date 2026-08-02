@@ -40,7 +40,6 @@ export class Pane {
     return res.exitCode === 0 && res.stdout.trim().length > 0;
   }
 
-  /** Split this pane, returning a handle to the newly created pane. */
   async split(options: SplitOptions): Promise<Pane> {
     const args = ["split-window", "-t", this.target, "-P", "-F", "#{pane_id}"];
     // `-h` places the new pane to the side, `-v` below — matching tmux's own flags.

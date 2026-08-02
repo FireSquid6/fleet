@@ -13,7 +13,6 @@ import {
 } from "webterm/protocol";
 import index from "./index.html";
 
-/** Per-connection state for a proxied `/bridge/*` WebSocket. */
 export interface BridgeWsData {
   upstream: WebSocket;
   /** Frames the browser sent before `upstream` reached OPEN (e.g. the terminal's first `init`). */
@@ -86,12 +85,7 @@ export function startClientServer(
   port?: number,
   deps?: { createWebSocket?: CreateWebSocket },
 ) {
-  /**
-   * Real bridge origin the `/bridge/*` proxy forwards to. Configure with the
-   * `BRIDGE_URL` env var; defaults to a local bridge.
-   */
   const bridgeWSUrl = bridgeUrl.replace(/^http/, "ws");
-
 
   /** Strip the `/bridge` prefix, preserving path + query (defaults to `/`). */
   function bridgePath(url: URL): string {

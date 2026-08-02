@@ -1,9 +1,3 @@
-/**
- * armory.test.ts — exercises `ArmoryService` against real temp directories (the
- * scan is all filesystem behaviour, so there is nothing worth faking) plus the
- * `/armory` routes through the composed Elysia app.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

@@ -1,5 +1,3 @@
-/** The bridge's serialized, atomic JSON-file persistence. */
-
 import { lstat, open, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { FleetIdentifierSchema, RepoSchema, ShipSchema, type Repo, type Ship } from "fleet-protocol";

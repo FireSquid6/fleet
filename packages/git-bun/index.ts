@@ -1,12 +1,3 @@
-// git-bun: a typed, headless API over the git CLI for Bun.
-//
-// The Git class is the primary way to drive git. Every instance is bound to a
-// working directory at construction and confined to it — creating a worktree,
-// cloning, or initializing returns a new Git handle bound to the resulting
-// directory. The low-level GitCommand helper is exported as an escape hatch for
-// subcommands this library does not wrap, and GitBackend is the seam for
-// alternative transports.
-
 export { Git, type GitOptions } from "./src/git";
 
 export {

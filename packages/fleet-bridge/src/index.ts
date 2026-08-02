@@ -10,7 +10,6 @@ import { createApp } from "./api";
 
 export type { BridgeConfig } from "./config";
 
-/** Default port the bridge's HTTP + WebSocket API listens on. */
 export const DEFAULT_BRIDGE_PORT = 4800;
 
 function parsePort(value: string): number {
@@ -19,12 +18,7 @@ function parsePort(value: string): number {
   return port;
 }
 
-/**
- * Bring up a bridge: init the manager (loads the persisted ship roster and
- * connects to each ship), watch the armory, then serve the API. Returns the
- * manager so callers (e.g. `fleet launch`) can register additional ships, and
- * the armory watcher so they can close it. Throws on failure.
- */
+/** Returns the manager so callers (e.g. `fleet launch`) can register more ships, and the watcher so they can close it. */
 export async function startBridge(
   config: BridgeConfig,
 ): Promise<{ manager: FleetManager; watcher: ArmoryWatcher }> {

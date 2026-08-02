@@ -1,4 +1,3 @@
-// Parses a unified `git diff` into a structured list of files.
 // Ported from the pipediff reference tool — a dependency-free state-machine parser.
 
 export type LineKind = "context" | "add" | "del" | "meta";
@@ -19,7 +18,6 @@ export interface DiffHunk {
 export type FileStatus = "modified" | "added" | "deleted" | "renamed";
 
 export interface DiffFile {
-  // Stable identifier used by the UI.
   id: string;
   oldPath: string;
   newPath: string;
@@ -38,11 +36,6 @@ function stripPrefix(p: string): string {
   return p;
 }
 
-/**
- * Parse a full unified diff (as produced by `git diff`) into files.
- * Tolerant of the common variations: added/deleted/renamed files, binary
- * files, and multiple files in one stream.
- */
 export function parseDiff(raw: string): DiffFile[] {
   const files: DiffFile[] = [];
   const lines = raw.split("\n");
@@ -135,7 +128,6 @@ export function parseDiff(raw: string): DiffFile[] {
       continue;
     }
 
-    // Body lines of a hunk.
     if (currentHunk) {
       if (line.startsWith("\\")) {
         // "\ No newline at end of file" — attach as meta.

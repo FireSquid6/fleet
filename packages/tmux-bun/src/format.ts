@@ -6,15 +6,14 @@ import type { SessionInfo, WindowInfo, PaneInfo } from "./types";
 // space, colon, or tab could.
 export const FIELD_SEP = "\u001f";
 
-/** Build a `-F` format string from raw tmux variable names, joined by {@link FIELD_SEP}. */
 function formatOf(fields: readonly string[]): string {
   return fields.map((f) => `#{${f}}`).join(FIELD_SEP);
 }
 
 /**
- * Split multi-line `-F` output into per-record field maps. Blank lines (the
- * trailing newline tmux emits) are dropped. With `noUncheckedIndexedAccess` a
- * missing column reads as `undefined`, so downstream coercers tolerate it.
+ * Blank lines (the trailing newline tmux emits) are dropped. With
+ * `noUncheckedIndexedAccess` a missing column reads as `undefined`, so
+ * downstream coercers tolerate it.
  */
 function parseRows(stdout: string, fields: readonly string[]): Array<Record<string, string>> {
   return stdout

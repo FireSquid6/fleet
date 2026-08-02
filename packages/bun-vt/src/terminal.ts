@@ -1,13 +1,6 @@
-/**
- * src/terminal.ts — the public Terminal API and the parser Handler.
- *
- * `Terminal` owns a `Parser` and a `Screen`. It implements the parser's
- * `Handler` interface, translating parsed VT actions (print / execute / CSI /
- * ESC / OSC) into `Screen` mutations. The public surface intentionally mirrors
- * libghostty-bun's `Terminal` so this pure-TypeScript port is a drop-in
- * replacement — `write`, `cell`, `cursor`, `resize`, `reset`, `rowText`,
- * `cols`, `rows`, and `free`/`Symbol.dispose`.
- */
+// The public surface intentionally mirrors libghostty-bun's `Terminal` so this
+// pure-TypeScript port is a drop-in replacement; that constraint explains the
+// otherwise-unused `resize` pixel args and the `free`/`Symbol.dispose` pair.
 
 import { Parser, type CsiSequence, type EscSequence, type Handler } from "./parser";
 import { Screen, type CursorShape } from "./screen";
@@ -51,7 +44,6 @@ function parseOscColor(value: string): Color | null {
   return rgb(component(x11[1]!), component(x11[2]!), component(x11[3]!));
 }
 
-// C0 control bytes.
 const BEL = 0x07;
 const BS = 0x08;
 const HT = 0x09;
@@ -155,8 +147,6 @@ export class Terminal implements Handler {
   [Symbol.dispose](): void {
     this.free();
   }
-
-  // === Handler implementation ===========================================
 
   print(cp: number): void {
     this.#screen.print(cp);
@@ -360,8 +350,6 @@ export class Terminal implements Handler {
         break;
     }
   }
-
-  // --- DEC private / ANSI modes ------------------------------------------
 
   #setModes(params: readonly number[], set: boolean): void {
     for (const mode of params) this.#setMode(mode, set);

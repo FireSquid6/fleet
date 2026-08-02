@@ -1,15 +1,3 @@
-/**
- * providers.ts — the agent providers Fleet installs into, and where each of
- * them keeps its configuration.
- *
- * One source of truth for the embedded `fleet-agent` installers and for the
- * armory installer, which fan out over the same rows. Two rules hold
- * everywhere: a provider counts as present on this host iff its `configRoot`
- * exists (Fleet never creates it — that would fake an install of a tool the
- * user does not have), and a skill is written to *every* root
- * `skillRootsFor` reports.
- */
-
 import { join } from "node:path";
 
 export type Provider = "claude-code" | "opencode" | "copilot" | "codex";

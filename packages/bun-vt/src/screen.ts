@@ -1,21 +1,4 @@
-/**
- * src/screen.ts — the terminal grid and all mutating operations.
- *
- * A `Screen` owns:
- *   - the visible grid (`rows` × `cols` of `Pen` cells),
- *   - the cursor (position, pending-wrap flag, and the active graphic rendition),
- *   - a scroll region (DECSTBM) and tab stops,
- *   - scrollback (lines that scroll off the top of a full-screen scroll),
- *   - a primary/alternate buffer pair (DEC modes 47/1047/1049).
- *
- * Every editing primitive a VT terminal needs lives here as a method; the
- * Terminal handler (terminal.ts) translates parsed escape sequences into these
- * calls. This mirrors the split in libghostty between the parser/stream and
- * `Screen`/`Terminal`.
- *
- * Coordinates are 0-indexed. Erasing uses the current background color (BCE),
- * matching xterm/Ghostty: a blank produced by an erase keeps the pen's `bg`.
- */
+// Coordinates are 0-indexed throughout; the VT wire protocol is 1-indexed.
 
 import { Pen, Wide } from "./cell";
 import { DEFAULT_COLOR, type Color } from "./color";
@@ -64,7 +47,6 @@ export class Screen {
   scrollTop = 0;
   scrollBottom: number;
 
-  // DEC private modes.
   cursorVisible = true;
   cursorShape: CursorShape = "block";
   cursorBlinking = true;
@@ -95,8 +77,6 @@ export class Screen {
     return stops;
   }
 
-  // --- cell access --------------------------------------------------------
-
   /** The cell at (row, col) in the visible area, or null if out of bounds. */
   cellAt(row: number, col: number): Pen | null {
     if (row < 0 || row >= this.rows || col < 0 || col >= this.cols) return null;
@@ -114,8 +94,6 @@ export class Screen {
     for (const c of row) this.#blank(c);
     return row;
   }
-
-  // --- printing -----------------------------------------------------------
 
   print(cp: number): void {
     const w = wcwidth(cp);
@@ -145,7 +123,6 @@ export class Screen {
     const row = this.grid[this.cursor.y]!;
     const cell = row[this.cursor.x]!;
 
-    // If we overwrite the head of an existing wide pair, clear its orphaned tail.
     this.#clearWideNeighbors(row, this.cursor.x);
 
     cell.copyAttributesFrom(this.cursor.pen);
@@ -181,8 +158,6 @@ export class Screen {
       if (head && head.wide === Wide.WIDE) this.#blank(head);
     }
   }
-
-  // --- cursor movement ----------------------------------------------------
 
   #index(): void {
     // Line feed within the scroll region.
@@ -271,8 +246,6 @@ export class Screen {
     return Math.min(this.rows - 1, Math.max(0, y));
   }
 
-  // --- scrolling ----------------------------------------------------------
-
   /** Scroll the scroll region up by `n` lines (content moves up). */
   scrollUp(n: number): void {
     const top = this.scrollTop;
@@ -287,11 +260,9 @@ export class Screen {
       if (intoScrollback) this.#pushScrollback(leaving);
     }
 
-    // Shift rows up within the region.
     for (let y = top; y <= bottom - count; y++) {
       this.grid[y] = this.grid[y + count]!;
     }
-    // Fill the vacated bottom rows with blanks.
     for (let y = bottom - count + 1; y <= bottom; y++) {
       this.grid[y] = this.#blankRow();
     }
@@ -331,8 +302,6 @@ export class Screen {
     // DECSTBM homes the cursor (respecting origin mode).
     this.setCursor(0, 0);
   }
-
-  // --- line/char editing --------------------------------------------------
 
   insertLines(n: number): void {
     if (this.cursor.y < this.scrollTop || this.cursor.y > this.scrollBottom) return;
@@ -391,8 +360,6 @@ export class Screen {
     this.cursor.pendingWrap = false;
   }
 
-  // --- erasing ------------------------------------------------------------
-
   eraseLine(mode: number): void {
     const row = this.grid[this.cursor.y]!;
     let from = 0;
@@ -426,8 +393,6 @@ export class Screen {
     this.cursor.pendingWrap = false;
   }
 
-  // --- tabs ---------------------------------------------------------------
-
   tab(n = 1): void {
     for (let i = 0; i < n; i++) {
       let x = this.cursor.x + 1;
@@ -454,8 +419,6 @@ export class Screen {
     if (mode === 3) this.tabStops.fill(false);
     else if (this.cursor.x < this.cols) this.tabStops[this.cursor.x] = false;
   }
-
-  // --- saved cursor (DECSC/DECRC) -----------------------------------------
 
   saveCursor(): void {
     this.#saved = this.#snapshotCursor();
@@ -492,13 +455,10 @@ export class Screen {
     this.cursor.pendingWrap = s.pendingWrap;
   }
 
-  // --- alternate screen ---------------------------------------------------
-
   enterAlt(saveCursor: boolean, clear: boolean): void {
     if (this.onAlt) return;
     if (saveCursor) this.#savedForAlt = this.#snapshotCursor();
     this.#altGrid = Array.from({ length: this.rows }, () => this.#blankRow());
-    // Swap the primary grid out; keep it referenced for restoreAlt.
     this.#primaryGrid = this.grid;
     this.grid = this.#altGrid;
     this.onAlt = true;
@@ -521,8 +481,6 @@ export class Screen {
     this.#savedForAlt = null;
   }
 
-  // --- reset --------------------------------------------------------------
-
   reset(): void {
     if (this.onAlt) this.leaveAlt(false);
     this.grid = Array.from({ length: this.rows }, () => makeRow(this.cols));
@@ -542,8 +500,6 @@ export class Screen {
     this.cursor.pendingWrap = false;
     this.cursor.pen.reset();
   }
-
-  // --- resize -------------------------------------------------------------
 
   /**
    * Resize the grid to `cols` × `rows`. Rows are padded/truncated in place

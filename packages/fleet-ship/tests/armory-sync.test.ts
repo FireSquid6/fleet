@@ -1,8 +1,5 @@
-/**
- * armory-sync.test.ts — the pull-then-install orchestration. The bridge is a
- * stub `fetch` serving an empty manifest because what is under test is the
- * ordering of the two halves, not the pull itself (see armory-cache.test.ts).
- */
+// The bridge is a stub `fetch` serving an empty manifest: what is under test is
+// the ordering of pull-then-install, not the pull (see armory-cache.test.ts).
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
