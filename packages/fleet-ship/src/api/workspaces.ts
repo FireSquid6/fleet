@@ -16,7 +16,7 @@ import {
 import type { ServerMsg } from "webterm/protocol";
 import type { WorkspaceManager } from "../workspace-manager";
 import { WORKSPACE_TMUX_NAMESPACE } from "../workspace-session";
-import { mapError } from "./http";
+import { mapErrorHook } from "./http";
 
 // One terminal connection per workspace session — guards against two browser
 // tabs racing to attach the same tmux session through separate PTYs. The value
@@ -44,7 +44,7 @@ function bufferedAmount(ws: unknown): number {
   return raw?.getBufferedAmount?.() ?? 0;
 }
 
-export const TERMINAL_INIT_TIMEOUT_MS = 5_000;
+const TERMINAL_INIT_TIMEOUT_MS = 5_000;
 export const TERMINAL_INIT_TIMEOUT_CLOSE_CODE = 1008;
 export const TERMINAL_INIT_TIMEOUT_CLOSE_REASON = "terminal init timeout";
 
@@ -70,24 +70,19 @@ export function workspacesPlugin(
   initTimeoutMs = TERMINAL_INIT_TIMEOUT_MS,
 ) {
   return new Elysia({ name: "ship-workspaces" })
+    .onError(mapErrorHook)
     .get(
       "/workspaces",
-      async ({ query, set }) => {
-        try {
-          const active =
-            query.active === undefined
-              ? undefined
-              : query.active === "true"
-                ? "active"
-                : query.active === "false"
-                  ? "inactive"
-                  : undefined;
-          return await manager.list(active);
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
+      ({ query }) => {
+        const active =
+          query.active === undefined
+            ? undefined
+            : query.active === "true"
+              ? "active"
+              : query.active === "false"
+                ? "inactive"
+                : undefined;
+        return manager.list(active);
       },
       {
         query: t.Object({
@@ -95,34 +90,19 @@ export function workspacesPlugin(
         }),
       },
     )
-    .get("/workspaces/:repo/:name", async ({ params, set }) => {
-      try {
-        return await manager.get(params.repo, params.name);
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
-    })
+    .get("/workspaces/:repo/:name", ({ params }) => manager.get(params.repo, params.name))
     .get(
       "/workspaces/:repo/:name/diff",
-      async ({ params, query, set }) => {
-        try {
-          return await manager.diff(params.repo, params.name, {
-            staged: query.staged,
-            stat: query.stat,
-            nameOnly: query.nameOnly,
-            range: query.range,
-            mergeBase: query.mergeBase,
-            paths: query.paths,
-            includeUntracked: query.includeUntracked,
-          });
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
+      ({ params, query }) =>
+        manager.diff(params.repo, params.name, {
+          staged: query.staged,
+          stat: query.stat,
+          nameOnly: query.nameOnly,
+          range: query.range,
+          mergeBase: query.mergeBase,
+          paths: query.paths,
+          includeUntracked: query.includeUntracked,
+        }),
       {
         query: t.Object({
           staged: t.Optional(t.Boolean()),
@@ -137,15 +117,7 @@ export function workspacesPlugin(
     )
     .get(
       "/workspaces/:repo/:name/refs",
-      async ({ params, query, set }) => {
-        try {
-          return await manager.refs(params.repo, params.name, { commits: query.commits });
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
+      ({ params, query }) => manager.refs(params.repo, params.name, { commits: query.commits }),
       {
         query: t.Object({
           commits: t.Optional(t.Number()),
@@ -155,14 +127,8 @@ export function workspacesPlugin(
     .post(
       "/workspaces",
       async ({ body, set }) => {
-        try {
-          set.status = 201;
-          return await manager.create(body);
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
+        set.status = 201;
+        return await manager.create(body);
       },
       {
         body: t.Object({
@@ -175,15 +141,9 @@ export function workspacesPlugin(
     )
     .post(
       "/workspaces/:repo/:name/branch",
-      async ({ params, body, set }) => {
-        try {
-          await manager.switchBranch(params.repo, params.name, body);
-          return { ok: true as const };
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
+      async ({ params, body }) => {
+        await manager.switchBranch(params.repo, params.name, body);
+        return { ok: true as const };
       },
       {
         body: t.Object({
@@ -193,15 +153,7 @@ export function workspacesPlugin(
     )
     .post(
       "/workspaces/:repo/:name/agent/init",
-      async ({ params, body, set }) => {
-        try {
-          return await manager.initAgent(params.repo, params.name, body);
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
+      ({ params, body }) => manager.initAgent(params.repo, params.name, body),
       {
         body: t.Object({
           model: t.String(),
@@ -210,26 +162,12 @@ export function workspacesPlugin(
         }),
       },
     )
-    .get("/workspaces/:repo/:name/agent/status", async ({ params, set }) => {
-      try {
-        return manager.agentStatus(params.repo, params.name);
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
-    })
+    .get("/workspaces/:repo/:name/agent/status", ({ params }) =>
+      manager.agentStatus(params.repo, params.name),
+    )
     .post(
       "/workspaces/:repo/:name/agent/status",
-      async ({ params, body, set }) => {
-        try {
-          return await manager.updateAgentStatus(params.repo, params.name, body);
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
+      ({ params, body }) => manager.updateAgentStatus(params.repo, params.name, body),
       {
         body: t.Object({
           state: t.UnionEnum(AGENT_STATES),
@@ -237,35 +175,17 @@ export function workspacesPlugin(
         }),
       },
     )
-    .post("/workspaces/:repo/:name/activate", async ({ params, set }) => {
-      try {
-        await manager.activate(params.repo, params.name);
-        return { ok: true as const };
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
+    .post("/workspaces/:repo/:name/activate", async ({ params }) => {
+      await manager.activate(params.repo, params.name);
+      return { ok: true as const };
     })
-    .post("/workspaces/:repo/:name/deactivate", async ({ params, set }) => {
-      try {
-        await manager.deactivate(params.repo, params.name);
-        return { ok: true as const };
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
+    .post("/workspaces/:repo/:name/deactivate", async ({ params }) => {
+      await manager.deactivate(params.repo, params.name);
+      return { ok: true as const };
     })
-    .delete("/workspaces/:repo/:name", async ({ params, set }) => {
-      try {
-        await manager.remove(params.repo, params.name);
-        return { ok: true as const };
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
+    .delete("/workspaces/:repo/:name", async ({ params }) => {
+      await manager.remove(params.repo, params.name);
+      return { ok: true as const };
     })
     .ws("/workspaces/:repo/:name/terminal", {
       query: t.Object({

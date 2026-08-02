@@ -194,7 +194,7 @@ describe("repo provider API", () => {
       providerFor: makeProvider,
     });
     await manager.init();
-    app = createApp(manager, config);
+    app = createApp(manager);
     // Register the repo so the lookup in withProvider succeeds.
     expect((await call("POST", "/repos", { name: "repo1", url: "https://github.com/acme/repo1", provider: "github" })).status).toBe(201);
   });

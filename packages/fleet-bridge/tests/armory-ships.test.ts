@@ -108,7 +108,7 @@ describe("FleetManager armoryShipStates", () => {
       ["http://ship-a", { name: "ship-a", workspaces: [], armoryState: SYNCED }],
     ]);
     const mgr = await boot(ships);
-    const app = createApp(mgr, { dataDirectory: dir, port: 4800, name: "bridge" });
+    const app = createApp(mgr);
 
     const response = await app.handle(new Request("http://bridge/armory/ships"));
 

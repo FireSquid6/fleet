@@ -54,7 +54,7 @@ describe("bridge API", () => {
     await store.createShip({ name: "ship-b", url: "http://ship-b" });
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
-    app = createApp(manager, config);
+    app = createApp(manager);
   });
   afterEach(async () => {
     manager.shutdown();

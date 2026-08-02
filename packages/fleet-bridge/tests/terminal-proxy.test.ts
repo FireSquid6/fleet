@@ -79,7 +79,7 @@ describe("bridge terminal proxy", () => {
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
 
-    bridge = createApp(manager, config);
+    bridge = createApp(manager);
     bridge.listen(0);
     bridgeUrl = `ws://localhost:${bridge.server?.port}`;
   });

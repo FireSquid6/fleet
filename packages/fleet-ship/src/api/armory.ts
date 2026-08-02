@@ -1,23 +1,10 @@
 import { Elysia, t } from "elysia";
 import { ArmoryCache, ArmorySyncError } from "../armory/armory-cache";
 import { syncAndInstall } from "../armory/armory-sync";
-import { mapError } from "./http";
+import { errorHook, mapError } from "./http";
 
 export function armoryPlugin(cache: ArmoryCache) {
   return new Elysia({ name: "ship-armory" })
-    .post(
-      "/armory/sync",
-      async ({ body, set }) => {
-        try {
-          return await syncAndInstall(cache, body);
-        } catch (err) {
-          const mapped = mapArmoryError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
-      { body: t.Object({ bridgeUrl: t.String(), revision: t.String() }) },
-    )
     .get("/armory", async ({ set }) => {
       try {
         return await cache.state();
@@ -26,6 +13,10 @@ export function armoryPlugin(cache: ArmoryCache) {
         set.status = mapped.status;
         return mapped.body;
       }
+    })
+    .onError(errorHook(mapArmoryError))
+    .post("/armory/sync", ({ body }) => syncAndInstall(cache, body), {
+      body: t.Object({ bridgeUrl: t.String(), revision: t.String() }),
     });
 }
 

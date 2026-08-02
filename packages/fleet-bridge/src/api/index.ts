@@ -1,7 +1,6 @@
 import { Elysia } from "elysia";
 import { MAX_CLIENT_FRAME_BYTES } from "webterm/protocol";
 import type { FleetManager } from "../fleet-manager";
-import type { BridgeConfig } from "../config";
 import { workspacesPlugin } from "./workspaces";
 import { shipsPlugin } from "./ships";
 import { systemResourcesPlugin } from "./system-resources";
@@ -10,7 +9,7 @@ import { armoryPlugin } from "./armory";
 import { eventsPlugin } from "./events";
 import { Logestic } from "logestic";
 
-export function createApp(manager: FleetManager, _config: BridgeConfig) {
+export function createApp(manager: FleetManager) {
   // Terminal frames are highly repetitive JSON; permessage-deflate is worth an
   // order of magnitude on them, and Bun's client WebSocket already offers the
   // extension, so accepting it here compresses the fleet-client→bridge hop.

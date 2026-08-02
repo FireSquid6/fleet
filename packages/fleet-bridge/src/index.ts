@@ -36,7 +36,7 @@ export async function startBridge(
     void manager.pushArmory();
   });
 
-  const app = createApp(manager, config);
+  const app = createApp(manager);
   app.listen(config.port);
   console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
   return { manager, watcher };

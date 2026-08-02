@@ -365,7 +365,7 @@ describe("armory API", () => {
       store,
     });
     await manager.init();
-    return { root: join(directory, "armory"), app: createApp(manager, config) };
+    return { root: join(directory, "armory"), app: createApp(manager) };
   }
 
   async function call(handler: ReturnType<typeof createApp>, path: string) {
