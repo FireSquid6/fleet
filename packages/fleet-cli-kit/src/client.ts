@@ -3,8 +3,10 @@ import type { App as BridgeApp } from "fleet-bridge/api";
 
 export type FleetBridgeClient = ReturnType<typeof treaty<BridgeApp>>;
 
-export function makeBridgeClient(url: string): FleetBridgeClient {
-  return treaty<BridgeApp>(url);
+export function makeBridgeClient(url: string, token?: string): FleetBridgeClient {
+  return treaty<BridgeApp>(url, {
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
+  });
 }
 
 /**
@@ -34,6 +36,14 @@ export interface EdenResult<T> {
   error: { status: number; value: unknown } | null;
 }
 
+/** The human-readable part of an Eden error body, which may be any shape. */
+export function edenErrorMessage(value: unknown): string {
+  if (value && typeof value === "object" && "error" in value && typeof value.error === "string") {
+    return value.error;
+  }
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 /**
  * Unwrap an Eden Treaty response: return `data` on success, or print a clear
  * error message to stderr and exit the process with status 1. `program` prefixes
@@ -42,14 +52,7 @@ export interface EdenResult<T> {
 export function unwrap<T>(result: EdenResult<T>, program: string): T {
   if (result.error) {
     const status = result.error.status;
-    const value = result.error.value;
-    const message =
-      value && typeof value === "object" && "error" in value && typeof value.error === "string"
-        ? value.error
-        : typeof value === "string"
-          ? value
-          : JSON.stringify(value);
-    console.error(`${program}: request failed (${status}): ${message}`);
+    console.error(`${program}: request failed (${status}): ${edenErrorMessage(result.error.value)}`);
     process.exit(1);
   }
 
