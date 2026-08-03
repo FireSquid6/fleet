@@ -4,8 +4,44 @@ import { startShip } from "fleet-ship";
 import { startClientServer } from "fleet-client";
 import { normalizeUrl } from "fleet-cli-kit";
 import { CONFIG_TEMPLATE, loadLaunchConfig, publicUrlWarning } from "./launch-config";
+import type { NormalizedShip } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";
+
+/** The URL the bridge reaches a configured ship at. */
+export function shipUrl(ship: NormalizedShip): string {
+  return ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
+}
+
+export interface ShipRegistration {
+  ship: NormalizedShip;
+  url: string;
+  alreadyRegistered: boolean;
+}
+
+/**
+ * Decide, in config order, which ships the bridge still needs told about.
+ *
+ * The bridge dedupes on ship *name*, which a remote config entry never carries,
+ * so the comparison has to happen on URL — normalized on both sides, since a
+ * roster entry added over the HTTP API may carry a trailing slash. Ships are
+ * marked registered as they are planned, so two entries sharing a URL yield one
+ * registration.
+ */
+export function planRegistrations(
+  ships: NormalizedShip[],
+  registeredUrls: Iterable<string>,
+): ShipRegistration[] {
+  const registered = new Set([...registeredUrls].map(normalizeUrl));
+
+  return ships.map((ship) => {
+    const url = shipUrl(ship);
+    const normalized = normalizeUrl(url);
+    const alreadyRegistered = registered.has(normalized);
+    registered.add(normalized);
+    return { ship, url, alreadyRegistered };
+  });
+}
 
 async function runLaunch(configPath: string): Promise<void> {
   const config = await loadLaunchConfig(configPath);
@@ -13,11 +49,6 @@ async function runLaunch(configPath: string): Promise<void> {
   const warning = publicUrlWarning(config);
   if (warning) {
     console.warn(`fleet launch: ${warning}`);
-  }
-
-  let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
-  if (config.bridge) {
-    ({ manager } = await startBridge(config.bridge));
   }
 
   // A launch knows both sides, so it can pin each ship it spawns to the bridge
@@ -38,26 +69,45 @@ async function runLaunch(configPath: string): Promise<void> {
   }
   const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
 
+  // Ships come up before the bridge so that the roster the bridge restores from
+  // disk during `init()` connects to live ships instead of timing out on every
+  // one of them. A ship needs no running bridge to start; its `bridgeUrl` is
+  // only a pin, read from the config rather than from the started bridge.
   for (const ship of config.ships) {
-    if (ship.source === "local") {
-      await startShip({
-        fleetDirectory: ship.fleetDirectory,
-        port: ship.port,
-        name: ship.name,
-        bridgeUrl: shipBridgeUrl,
-      });
-    }
+    if (ship.source !== "local") continue;
+    await startShip({
+      fleetDirectory: ship.fleetDirectory,
+      port: ship.port,
+      name: ship.name,
+      bridgeUrl: shipBridgeUrl,
+    });
+  }
 
-    const url = ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
-    if (!manager) {
-      console.log(`no bridge configured; not registering ship "${ship.key}" (${url})`);
-      continue;
+  let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
+  if (config.bridge) {
+    ({ manager } = await startBridge(config.bridge));
+  }
+
+  if (!manager) {
+    for (const ship of config.ships) {
+      console.log(`no bridge configured; not registering ship "${ship.key}" (${shipUrl(ship)})`);
     }
-    try {
-      await manager.addShip(normalizeUrl(url));
-      console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
-    } catch (err) {
-      console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);
+  } else {
+    const plan = planRegistrations(
+      config.ships,
+      manager.listShips().map((info) => info.url),
+    );
+    for (const { ship, url, alreadyRegistered } of plan) {
+      if (alreadyRegistered) {
+        console.log(`ship "${ship.key}" (${url}) is already registered with the bridge`);
+        continue;
+      }
+      try {
+        await manager.addShip(normalizeUrl(url));
+        console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
+      } catch (err) {
+        console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);
+      }
     }
   }
 
