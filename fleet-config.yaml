@@ -1,0 +1,27 @@
+# fleet-config.yaml — configuration for `fleet launch`.
+# Every section is optional; only the sections present are started.
+
+# The fleet-wide bridge that coordinates ships and serves the fleet API.
+bridge:
+  dataDirectory: ./.dev-data/bridge
+  port: 4800
+  name: my-fleet-bridge
+
+# The web gui. Proxies to the bridge above by default.
+gui:
+  port: 3010
+  # bridgeUrl: http://localhost:4800  # defaults to the local bridge
+
+# Ships that host workspaces. Each key is the ship's default name.
+ships:
+  ship-a:
+    # source: local (the default) spawns the ship in this process.
+    source: local
+    fleetDirectory: ./.dev-data/ship-a
+    port: 4700
+    # name: ship-a  # defaults to the key above
+
+  # source: remote registers an already-running ship by URL instead of spawning it.
+  # ship-b:
+  #   source: remote
+  #   url: http://another-host:4700
