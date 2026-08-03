@@ -94,8 +94,8 @@ async function runLaunch(configPath: string): Promise<void> {
 
   // Ships come up before the bridge so that the roster the bridge restores from
   // disk during `init()` connects to live ships instead of timing out on every
-  // one of them. Nothing below needs the bridge running: the pin above is read
-  // from the config.
+  // one of them. Starting a ship needs no running bridge — its pin is read from
+  // the config, not from the started one.
   for (const ship of config.ships) {
     if (ship.source !== "local") continue;
     await startShip({
@@ -118,27 +118,32 @@ async function runLaunch(configPath: string): Promise<void> {
   } else {
     for (const entry of planRegistrations(config.ships, manager.listShips())) {
       const { ship, url } = entry;
-      if (entry.skip === "duplicate-config-entry") {
-        console.warn(
-          `ships "${entry.firstKey}" and "${ship.key}" both point at ${url}; registering it once`,
-        );
-        continue;
-      }
-      if (entry.skip === "on-bridge") {
-        console.log(`ship "${ship.key}" (${url}) is already registered with the bridge`);
-        continue;
-      }
-      if (entry.skip === "on-bridge-stale-url") {
-        console.warn(
-          `ship "${ship.key}" is already registered with the bridge at ${entry.rosterUrl}, not ${url}`,
-        );
-        continue;
-      }
-      try {
-        await manager.addShip(normalizeUrl(url));
-        console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
-      } catch (err) {
-        console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);
+      switch (entry.skip) {
+        case "duplicate-config-entry":
+          console.warn(
+            `ships "${entry.firstKey}" and "${ship.key}" both point at ${url}; registering it once`,
+          );
+          break;
+        case "on-bridge":
+          console.log(`ship "${ship.key}" (${url}) is already registered with the bridge`);
+          break;
+        case "on-bridge-stale-url":
+          console.warn(
+            `ship "${ship.key}" is already registered with the bridge at ${entry.rosterUrl}, not ${url}`,
+          );
+          break;
+        case null:
+          try {
+            await manager.addShip(normalizeUrl(url));
+            console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
+          } catch (err) {
+            console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);
+          }
+          break;
+        default: {
+          const unhandled: never = entry;
+          throw new Error(`unhandled ship registration: ${JSON.stringify(unhandled)}`);
+        }
       }
     }
   }

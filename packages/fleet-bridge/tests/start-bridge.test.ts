@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { WorkspaceSummary } from "fleet-protocol";
 import { startBridge } from "../src/index";
 import { Store } from "../src/store/store";
+import { ws } from "./helpers";
 
 interface Pull {
   ok: boolean;
@@ -15,7 +17,7 @@ interface Pull {
  * whether it could reach `GET <bridgeUrl>/armory` at the moments it would in
  * production: when its event socket opens, and when the bridge pushes it a sync.
  */
-function startFakeShip(name: string) {
+function startFakeShip(name: string, workspaces: WorkspaceSummary[] = []) {
   const onConnect: Pull[] = [];
   const onArmoryPush: Pull[] = [];
   let bridgeUrl: string | undefined;
@@ -49,7 +51,7 @@ function startFakeShip(name: string) {
     },
     websocket: {
       open(socket) {
-        socket.send(JSON.stringify({ type: "sync", ship: name, at: new Date().toISOString(), workspaces: [] }));
+        socket.send(JSON.stringify({ type: "sync", ship: name, at: new Date().toISOString(), workspaces }));
         void pull(onConnect, bridgeUrl);
       },
       message() {},
@@ -77,7 +79,7 @@ async function freePort(): Promise<number> {
 
 describe("startBridge", () => {
   let dir: string;
-  let ship: ReturnType<typeof startFakeShip> | undefined;
+  let ships: ReturnType<typeof startFakeShip>[] = [];
   let stopBridge: (() => void) | undefined;
 
   beforeEach(async () => {
@@ -89,17 +91,23 @@ describe("startBridge", () => {
   afterEach(async () => {
     stopBridge?.();
     stopBridge = undefined;
-    await ship?.stop();
-    ship = undefined;
+    await Promise.all(ships.map((each) => each.stop()));
+    ships = [];
     await rm(dir, { recursive: true, force: true });
   });
 
-  test("a ship already online when the bridge starts can reach the armory it is pushed", async () => {
-    ship = startFakeShip("ship-a");
-
+  /** A ship on the persisted roster, torn down with the test. */
+  async function roster(name: string, workspaces?: WorkspaceSummary[]) {
+    const each = startFakeShip(name, workspaces);
+    ships.push(each);
     const store = new Store(dir);
     await store.load();
-    await store.createShip({ name: "ship-a", url: ship.url });
+    await store.createShip({ name, url: each.url });
+    return each;
+  }
+
+  test("a ship already online when the bridge starts can reach the armory it is pushed", async () => {
+    const ship = await roster("ship-a");
 
     const port = await freePort();
     const publicUrl = `http://localhost:${port}`;
@@ -117,5 +125,27 @@ describe("startBridge", () => {
     expect(ship.onConnect).toEqual([{ ok: true, detail: "status 200" }]);
     expect(ship.onArmoryPush.length).toBeGreaterThan(0);
     expect(ship.onArmoryPush.every((attempt) => attempt.ok)).toBe(true);
+  });
+
+  test("a failed init releases the port instead of leaving it bound", async () => {
+    const duplicate = [ws("acme", "dupe")];
+    await roster("ship-a", duplicate);
+    await roster("ship-b", duplicate);
+
+    const port = await freePort();
+    const publicUrl = `http://localhost:${port}`;
+
+    await expect(
+      startBridge({ dataDirectory: dir, port, name: "bridge", publicUrl }),
+    ).rejects.toThrow(/duplicate workspaces/);
+
+    await expect(fetch(`${publicUrl}/ships`)).rejects.toThrow();
+
+    const reclaimed = Bun.serve({ port, fetch: () => new Response("reclaimed") });
+    try {
+      expect(await fetch(publicUrl).then((response) => response.text())).toBe("reclaimed");
+    } finally {
+      await reclaimed.stop(true);
+    }
   });
 });

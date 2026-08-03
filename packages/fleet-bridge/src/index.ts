@@ -39,7 +39,15 @@ export async function startBridge(
   app.listen(config.port);
   console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
 
-  await manager.init();
+  // Listening first means a failed `init` leaves a bound port and open ship
+  // sockets behind, and the caller never gets the handles to release them.
+  try {
+    await manager.init();
+  } catch (error) {
+    app.stop();
+    manager.shutdown();
+    throw error;
+  }
 
   // Started after `init` — the ships that come online during it push themselves
   // through the connection's status handler.
