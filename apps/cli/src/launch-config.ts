@@ -125,8 +125,6 @@ export function parseLaunchConfig(raw: unknown): NormalizedLaunchConfig {
     }
     localPorts.set(ship.port, ship.key);
 
-    // The bridge keys its roster by name, so a collision leaves the second ship
-    // unregisterable and misreported against the first one's URL.
     const sameName = localNames.get(ship.name);
     if (sameName) {
       throw new Error(

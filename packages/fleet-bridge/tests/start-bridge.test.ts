@@ -12,11 +12,6 @@ interface Pull {
   detail: string;
 }
 
-/**
- * A ship that answers the bridge over real HTTP + WebSocket, and reports back
- * whether it could reach `GET <bridgeUrl>/armory` at the moments it would in
- * production: when its event socket opens, and when the bridge pushes it a sync.
- */
 function startFakeShip(name: string, workspaces: WorkspaceSummary[] = []) {
   const onConnect: Pull[] = [];
   const onArmoryPush: Pull[] = [];
@@ -96,7 +91,6 @@ describe("startBridge", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  /** A ship on the persisted roster, torn down with the test. */
   async function roster(name: string, workspaces?: WorkspaceSummary[]) {
     const each = startFakeShip(name, workspaces);
     ships.push(each);
@@ -120,8 +114,6 @@ describe("startBridge", () => {
     };
     await Bun.sleep(100);
 
-    // The connect probe runs inside `init`, so it pins the ordering: listen must
-    // already have happened by the time the roster comes online.
     expect(ship.onConnect).toEqual([{ ok: true, detail: "status 200" }]);
     expect(ship.onArmoryPush.length).toBeGreaterThan(0);
     expect(ship.onArmoryPush.every((attempt) => attempt.ok)).toBe(true);

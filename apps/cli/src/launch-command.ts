@@ -8,12 +8,10 @@ import type { NormalizedShip } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";
 
-/** The URL the bridge reaches a configured ship at. */
 export function shipUrl(ship: NormalizedShip): string {
   return ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
 }
 
-/** One ship on the bridge's roster, as `listShips()` reports it. */
 export interface RosterEntry {
   name: string;
   url: string;
@@ -26,19 +24,6 @@ export type ShipRegistration = { ship: NormalizedShip; url: string } & (
   | { skip: "duplicate-config-entry"; firstKey: string }
 );
 
-/**
- * Decide, in config order, which ships the bridge still needs told about.
- *
- * Matched with the bridge's own key wherever the config knows it. The bridge
- * dedupes on ship *name*, so a local entry — whose name `parseLaunchConfig`
- * always fills in — is matched by name and not by URL: matching it by URL would
- * both miss a ship whose port moved (`addShip` would then 409 on the name) and
- * suppress the adoption that teaches the bridge a renamed ship's real name. A
- * remote entry carries no name, so URL is all it can offer.
- *
- * URLs are normalized on both sides, since a roster entry added over the HTTP
- * API may carry a trailing slash.
- */
 export function planRegistrations(
   ships: NormalizedShip[],
   roster: Iterable<RosterEntry>,
@@ -74,10 +59,6 @@ async function runLaunch(configPath: string): Promise<void> {
     console.warn(`fleet launch: ${warning}`);
   }
 
-  // A launch knows both sides, so it can pin each ship it spawns to the bridge
-  // this same config describes rather than leaving it to trust whoever pushes
-  // first. The value must be the one the bridge pushes with, not the one this
-  // process would dial, hence `publicUrl` and the same fallback the bridge uses.
   const launchedBridgeUrl = config.bridge
     ? (config.bridge.publicUrl ?? `http://localhost:${config.bridge.port}`)
     : undefined;
@@ -92,10 +73,6 @@ async function runLaunch(configPath: string): Promise<void> {
   }
   const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
 
-  // Ships come up before the bridge so that the roster the bridge restores from
-  // disk during `init()` connects to live ships instead of timing out on every
-  // one of them. Starting a ship needs no running bridge — its pin is read from
-  // the config, not from the started one.
   for (const ship of config.ships) {
     if (ship.source !== "local") continue;
     await startShip({
