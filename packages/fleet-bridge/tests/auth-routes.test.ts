@@ -53,6 +53,13 @@ describe("auth + users routes", () => {
     expect((await call("GET", "/workspaces")).status).toBe(200);
   });
 
+  test("GET /auth/mode reports whether credentials are wanted, without needing any", async () => {
+    expect(await call("GET", "/auth/mode")).toEqual({ status: 200, body: { authRequired: true } });
+
+    app = createApp(manager, auth, { insecureNoAuth: true });
+    expect(await call("GET", "/auth/mode")).toEqual({ status: 200, body: { authRequired: false } });
+  });
+
   test("POST /auth/login returns a token, and fails identically for both wrong inputs", async () => {
     await seedUser(auth, { username: "ada" });
 
@@ -213,7 +220,6 @@ describe("auth + users routes", () => {
       (await call("POST", "/users/root/password", { token: member.token, body: { password: "hijacked!" } }))
         .status,
     ).toBe(403);
-    // Absent targets are 403 too, so a member cannot probe who exists.
     expect(
       (await call("POST", "/users/ghost/password", { token: member.token, body: { password: "hijacked!" } }))
         .status,

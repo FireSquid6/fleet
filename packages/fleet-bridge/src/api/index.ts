@@ -12,7 +12,11 @@ import { armoryPlugin } from "./armory";
 import { eventsPlugin } from "./events";
 import { Logestic } from "logestic";
 
-export function createApp(manager: FleetManager, auth: AuthService) {
+export function createApp(
+  manager: FleetManager,
+  auth: AuthService,
+  options: { insecureNoAuth?: boolean } = {},
+) {
   // Terminal frames are highly repetitive JSON; permessage-deflate is worth an
   // order of magnitude on them, and Bun's client WebSocket already offers the
   // extension, so accepting it here compresses the fleet-client→bridge hop.
@@ -24,7 +28,7 @@ export function createApp(manager: FleetManager, auth: AuthService) {
     .use(reposPlugin(manager))
     .use(armoryPlugin(manager))
     .use(eventsPlugin(manager))
-    .use(authPlugin(auth))
+    .use(authPlugin(auth, options))
     .use(usersPlugin(auth));
 }
 

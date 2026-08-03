@@ -51,8 +51,8 @@ export async function startBridge(
   authDatabase.migrate();
   authDatabase.deleteExpiredSessions(Date.now());
   const auth = new AuthService(authDatabase);
-  // Before anything long-running: this may prompt, and a laptop user should not
-  // have to read past ship-connection logs to find the question.
+  // Before anything long-running: this may prompt, and the question would
+  // otherwise scroll away behind ship-connection logs.
   if (!config.insecureNoAuth) await ensureFirstUser(auth);
 
   const manager = new FleetManager(config);
@@ -65,7 +65,7 @@ export async function startBridge(
     void manager.pushArmory();
   });
 
-  const app = createApp(manager, auth);
+  const app = createApp(manager, auth, { insecureNoAuth: config.insecureNoAuth });
   app.listen(config.port);
   console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
   if (config.insecureNoAuth) console.error(INSECURE_BANNER);

@@ -11,14 +11,8 @@ import { mapErrorHook } from "./http";
 
 export type UserPrincipal = Extract<Principal, { kind: "user" }>;
 
-/** Only the header the principal is resolved from; Elysia hands us the whole bag. */
 export type AuthHeaders = { authorization?: string | undefined };
 
-/**
- * The single place a request turns into a principal. Routes are still opt-in
- * (there is no global guard yet), so every authenticated handler goes through
- * here and only this function changes when the guard lands.
- */
 export function requirePrincipal(auth: AuthService, headers: AuthHeaders): Principal {
   const principal = auth.authenticate(headers.authorization);
   if (!principal) throw new UnauthenticatedError();
@@ -37,9 +31,16 @@ export function requireAdmin(auth: AuthService, headers: AuthHeaders): UserPrinc
   return principal;
 }
 
-export function authPlugin(auth: AuthService) {
+export interface AuthPluginOptions {
+  insecureNoAuth?: boolean;
+}
+
+export function authPlugin(auth: AuthService, options: AuthPluginOptions = {}) {
   return new Elysia({ name: "bridge-auth" })
     .onError(mapErrorHook)
+    // Unauthenticated on purpose: a client has to know whether to ask for
+    // credentials before it has any.
+    .get("/auth/mode", () => ({ authRequired: !options.insecureNoAuth }))
     .post("/auth/login", ({ body }) => auth.login(body.username, body.password), {
       body: t.Object({ username: t.String(), password: t.String() }),
     })

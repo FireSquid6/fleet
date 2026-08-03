@@ -1,5 +1,6 @@
 import { treaty } from "@elysiajs/eden";
 import type { App } from "fleet-bridge/api";
+import { getToken } from "./token";
 
 /** Fully-typed Eden client for the fleet bridge's HTTP surface. */
 export type BridgeClient = ReturnType<typeof treaty<App>>;
@@ -17,7 +18,12 @@ export function bridgeBaseUrl(): string {
 }
 
 export function makeBridgeClient(url: string = bridgeBaseUrl()): BridgeClient {
-  return treaty<App>(url);
+  return treaty<App>(url, {
+    headers: () => {
+      const token = getToken();
+      return token ? { authorization: `Bearer ${token}` } : undefined;
+    },
+  });
 }
 
 /**

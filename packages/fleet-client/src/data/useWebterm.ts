@@ -13,7 +13,7 @@ import {
   TERMINAL_TAKEOVER_QUERY,
 } from "webterm/protocol";
 import type { ClientMsg, GridMsg } from "webterm/protocol";
-import { wsBridgeUrl } from "./client";
+import { ticketedWsUrl } from "./auth";
 
 export type WebtermStatus =
   | "idle"
@@ -145,32 +145,43 @@ export function useWebterm(
     streamRef.current.reset();
     setStatus("connecting");
 
-    const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name, requestTakeover)));
-    wsRef.current = ws;
+    let cancelled = false;
+    let ws: WebSocket | null = null;
 
-    ws.onopen = () => {
-      setStatus("open");
-      const size = lastSizeRef.current;
-      if (size) sendSize(ws, size.cols, size.rows);
-    };
-    ws.onmessage = (ev) => {
-      handleServerFrame(
-        ev.data,
-        streamRef.current,
-        optsRef.current,
-        (msg) => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-        },
-        (code, reason) => ws.close(code, reason),
-      );
-    };
-    ws.onclose = (ev) => setStatus(closeStatus(ev.code));
-    // An error event can trail a close (e.g. the ship refusing the attach), and
-    // "connection failed" would hide the conflict UI that lets the user recover.
-    ws.onerror = () => setStatus((prev) => (prev === "conflict" || prev === "superseded" ? prev : "error"));
+    void (async () => {
+      const url = await ticketedWsUrl(terminalPath(repo, name, requestTakeover));
+      if (cancelled) return;
+      const socket = new WebSocket(url);
+      ws = socket;
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        setStatus("open");
+        const size = lastSizeRef.current;
+        if (size) sendSize(socket, size.cols, size.rows);
+      };
+      socket.onmessage = (ev) => {
+        handleServerFrame(
+          ev.data,
+          streamRef.current,
+          optsRef.current,
+          (msg) => {
+            if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
+          },
+          (code, reason) => socket.close(code, reason),
+        );
+      };
+      socket.onclose = (ev) => setStatus(closeStatus(ev.code));
+      // An error event can trail a close (e.g. the ship refusing the attach), and
+      // "connection failed" would hide the conflict UI that lets the user recover.
+      socket.onerror = () =>
+        setStatus((prev) => (prev === "conflict" || prev === "superseded" ? prev : "error"));
+    })();
 
     return () => {
+      cancelled = true;
       wsRef.current = null;
+      if (!ws) return;
       // Detach first: this socket's close event would otherwise land after the
       // next attempt has already set its own status.
       ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
