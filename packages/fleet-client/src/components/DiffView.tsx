@@ -90,7 +90,6 @@ export function DiffView({ repo, name }: DiffViewProps) {
         if (cancelled) return;
         const parsed = parseDiff(raw);
         setFiles(parsed);
-        // Keep the selection if it still exists, otherwise select the first file.
         setSelectedId((prev) => (parsed.some((f) => f.id === prev) ? prev : (parsed[0]?.id ?? null)));
       } catch (e) {
         if (!cancelled) setError((e as Error).message);

@@ -20,7 +20,6 @@ describe("buildTarget", () => {
 const NAMESPACE = "tmux-bun-test";
 const SOCKET = join(tmpdir(), `tmux-bun-test-${process.pid}.sock`);
 
-// Probe whether tmux exists at all; skip the whole suite gracefully if not.
 const tmuxAvailable = await (async () => {
   try {
     return (await Bun.$`tmux -V`.quiet().nothrow()).exitCode === 0;
@@ -208,13 +207,11 @@ suite("namespace isolation from the default socket", () => {
     }
 
     const iso = new Tmux({ namespace: isoNamespace });
-    await iso.killServer(); // clean slate
+    await iso.killServer();
 
-    // The namespaced server sees none of the default sessions...
     expect(await iso.hasSession(DEFAULT_PROBE)).toBe(false);
     expect((await iso.listSessions()).map((s) => s.name)).not.toContain(DEFAULT_PROBE);
 
-    // ...and a session created in the namespace is invisible on the default socket.
     await iso.newSession({ name: ISO_ONLY });
     const defaultSees = await Bun.$`tmux has-session -t ${ISO_ONLY}`.quiet().nothrow();
     expect(defaultSees.exitCode).not.toBe(0);

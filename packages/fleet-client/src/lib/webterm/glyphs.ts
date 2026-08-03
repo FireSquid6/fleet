@@ -1,14 +1,9 @@
 /**
- * Geometric rendering of Unicode Block Elements (U+2580–U+259F) and Box Drawing
- * (U+2500–U+257F).
- *
  * A terminal cell is `FONT_SIZE * LINE_HEIGHT` tall — taller than the font glyph
- * that fills it — so painting these glyphs as *text* leaves a seam of empty
- * pixels between rows: solid block art (the startup mascot, progress bars) grows
- * horizontal gaps and vertical box lines break into dashes. Native terminals
- * avoid this by drawing box/block glyphs from geometry keyed to the cell bounds
- * instead of from the font; that is what this module does, so the art stays
- * contiguous at any line height, font, or zoom level.
+ * that fills it — so painting block/box glyphs as *text* leaves a seam of empty
+ * pixels between rows: solid block art grows horizontal gaps and vertical box
+ * lines break into dashes. Drawing them from geometry keyed to the cell bounds
+ * instead keeps the art contiguous at any line height, font, or zoom level.
  *
  * Returns `true` when `code` was handled (caller skips text rendering), `false`
  * otherwise (caller falls back to `fillText`).

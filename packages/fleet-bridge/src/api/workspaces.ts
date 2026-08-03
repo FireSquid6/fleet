@@ -1,10 +1,3 @@
-/**
- * api/workspaces.ts — the bridge's workspace routes: a superset of the ship's
- * workspace API, with the owning ship abstracted away (routing handled by the
- * `FleetManager`) but kept visible on every response. Built as one Elysia chain
- * so route types stay inferable for Eden.
- */
-
 import { Elysia, t } from "elysia";
 import {
   BINARY_MESSAGE_CLOSE_CODE,
@@ -19,53 +12,47 @@ import {
 } from "webterm/protocol";
 import type { ServerMsg } from "webterm/protocol";
 import type { FleetManager } from "../fleet-manager";
-import { mapError } from "./http";
+import { mapErrorHook } from "./http";
+
+type TerminalProxyData = { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
+
+function abort(
+  data: TerminalProxyData,
+  ws: { close(code?: number, reason?: string): unknown },
+  code: number,
+  reason: string,
+) {
+  data.buffer?.splice(0);
+  data.pendingBytes = 0;
+  data.upstream?.close(code, reason);
+  ws.close(code, reason);
+}
 
 export function workspacesPlugin(manager: FleetManager) {
   return new Elysia({ name: "bridge-workspaces" })
+    .onError(mapErrorHook)
     .get(
       "/workspaces",
-      async ({ query, set }) => {
-        try {
-          const filter =
-            query.active === "true" ? "active" : query.active === "false" ? "inactive" : undefined;
-          return await manager.listWorkspaces(filter);
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
+      ({ query }) => {
+        const filter =
+          query.active === "true" ? "active" : query.active === "false" ? "inactive" : undefined;
+        return manager.listWorkspaces(filter);
       },
       { query: t.Object({ active: t.Optional(t.String()) }) },
     )
-    .get("/workspaces/:repo/:name", async ({ params, set }) => {
-      try {
-        return await manager.getWorkspace(params.repo, params.name);
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
-    })
+    .get("/workspaces/:repo/:name", ({ params }) => manager.getWorkspace(params.repo, params.name))
     .get(
       "/workspaces/:repo/:name/diff",
-      async ({ params, query, set }) => {
-        try {
-          return await manager.getWorkspaceDiff(params.repo, params.name, {
-            staged: query.staged,
-            stat: query.stat,
-            nameOnly: query.nameOnly,
-            range: query.range,
-            mergeBase: query.mergeBase,
-            paths: query.paths,
-            includeUntracked: query.includeUntracked,
-          });
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
+      ({ params, query }) =>
+        manager.getWorkspaceDiff(params.repo, params.name, {
+          staged: query.staged,
+          stat: query.stat,
+          nameOnly: query.nameOnly,
+          range: query.range,
+          mergeBase: query.mergeBase,
+          paths: query.paths,
+          includeUntracked: query.includeUntracked,
+        }),
       {
         query: t.Object({
           staged: t.Optional(t.Boolean()),
@@ -80,15 +67,7 @@ export function workspacesPlugin(manager: FleetManager) {
     )
     .get(
       "/workspaces/:repo/:name/refs",
-      async ({ params, query, set }) => {
-        try {
-          return await manager.getWorkspaceRefs(params.repo, params.name, { commits: query.commits });
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
-      },
+      ({ params, query }) => manager.getWorkspaceRefs(params.repo, params.name, { commits: query.commits }),
       {
         query: t.Object({
           commits: t.Optional(t.Number()),
@@ -98,14 +77,8 @@ export function workspacesPlugin(manager: FleetManager) {
     .post(
       "/workspaces",
       async ({ body, set }) => {
-        try {
-          set.status = 201;
-          return await manager.createWorkspace(body);
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
+        set.status = 201;
+        return await manager.createWorkspace(body);
       },
       {
         body: t.Object({
@@ -118,47 +91,23 @@ export function workspacesPlugin(manager: FleetManager) {
     )
     .post(
       "/workspaces/:repo/:name/branch",
-      async ({ params, body, set }) => {
-        try {
-          await manager.switchBranch(params.repo, params.name, body.branch);
-          return { ok: true as const };
-        } catch (err) {
-          const mapped = mapError(err);
-          set.status = mapped.status;
-          return mapped.body;
-        }
+      async ({ params, body }) => {
+        await manager.switchBranch(params.repo, params.name, body.branch);
+        return { ok: true as const };
       },
       { body: t.Object({ branch: t.String() }) },
     )
-    .post("/workspaces/:repo/:name/activate", async ({ params, set }) => {
-      try {
-        await manager.activate(params.repo, params.name);
-        return { ok: true as const };
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
+    .post("/workspaces/:repo/:name/activate", async ({ params }) => {
+      await manager.activate(params.repo, params.name);
+      return { ok: true as const };
     })
-    .post("/workspaces/:repo/:name/deactivate", async ({ params, set }) => {
-      try {
-        await manager.deactivate(params.repo, params.name);
-        return { ok: true as const };
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
+    .post("/workspaces/:repo/:name/deactivate", async ({ params }) => {
+      await manager.deactivate(params.repo, params.name);
+      return { ok: true as const };
     })
-    .delete("/workspaces/:repo/:name", async ({ params, set }) => {
-      try {
-        await manager.remove(params.repo, params.name);
-        return { ok: true as const };
-      } catch (err) {
-        const mapped = mapError(err);
-        set.status = mapped.status;
-        return mapped.body;
-      }
+    .delete("/workspaces/:repo/:name", async ({ params }) => {
+      await manager.remove(params.repo, params.name);
+      return { ok: true as const };
     })
     .ws("/workspaces/:repo/:name/terminal", {
       query: t.Object({
@@ -181,7 +130,7 @@ export function workspacesPlugin(manager: FleetManager) {
         // the upstream socket is open so the browser's first `init` isn't lost.
         const upstream = new WebSocket(target);
         const buffer: string[] = [];
-        const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
+        const data = ws.data as TerminalProxyData;
         data.upstream = upstream;
         data.buffer = buffer;
         data.pendingBytes = 0;
@@ -218,34 +167,25 @@ export function workspacesPlugin(manager: FleetManager) {
         };
       },
       message(ws, message) {
-        const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
+        const data = ws.data as TerminalProxyData;
         const upstream = data.upstream;
         if (!upstream) return;
         if (ArrayBuffer.isView(message) || message instanceof ArrayBuffer) {
-          data.buffer?.splice(0);
-          data.pendingBytes = 0;
-          upstream.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
-          ws.close(BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
+          abort(data, ws, BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON);
           return;
         }
         let frame: string;
         try {
           frame = JSON.stringify(decodeClientMessage(message));
         } catch {
-          data.buffer?.splice(0);
-          data.pendingBytes = 0;
-          upstream.close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
-          ws.close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
+          abort(data, ws, INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
           return;
         }
         if (upstream.readyState === WebSocket.OPEN) upstream.send(frame);
         else {
           const pendingBytes = (data.pendingBytes ?? 0) + utf8ByteLength(frame);
           if (pendingBytes > MAX_PENDING_BYTES) {
-            data.buffer?.splice(0);
-            data.pendingBytes = 0;
-            upstream.close(BUFFER_LIMIT_CLOSE_CODE, BUFFER_LIMIT_CLOSE_REASON);
-            ws.close(BUFFER_LIMIT_CLOSE_CODE, BUFFER_LIMIT_CLOSE_REASON);
+            abort(data, ws, BUFFER_LIMIT_CLOSE_CODE, BUFFER_LIMIT_CLOSE_REASON);
             return;
           }
           data.buffer?.push(frame);
@@ -253,7 +193,7 @@ export function workspacesPlugin(manager: FleetManager) {
         }
       },
       close(ws, code, reason) {
-        const data = ws.data as { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
+        const data = ws.data as TerminalProxyData;
         data.buffer?.splice(0);
         data.pendingBytes = 0;
         try {

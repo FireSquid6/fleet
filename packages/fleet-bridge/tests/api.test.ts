@@ -1,9 +1,3 @@
-/**
- * api.test.ts — drives the bridge's composed Elysia app in-process via
- * `app.handle(Request)` (no port) over a real FleetManager + fake ships, asserting
- * the HTTP status codes and bodies the routes actually return.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -60,7 +54,7 @@ describe("bridge API", () => {
     await store.createShip({ name: "ship-b", url: "http://ship-b" });
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
-    app = createApp(manager, config);
+    app = createApp(manager);
   });
   afterEach(async () => {
     manager.shutdown();
@@ -143,11 +137,9 @@ describe("bridge API", () => {
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({ repoName: "repo3", name: "three", ship: "ship-a" });
 
-    // Unknown ship.
     expect(
       (await call("POST", "/workspaces", { ship: "ghost", repoName: "repo3", name: "n", branch: "main" })).status,
     ).toBe(400);
-    // Unregistered repo.
     expect(
       (await call("POST", "/workspaces", { ship: "ship-a", repoName: "ghost-repo", name: "n", branch: "main" }))
         .status,
@@ -156,7 +148,6 @@ describe("bridge API", () => {
     expect(
       (await call("POST", "/workspaces", { ship: "ship-a", repoName: "repo1", name: "one", branch: "main" })).status,
     ).toBe(409);
-    // Missing `ship`.
     expect((await call("POST", "/workspaces", { repoName: "repo3", name: "n", branch: "main" })).status).toBe(422);
   });
 
@@ -208,9 +199,7 @@ describe("bridge API", () => {
     expect(created.body).toEqual({ name: "repo1", url: "git@fake/repo1.git", provider: "custom" });
 
     expect((await call("POST", "/repos", { name: "repo2", url: "u", provider: "github" })).status).toBe(201);
-    // Duplicate name.
     expect((await call("POST", "/repos", { name: "repo1", url: "u" })).status).toBe(409);
-    // Missing url.
     expect((await call("POST", "/repos", { name: "x" })).status).toBe(422);
 
     const list = await call("GET", "/repos");

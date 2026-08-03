@@ -16,6 +16,7 @@
     "commander": "latest",
     "elysia": "latest",
     "fleet-bridge": "workspace:*",
+    "fleet-cli-kit": "workspace:*",
     "fleet-client": "workspace:*",
     "fleet-protocol": "workspace:*",
     "fleet-ship": "workspace:*",

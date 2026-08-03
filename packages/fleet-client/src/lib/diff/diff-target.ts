@@ -1,12 +1,3 @@
-/**
- * diff-target.ts — what the diff viewer is pointed at, and how that becomes a
- * bridge `GET /workspaces/:repo/:name/diff` query.
- *
- * Three targets cover what a reviewer of an agent's workspace needs to see:
- * the uncommitted work in the tree, everything the branch has done relative to
- * another branch, and the tail end of the branch's own history.
- */
-
 export type DiffTarget =
   | { kind: "working" }
   | { kind: "branch"; base: string; includeWorking: boolean }
@@ -48,7 +39,6 @@ export function diffQuery(target: DiffTarget): DiffQuery {
   }
 }
 
-/** Human-facing summary of a target, shown in the toolbar and the empty state. */
 export function describeDiffTarget(target: DiffTarget): string {
   switch (target.kind) {
     case "working":

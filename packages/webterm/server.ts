@@ -1,20 +1,3 @@
-/**
- * server.ts — the server-side terminal bridge.
- *
- * A `TerminalBridge` owns one PTY subprocess (e.g. `tmux attach ...`) plus one
- * bun-vt `Terminal`. Raw bytes from the PTY are fed into the VT parser;
- * frames (coalesced to ~60fps) are pushed to a `send` callback. Client
- * keystrokes and resizes are forwarded to the PTY.
- *
- * What to actually put on the wire — a full `grid`, a `patch`, nothing at all,
- * or nothing *yet* because the client is behind — is decided by `FrameSequencer`,
- * which touches no PTY and no socket so the rules can be tested on their own.
- *
- * The bridge is transport-agnostic — the caller owns the WebSocket and just
- * wires `send` to `ws.send` and dispatches decoded `ClientMsg`s to the methods
- * here.
- */
-
 import { Terminal as VtTerminal } from "bun-vt";
 import { colorsEqual, diffGrid, serializeGrid } from "./encode";
 import type { ClientMsg, GridMsg, PatchMsg, ServerMsg, WireCursor } from "./protocol";
@@ -38,9 +21,9 @@ export interface FrameSequencerOptions {
 }
 
 /**
- * Whole-cursor comparison, every field. A cursor move with no cell change is a
- * real change the client must be told about, so this is what separates a
- * genuinely idle terminal from one where only the caret moved.
+ * A cursor move with no cell change is a real change the client must be told
+ * about, so this is what separates a genuinely idle terminal from one where only
+ * the caret moved.
  */
 function cursorsEqual(a: WireCursor, b: WireCursor): boolean {
   return (
@@ -54,13 +37,10 @@ function cursorsEqual(a: WireCursor, b: WireCursor): boolean {
 }
 
 /**
- * Decides what the next frame on a connection should be: a full `grid`, a
- * `patch` against the last frame *actually sent*, or nothing.
- *
- * Two things bound it. The diff baseline is the last sent frame, never the last
- * computed one, so coalescing and pacing stay lossless. And an ack window caps
- * how many frames may be in flight: without it the sender never asks whether
- * the receiver is keeping up, and a slow link accumulates unbounded lag.
+ * The diff baseline is the last frame *actually sent*, never the last computed
+ * one, so coalescing and pacing stay lossless. The ack window caps how many
+ * frames may be in flight: without it the sender never asks whether the receiver
+ * is keeping up, and a slow link accumulates unbounded lag.
  */
 export class FrameSequencer {
   private readonly maxUnackedFrames: number;
@@ -83,9 +63,8 @@ export class FrameSequencer {
   }
 
   /**
-   * Decide what to send for the terminal's current state. `grid` is whatever
-   * `serializeGrid` produced; its `seq` is ignored and restamped here, so the
-   * caller never has to thread a frame counter through the encoder.
+   * The incoming `grid`'s `seq` is ignored and restamped here, so the caller
+   * never has to thread a frame counter through the encoder.
    */
   next(grid: GridMsg): FrameDecision {
     const now = this.now();
@@ -145,7 +124,6 @@ export class FrameSequencer {
 export interface TerminalBridgeOptions extends FrameSequencerOptions {
   /** argv for the PTY process, e.g. `["tmux", "-L", "fleet-ship", "attach", "-t", name]`. */
   readonly argv: string[];
-  /** Sink for server→client messages (grid snapshots, patches, exit). */
   readonly send: (msg: ServerMsg) => void;
   /** Frame coalescing interval in ms. Default ~16 (60fps). */
   readonly frameIntervalMs?: number;
@@ -206,7 +184,6 @@ export class TerminalBridge {
     this.proc?.terminal?.write(data);
   }
 
-  /** Resize both the PTY and the VT parser, then repaint. */
   resize(cols: number, rows: number): void {
     if (this.stopped) return;
     this.proc?.terminal?.resize(cols, rows);
@@ -263,11 +240,10 @@ export class TerminalBridge {
   }
 
   /**
-   * Coalesce a burst of PTY output into one decision per interval. A `blocked`
-   * decision deliberately leaves the timer disarmed: re-arming it would spin
-   * against a client that is already behind, so the next `ack` restarts the
-   * stream instead (and, while blocked, further PTY output re-arms it, which is
-   * also when the sequencer's ack timeout gets re-examined).
+   * A `blocked` decision deliberately leaves the timer disarmed: re-arming it
+   * would spin against a client that is already behind, so the next `ack`
+   * restarts the stream instead (and, while blocked, further PTY output re-arms
+   * it, which is also when the sequencer's ack timeout gets re-examined).
    */
   private scheduleFrame(): void {
     if (this.frameTimer !== null || this.stopped) return;

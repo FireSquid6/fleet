@@ -1,7 +1,3 @@
-/**
- * test/parser.test.ts — the VT500 parser state machine in isolation.
- */
-
 import { test, expect, describe } from "bun:test";
 import { Parser, type CsiSequence, type EscSequence } from "../src/parser";
 

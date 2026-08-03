@@ -1,13 +1,3 @@
-/**
- * ArmoryRoute — a read-only view of the bridge's armory: the files it hands out,
- * the map that says where dotfiles land, and how far each ship has got applying
- * them.
- *
- * The armory is edited on the bridge host, not here, so this page has no
- * mutations of any kind. It is also the only page that fetches its own data —
- * the armory is deliberately absent from the boot snapshot, since most sessions
- * never open it.
- */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";

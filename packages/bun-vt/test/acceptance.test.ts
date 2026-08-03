@@ -1,7 +1,5 @@
-/**
- * test/acceptance.test.ts — the same acceptance criteria libghostty-bun ships,
- * proving this pure-TS port is behaviourally compatible.
- */
+// These are the acceptance criteria libghostty-bun ships; keep them in sync
+// with that package rather than relaxing them to match this implementation.
 
 import { test, expect, describe } from "bun:test";
 import { Terminal } from "../src/index";

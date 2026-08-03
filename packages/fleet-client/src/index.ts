@@ -13,7 +13,6 @@ import {
 } from "webterm/protocol";
 import index from "./index.html";
 
-/** Per-connection state for a proxied `/bridge/*` WebSocket. */
 export interface BridgeWsData {
   upstream: WebSocket;
   /** Frames the browser sent before `upstream` reached OPEN (e.g. the terminal's first `init`). */
@@ -81,17 +80,8 @@ export function upgradeBridgeWebSocket(
   return new Response("Upgrade failed", { status: 500 });
 }
 
-export function startClientServer(
-  bridgeUrl: string,
-  port?: number,
-  deps?: { createWebSocket?: CreateWebSocket },
-) {
-  /**
-   * Real bridge origin the `/bridge/*` proxy forwards to. Configure with the
-   * `BRIDGE_URL` env var; defaults to a local bridge.
-   */
+export function startClientServer(bridgeUrl: string, port?: number) {
   const bridgeWSUrl = bridgeUrl.replace(/^http/, "ws");
-
 
   /** Strip the `/bridge` prefix, preserving path + query (defaults to `/`). */
   function bridgePath(url: URL): string {
@@ -109,7 +99,7 @@ export function startClientServer(
     const path = bridgePath(url);
 
     if (req.headers.get("upgrade") === "websocket") {
-      return upgradeBridgeWebSocket(req, server, bridgeWSUrl + path, deps?.createWebSocket);
+      return upgradeBridgeWebSocket(req, server, bridgeWSUrl + path);
     }
 
     const target = bridgeUrl + path;

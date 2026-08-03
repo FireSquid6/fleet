@@ -170,7 +170,6 @@ describe("FleetManager", () => {
     expect(info).toMatchObject({ name: "ship-b", url: "http://ship-b", status: "online" });
     expect((await mgr.listWorkspaces()).map((w) => w.ship).sort()).toEqual(["ship-a", "ship-b"]);
 
-    // Persisted to the roster store.
     const persisted = await store.getAllShips();
     expect(persisted.map((s) => s.name).sort()).toEqual(["ship-a", "ship-b"]);
   });
@@ -218,12 +217,10 @@ describe("FleetManager", () => {
       mgr.createWorkspace({ ship: "ghost", repoName: "repo1", name: "n", branch: "main" }),
     ).rejects.toMatchObject({ status: 400 });
 
-    // Unregistered repo.
     await expect(
       mgr.createWorkspace({ ship: "ship-a", repoName: "ghost-repo", name: "n", branch: "main" }),
     ).rejects.toMatchObject({ status: 400 });
 
-    // Duplicate workspace.
     await expect(
       mgr.createWorkspace({ ship: "ship-a", repoName: "repo1", name: "one", branch: "main" }),
     ).rejects.toMatchObject({ status: 409 });
@@ -749,8 +746,6 @@ describe("FleetManager", () => {
     expect(BridgeError).toBeDefined();
   });
 
-  // --- runtime event application --------------------------------------------
-
   const evt = (type: string, ship: string, w: ReturnType<typeof ws>) => ({
     type,
     ship,
@@ -854,8 +849,6 @@ describe("FleetManager", () => {
     expect((await mgr.listWorkspaces()).find((row) => row.name === "one")?.ship).toBe("online-z");
   });
 
-  // --- verb happy paths + error/offline translation -------------------------
-
   test("switchBranch / deactivate / remove reach the owning ship", async () => {
     const ships = new Map<string, FakeShip>([
       ["http://ship-a", { name: "ship-a", workspaces: [ws("repo1", "one", true)] }],
@@ -891,8 +884,6 @@ describe("FleetManager", () => {
     await expect(mgr.activate("repo1", "one")).rejects.toMatchObject({ status: 503 });
     expect(mgr.listShips()[0]?.status).toBe("offline");
   });
-
-  // --- add / startup timeout ------------------------------------------------
 
   test("addShip returns 502 when the ship never syncs", async () => {
     const ships = new Map<string, FakeShip>([

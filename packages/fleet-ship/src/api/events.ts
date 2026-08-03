@@ -1,9 +1,3 @@
-/**
- * api/events.ts — the ship's read-only `/events` WebSocket, which fans workspace
- * state-change events out to every connected client. One Elysia chain so route
- * types stay inferable for Eden.
- */
-
 import { Elysia } from "elysia";
 import {
   BUFFER_LIMIT_CLOSE_CODE,

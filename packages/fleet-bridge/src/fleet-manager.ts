@@ -1,17 +1,3 @@
-/**
- * fleet-manager.ts — the framework-free core of the bridge.
- *
- * Owns every `ShipConnection`, the fleet-wide `<repo>/<name>` → ship ownership
- * index, duplicate enforcement, mutation routing, and roster persistence. It is
- * deliberately free of any HTTP/Elysia concern so its dedupe and event-mutation
- * logic can be unit-tested against fake connections.
- *
- * State model: each `ShipConnection` holds its own last-known `WorkspaceSummary`
- * map (replaced wholesale on every `sync`); the manager derives a global
- * `index: <repo>/<name> → shipName` from those maps and consults it for O(1)
- * routing and duplicate detection.
- */
-
 import { join } from "node:path";
 import {
   ARMORY_DIRECTORY,
@@ -69,7 +55,6 @@ import {
   type ReviewEvent,
 } from "./providers";
 
-/** A typed error carrying the HTTP status the API layer should map it to. */
 export class BridgeError extends Error {
   constructor(
     message: string,
@@ -108,13 +93,9 @@ export class FleetManager {
   private readonly createReservations = new Map<string, CreateReservation>();
   private readonly eventListeners = new Set<(event: BridgeWorkspaceEvent) => void>();
   private readonly deps?: Partial<ShipConnectionDeps>;
-  /** How long to wait for a ship's first `sync` (overridable in tests). */
   private readonly syncTimeoutMs: number;
-  /** Ship roster + repo registry persistence. Tests inject a shared `Store` via `opts.store`. */
   private readonly store: Store;
-  /** Builds a `RepoProvider` for a registered repo; overridable in tests. */
   private readonly makeProvider: (repo: Repo) => RepoProvider;
-  /** The bridge-owned file factory served from `<dataDirectory>/armory`. */
   private readonly armory: ArmoryService;
 
   constructor(
@@ -134,12 +115,7 @@ export class FleetManager {
     this.armory = opts?.armory ?? new ArmoryService(join(config.dataDirectory, ARMORY_DIRECTORY));
   }
 
-  /**
-   * Load the persisted roster, connect to every ship, and enforce the no-duplicate
-   * rule across reachable ships. Throws (so the CLI can exit) if two reachable ships
-   * hold the same `<repo>/<name>`. Unreachable ships start offline and reconnect in
-   * the background.
-   */
+  /** Throws when two reachable ships hold the same `<repo>/<name>`, so the CLI can exit. */
   async init(): Promise<void> {
     await this.store.load();
     const records = await this.store.getAllShips();
@@ -150,7 +126,6 @@ export class FleetManager {
       conn.connect();
     }
 
-    // Wait for reachable ships to send their first sync (or time out → offline).
     await Promise.all(
       [...this.connections.values()].map((conn) =>
         conn.waitForSync(this.syncTimeoutMs).then(
@@ -173,7 +148,6 @@ export class FleetManager {
     this.rebuildIndex();
   }
 
-  /** Tear down every ship connection (used on shutdown / in tests). */
   shutdown(): void {
     for (const conn of this.connections.values()) conn.close();
   }
@@ -200,8 +174,6 @@ export class FleetManager {
     this.publish({ type: "sync", at: new Date().toISOString(), workspaces: this.workspaceSnapshot() });
   }
 
-  // --- ship management ------------------------------------------------------
-
   /** `GET /ships`. */
   listShips(): ShipInfo[] {
     return [...this.connections.values()].map((conn) => ({
@@ -211,11 +183,7 @@ export class FleetManager {
     }));
   }
 
-  /**
-   * `POST /ships`. Connect to a ship by URL, learn its name and workspaces from
-   * its first `sync`, reject if the name is already registered or any of its
-   * workspaces collide fleet-wide, then adopt and persist it.
-   */
+  /** `POST /ships`. */
   async addShip(url: string): Promise<ShipInfo> {
     const probe = this.createConnection(url);
     probe.connect();
@@ -277,8 +245,6 @@ export class FleetManager {
     this.publishSnapshot();
   }
 
-  // --- system resources -----------------------------------------------------
-
   /** `GET /ships/:ship/system-resources` — proxied live to one ship. */
   async getShipSystemResources(shipName: string): Promise<SystemResources> {
     const conn = this.connections.get(shipName);
@@ -316,8 +282,6 @@ export class FleetManager {
     );
   }
 
-  // --- repos (bridge-owned registry) ----------------------------------------
-
   /** `GET /repos` — the bridge's registered repos. */
   async listRepos(): Promise<Repo[]> {
     return this.store.getAllRepos();
@@ -325,7 +289,9 @@ export class FleetManager {
 
   /** `POST /repos` — register a repo. `provider` defaults to `"custom"`. */
   async addRepo(input: CreateRepoInput): Promise<Repo> {
-    const parsed = this.parseInput(CreateRepoInputSchema, input, "repo");
+    const result = CreateRepoInputSchema.safeParse(input);
+    if (!result.success) throw new BridgeError("invalid repo", 400);
+    const parsed = result.data;
     try {
       return await this.store.createRepo({
         name: parsed.name,
@@ -347,10 +313,7 @@ export class FleetManager {
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
   }
 
-  /**
-   * Look up a registered repo and run `fn` against its provider. `ProviderError`
-   * from `fn` propagates unchanged so the API can surface its HTTP status.
-   */
+  /** `ProviderError` from `fn` propagates unchanged so the API can surface its status. */
   private async withProvider<T>(name: string, fn: (provider: RepoProvider) => Promise<T>): Promise<T> {
     this.identifier(name, "repo");
     const repo = await this.store.getRepo(name);
@@ -418,7 +381,6 @@ export class FleetManager {
     });
   }
 
-  /** Resolve a check target to a commit-ish: a PR's head SHA, an explicit ref, or reject. */
   private async resolveCheckRef(
     provider: RepoProvider,
     target: { ref?: string; pr?: number },
@@ -430,8 +392,6 @@ export class FleetManager {
     if (target.ref !== undefined) return target.ref;
     throw new BridgeError("checks require a ref or pr", 400);
   }
-
-  // --- armory (bridge-owned file factory) -----------------------------------
 
   /** `GET /armory` — the content-addressed manifest of `<dataDirectory>/armory`. */
   async armoryManifest(): Promise<ArmoryManifest> {
@@ -469,17 +429,13 @@ export class FleetManager {
     );
   }
 
-  /** Drop the cached scan — called when the armory directory changes on disk. */
   invalidateArmory(): void {
     this.armory.invalidate();
   }
 
   /**
-   * Tell every online ship to re-pull the armory. Never throws and never waits
-   * on one ship for another: a push is a notification, not a transaction, and a
-   * ship that is offline or that fails its pull must not break the bridge or
-   * hold up the rest of the fleet. Failures are warned about and dropped —
-   * whatever caused one will still be there at the next push or reconnect.
+   * Never throws and never waits on one ship for another: a push is a
+   * notification, not a transaction. Failures are warned about and dropped.
    */
   async pushArmory(): Promise<void> {
     const revision = await this.currentArmoryRevision();
@@ -490,7 +446,6 @@ export class FleetManager {
     await Promise.allSettled(online.map((conn) => this.syncArmoryOn(conn, revision)));
   }
 
-  /** The one-ship push, used when a ship joins the fleet or comes back online. */
   private async pushArmoryTo(conn: ShipConnection): Promise<void> {
     if (!conn.member || conn.status !== "online") return;
     const revision = await this.currentArmoryRevision();
@@ -535,8 +490,6 @@ export class FleetManager {
       throw error;
     }
   }
-
-  // --- workspace API (superset of the ship's) -------------------------------
 
   /** `GET /workspaces` — merged, deduped, annotated with the owning ship. */
   async listWorkspaces(filter?: "active" | "inactive"): Promise<BridgeWorkspaceSummary[]> {
@@ -737,8 +690,6 @@ export class FleetManager {
     return url.toString();
   }
 
-  // --- internals ------------------------------------------------------------
-
   private createConnection(url: string, name?: string): ShipConnection {
     const conn = new ShipConnection({ url, name, deps: this.deps });
     conn.setHandlers({
@@ -752,7 +703,6 @@ export class FleetManager {
     return conn;
   }
 
-  /** Apply an event to the ownership index — only for adopted (member) connections. */
   private onEvent(conn: ShipConnection, event: FleetEvent): void {
     if (!conn.member) return;
     this.applyToIndex(conn, event);
@@ -860,7 +810,6 @@ export class FleetManager {
     return duplicates;
   }
 
-  /** Rebuild the ownership index from every online connection's workspace map. */
   private rebuildIndex(): void {
     this.index.clear();
     for (const conn of this.connections.values()) {
@@ -930,12 +879,6 @@ export class FleetManager {
     if (!FleetIdentifierSchema.safeParse(value).success) {
       throw new BridgeError(`invalid ${label} identifier`, 400);
     }
-  }
-
-  private parseInput<T>(schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } }, value: unknown, label: string): T {
-    const result = schema.safeParse(value);
-    if (!result.success) throw new BridgeError(`invalid ${label}`, 400);
-    return result.data;
   }
 
   private async persist(): Promise<void> {

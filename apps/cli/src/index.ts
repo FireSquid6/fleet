@@ -1,11 +1,4 @@
 #!/usr/bin/env bun
-/**
- * index.ts — Fleet CLI entry point.
- *
- * A Commander.js CLI that drives a Fleet Ship host's HTTP API through a
- * type-safe Elysia Eden Treaty client (see client.ts). No terminal/websocket
- * command — that's deliberately out of scope here.
- */
 
 import { Command } from "commander";
 import {
@@ -19,7 +12,8 @@ import {
   type WorkspaceSummary,
 } from "fleet-protocol";
 import type { ShipInfo, BridgeWorkspaceSummary, ShipArmoryState } from "fleet-bridge/types";
-import { makeBridgeClient, makeClient, normalizeUrl, unwrap } from "./client";
+import { makeBridgeClient, normalizeUrl, unwrap } from "fleet-cli-kit";
+import { makeClient } from "./client";
 import {
   abbreviateRevision,
   formatArmoryShipTable,
@@ -69,7 +63,7 @@ clientCommand
       options.active ? { active: "true" as const } : options.inactive ? { active: "false" as const } : {};
 
     if (options.wide) {
-      const rows = unwrap(await bridgeClient().workspaces.get({ query })) as BridgeWorkspaceSummary[];
+      const rows = unwrap(await bridgeClient().workspaces.get({ query }), "fleet") as BridgeWorkspaceSummary[];
       if (options.json) {
         console.log(JSON.stringify(rows, null, 2));
       } else if (rows.length === 0) {
@@ -80,7 +74,7 @@ clientCommand
       return;
     }
 
-    const rows = unwrap(await client().workspaces.get({ query })) as WorkspaceSummary[];
+    const rows = unwrap(await client().workspaces.get({ query }), "fleet") as WorkspaceSummary[];
     if (options.json) {
       console.log(JSON.stringify(rows, null, 2));
     } else if (rows.length === 0) {
@@ -97,7 +91,7 @@ clientCommand
   .argument("<name>", "workspace name")
   .action(async (repo: string, name: string) => {
     const result = await client().workspaces({ repo })({ name }).get();
-    const status = unwrap(result) as WorkspaceStatus;
+    const status = unwrap(result, "fleet") as WorkspaceStatus;
 
     console.log(`repo:   ${status.repoName}`);
     console.log(`name:   ${status.name}`);
@@ -126,7 +120,7 @@ clientCommand
       name,
       branch: options.branch,
     });
-    const summary = unwrap(result) as WorkspaceSummary;
+    const summary = unwrap(result, "fleet") as WorkspaceSummary;
 
     console.log(`created workspace ${summary.repoName}/${summary.name} on branch ${summary.branch}`);
   });
@@ -139,7 +133,7 @@ clientCommand
   .argument("<newBranch>", "branch to switch to")
   .action(async (repo: string, name: string, newBranch: string) => {
     const result = await client().workspaces({ repo })({ name }).branch.post({ branch: newBranch });
-    unwrap(result);
+    unwrap(result, "fleet");
 
     console.log(`switched ${repo}/${name} to branch ${newBranch}`);
   });
@@ -151,7 +145,7 @@ clientCommand
   .argument("<name>", "workspace name")
   .action(async (repo: string, name: string) => {
     const result = await client().workspaces({ repo })({ name }).activate.post();
-    unwrap(result);
+    unwrap(result, "fleet");
 
     console.log(`activated ${repo}/${name}`);
   });
@@ -163,7 +157,7 @@ clientCommand
   .argument("<name>", "workspace name")
   .action(async (repo: string, name: string) => {
     const result = await client().workspaces({ repo })({ name }).deactivate.post();
-    unwrap(result);
+    unwrap(result, "fleet");
 
     console.log(`deactivated ${repo}/${name}`);
   });
@@ -186,7 +180,7 @@ clientCommand
   .argument("<name>", "workspace name")
   .action(async (repo: string, name: string) => {
     const result = await client().workspaces({ repo })({ name }).delete();
-    unwrap(result);
+    unwrap(result, "fleet");
 
     console.log(`removed ${repo}/${name}`);
   });
@@ -198,7 +192,7 @@ shipsCommand
   .description("list the ships registered with the bridge")
   .option("--json", "output as JSON")
   .action(async (options: { json?: boolean }) => {
-    const rows = unwrap(await bridgeClient().ships.get()) as ShipInfo[];
+    const rows = unwrap(await bridgeClient().ships.get(), "fleet") as ShipInfo[];
     if (options.json) {
       console.log(JSON.stringify(rows, null, 2));
     } else if (rows.length === 0) {
@@ -213,7 +207,7 @@ shipsCommand
   .description("register a ship by its URL (the bridge discovers its name)")
   .argument("<url>", "base URL of the ship host")
   .action(async (url: string) => {
-    const created = unwrap(await bridgeClient().ships.post({ url: normalizeUrl(url) })) as ShipInfo;
+    const created = unwrap(await bridgeClient().ships.post({ url: normalizeUrl(url) }), "fleet") as ShipInfo;
     console.log(`registered ship ${created.name} (${created.url})`);
   });
 
@@ -222,7 +216,7 @@ shipsCommand
   .description("deregister a ship")
   .argument("<name>", "ship name")
   .action(async (name: string) => {
-    unwrap(await bridgeClient().ships({ name }).delete());
+    unwrap(await bridgeClient().ships({ name }).delete(), "fleet");
     console.log(`removed ship ${name}`);
   });
 
@@ -235,7 +229,7 @@ reposCommand
   .description("list the repos registered with the bridge")
   .option("--json", "output as JSON")
   .action(async (options: { json?: boolean }) => {
-    const rows = unwrap(await bridgeClient().repos.get()) as Repo[];
+    const rows = unwrap(await bridgeClient().repos.get(), "fleet") as Repo[];
     if (options.json) {
       console.log(JSON.stringify(rows, null, 2));
     } else if (rows.length === 0) {
@@ -252,7 +246,7 @@ reposCommand
   .argument("<url>", "git clone URL")
   .option("-p, --provider <provider>", "where the repo is hosted (e.g. github)")
   .action(async (name: string, url: string, options: { provider?: string }) => {
-    const repo = unwrap(await bridgeClient().repos.post({ name, url, provider: options.provider })) as Repo;
+    const repo = unwrap(await bridgeClient().repos.post({ name, url, provider: options.provider }), "fleet") as Repo;
     console.log(`registered repo ${repo.name} (${repo.url})`);
   });
 
@@ -261,7 +255,7 @@ reposCommand
   .description("deregister a repo")
   .argument("<name>", "repo name")
   .action(async (name: string) => {
-    unwrap(await bridgeClient().repos({ name }).delete());
+    unwrap(await bridgeClient().repos({ name }).delete(), "fleet");
     console.log(`removed repo ${name}`);
   });
 
@@ -283,7 +277,7 @@ armoryCommand
       process.exit(1);
     }
 
-    const manifest = unwrap(await bridgeClient().armory.get()) as ArmoryManifest;
+    const manifest = unwrap(await bridgeClient().armory.get(), "fleet") as ArmoryManifest;
     const entries = section
       ? manifest.entries.filter((entry) => entry.section === section)
       : manifest.entries;
@@ -305,7 +299,7 @@ armoryCommand
   .description("print an armory file's contents")
   .argument("<path>", "armory-relative path, e.g. skills/my-skill/SKILL.md")
   .action(async (path: string) => {
-    const file = unwrap(await bridgeClient().armory.file.get({ query: { path } })) as ArmoryFile;
+    const file = unwrap(await bridgeClient().armory.file.get({ query: { path } }), "fleet") as ArmoryFile;
 
     // Binary bytes re-encoded through stdout would arrive mangled, and a
     // redirect would capture that silently — refuse rather than hand back a
@@ -325,7 +319,7 @@ armoryCommand
   .description("show what each ship has pulled and installed from the armory")
   .option("--json", "output as JSON")
   .action(async (options: { json?: boolean }) => {
-    const rows = unwrap(await bridgeClient().armory.ships.get()) as ShipArmoryState[];
+    const rows = unwrap(await bridgeClient().armory.ships.get(), "fleet") as ShipArmoryState[];
     if (options.json) {
       console.log(JSON.stringify(rows, null, 2));
       return;
@@ -335,7 +329,7 @@ armoryCommand
       return;
     }
 
-    const manifest = unwrap(await bridgeClient().armory.get()) as ArmoryManifest;
+    const manifest = unwrap(await bridgeClient().armory.get(), "fleet") as ArmoryManifest;
     console.log(formatArmoryShipTable(manifest.revision, rows));
 
     for (const row of rows) {

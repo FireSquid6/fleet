@@ -1,12 +1,3 @@
-/**
- * armory-push.test.ts — the write side of the armory: the watcher that notices a
- * change and the `FleetManager` push that tells each ship to re-pull.
- *
- * The watcher is driven through an injected `fs.watch` so the debounce is tested
- * against timers rather than real filesystem event timing; the push runs against
- * the shared fake ships, whose Eden client records what it was asked to sync.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { FSWatcher, WatchListener } from "node:fs";

@@ -1,24 +1,8 @@
-/**
- * ship-connection.ts — one live connection to a single ship.
- *
- * A `ShipConnection` owns everything transport-related for one ship:
- *   - an Eden Treaty client (`treaty<ShipApp>`) for command/control HTTP calls,
- *   - a raw `/events` WebSocket that keeps `workspaces` (this ship's last-known
- *     `WorkspaceSummary` map) in sync, decoded via `decodeFleetEvent`,
- *   - `online`/`offline` status plus a reconnect loop with exponential backoff.
- *
- * It applies each decoded event to its own `workspaces` map and forwards it to
- * the `FleetManager` (which maintains the fleet-wide ownership index). The
- * WebSocket and Eden client are created through injectable factories so the
- * manager's dedupe/routing logic is unit-testable against fakes.
- */
-
 import { treaty } from "@elysiajs/eden";
 import type { App as ShipApp } from "fleet-ship/api";
 import { decodeFleetEvent, type FleetEvent, type SyncEvent, type WorkspaceSummary } from "fleet-protocol";
 import { workspaceKey, type ShipStatus } from "./types";
 
-/** The Eden Treaty client the bridge uses to drive a ship. */
 export type ShipClient = ReturnType<typeof treaty<ShipApp>>;
 
 /** A minimal WebSocket surface — the browser/Bun `WebSocket` satisfies it. */
@@ -30,13 +14,11 @@ export interface SocketLike {
   close(): void;
 }
 
-/** Injectable factories (overridden in tests). */
 export interface ShipConnectionDeps {
   createSocket: (url: string) => SocketLike;
   createClient: (url: string) => ShipClient;
 }
 
-/** Callbacks the manager registers to observe a connection. */
 export interface ShipConnectionHandlers {
   onEvent: (conn: ShipConnection, event: FleetEvent) => void;
   onStatusChange: (conn: ShipConnection, status: ShipStatus) => void;
@@ -49,7 +31,6 @@ const defaultDeps: ShipConnectionDeps = {
 
 const MAX_BACKOFF_MS = 30_000;
 
-/** Turn a ship's base HTTP url into a ws(s):// url for `path`. */
 export function toWsUrl(httpUrl: string, path: string): string {
   const u = new URL(httpUrl);
   u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
@@ -63,7 +44,6 @@ export class ShipConnection {
   readonly url: string;
   /** Whether a `/events` socket is currently open. */
   status: ShipStatus = "offline";
-  /** Eden client for command/control. */
   readonly client: ShipClient;
   /** This ship's last-known workspaces, keyed by `<repo>/<name>`. */
   readonly workspaces = new Map<string, WorkspaceSummary>();
@@ -87,7 +67,6 @@ export class ShipConnection {
     this.client = this.deps.createClient(opts.url);
   }
 
-  /** Register the manager's observers. */
   setHandlers(handlers: ShipConnectionHandlers): void {
     this.handlers = handlers;
   }
@@ -113,7 +92,6 @@ export class ShipConnection {
     });
   }
 
-  /** Force the connection offline (e.g. after a failed command/control call). */
   markOffline(): void {
     if (this.status !== "offline") this.setStatus("offline");
   }
@@ -145,9 +123,7 @@ export class ShipConnection {
     socket.onerror = () => {
       try {
         socket.close();
-      } catch {
-        // ignore
-      }
+      } catch {}
     };
   }
 
@@ -156,7 +132,7 @@ export class ShipConnection {
     try {
       event = decodeFleetEvent(typeof data === "string" ? data : String(data));
     } catch {
-      return; // ignore anything that isn't a valid FleetEvent
+      return;
     }
 
     if (this.identity === undefined) {

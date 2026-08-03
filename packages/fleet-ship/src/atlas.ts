@@ -1,11 +1,3 @@
-/**
- * atlas.ts — writes the ship's `atlas.json` discovery file.
- *
- * The file lives at the root of the ship's data directory (`fleetDirectory`).
- * Since workspaces live at `<fleetDirectory>/<repo>/<name>`, an agent inside a
- * workspace can walk up to find it and learn the local port to reach the ship.
- */
-
 import { lstat, open, rename, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { ATLAS_FILENAME, type Atlas } from "fleet-protocol";

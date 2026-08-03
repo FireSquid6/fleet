@@ -9,9 +9,8 @@ interface ModalProps {
 }
 
 /**
- * Minimal centered dialog in the Bridge design language. Closes on backdrop click
- * and Esc. Not focus-trapped — the app has no other overlay competing for focus,
- * so a full a11y dialog primitive would be more machinery than this UI needs.
+ * Not focus-trapped — the app has no other overlay competing for focus, so a
+ * full a11y dialog primitive would be more machinery than this UI needs.
  */
 export function Modal({ open, onClose, title, children }: ModalProps) {
   useEffect(() => {

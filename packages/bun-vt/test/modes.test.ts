@@ -1,8 +1,3 @@
-/**
- * test/modes.test.ts — DEC private modes: autowrap, origin, cursor visibility,
- * alternate screen; plus RIS reset.
- */
-
 import { test, expect, describe } from "bun:test";
 import { Screen, Terminal } from "../src/index";
 

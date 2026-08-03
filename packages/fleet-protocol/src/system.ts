@@ -1,13 +1,7 @@
 /**
- * src/system.ts — the system-resources DTO reported by a ship's
- * `GET /system-resources` route (and re-exposed/aggregated by the bridge).
- *
- * A plain interface (like `WorkspaceStatus`): it travels over the typed Eden
- * HTTP surface, so — unlike the `/events` payloads — no third party decodes it
- * from a raw string and it needs no zod schema.
+ * No zod schema: this travels over the typed Eden HTTP surface, so nothing
+ * decodes it from a raw string the way `/events` payloads are decoded.
  */
-
-/** A point-in-time snapshot of a host's system resources. */
 export interface SystemResources {
   /** System uptime in seconds (`os.uptime()`). */
   readonly uptimeSeconds: number;

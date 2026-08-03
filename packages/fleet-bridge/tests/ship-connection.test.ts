@@ -1,10 +1,3 @@
-/**
- * ship-connection.test.ts — direct unit tests for the transport layer:
- * `toWsUrl`, `waitForSync` (resolve + timeout), event application to the
- * connection's own workspace map, and status transitions. A hand-driven
- * `ManualSocket` lets each test control open/message/close timing.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { ShipConnection, toWsUrl, type SocketLike } from "../src/ship-connection";
 import type { ShipStatus } from "../src/types";

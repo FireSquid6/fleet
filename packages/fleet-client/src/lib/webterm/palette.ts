@@ -1,7 +1,4 @@
 /**
- * palette.ts — resolve a `WireColor` (the wire form from `webterm/protocol`) to a
- * CSS color string for the canvas renderer.
- *
  * The 256-color table is the xterm standard: 16 ANSI colors, then a 6×6×6 color
  * cube (indices 16–231), then a 24-step grayscale ramp (232–255). The first 16
  * are tuned to the app's terminal palette (see `--color-term-*` in globals.css)

@@ -1,5 +1,3 @@
-/** Filesystem ownership and atomic writes shared by Fleet's integration installers. */
-
 import {
   lstat,
   mkdir,
@@ -114,7 +112,7 @@ type FileSnapshot = {
 };
 type ParentIdentity = { path: string; dev: number | bigint; ino: number | bigint };
 
-export function isMissing(error: unknown): boolean {
+function isMissing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
@@ -811,10 +809,6 @@ function transitionEntry(transition: ManifestTransition): ManifestEntry {
   };
 }
 
-function desiredMatches(snapshot: FileSnapshot | undefined, hash: string, mode?: number): boolean {
-  return snapshotMatches(snapshot, hash, mode);
-}
-
 /** Serialize one manifest read-modify-write session in-process and across Fleet processes. */
 export async function withManagedFiles<T>(
   homeDirectory: string,
@@ -926,7 +920,7 @@ export async function withManagedFiles<T>(
           } else if (!snapshotMatches(current, recorded.sha256, recorded.mode)) {
             if (!ownership.force) return "conflict";
             status = "updated";
-          } else if (desiredMatches(current, desiredHash, desiredMode)) {
+          } else if (snapshotMatches(current, desiredHash, desiredMode)) {
             if (recorded.mode !== desiredMode) {
               manifest.files[normalized] = {
                 provider: ownership.provider,
@@ -1063,17 +1057,17 @@ export async function inspectManagedFile(
   const transition = manifest.transitions[normalized];
   if (transition) {
     if (snapshotMatches(current, transition.intendedSha256, transition.intendedMode)) {
-      return desiredMatches(current, sha256(bytes(contents)), mode) ? "current" : "outdated-owned";
+      return snapshotMatches(current, sha256(bytes(contents)), mode) ? "current" : "outdated-owned";
     }
     if (!snapshotMatches(current, transition.previousSha256, transition.previousMode)) {
       return "conflict-unmanaged";
     }
-    return desiredMatches(current, sha256(bytes(contents)), mode) ? "current" : "outdated-owned";
+    return snapshotMatches(current, sha256(bytes(contents)), mode) ? "current" : "outdated-owned";
   }
   const recorded = manifest.files[normalized];
   if (!recorded) return "conflict-unmanaged";
   if (!snapshotMatches(current, recorded.sha256, recorded.mode)) return "conflict-unmanaged";
-  return desiredMatches(current, sha256(bytes(contents)), mode) ? "current" : "outdated-owned";
+  return snapshotMatches(current, sha256(bytes(contents)), mode) ? "current" : "outdated-owned";
 }
 
 /** Exposed for focused manifest tests and diagnostics. */

@@ -1,8 +1,3 @@
-/**
- * managed-fs-remove.test.ts — `ManagedFileSession.remove`, the uninstall half of
- * the managed-file contract, asserted directly rather than through an installer.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

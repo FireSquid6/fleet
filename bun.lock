@@ -26,6 +26,7 @@
         "commander": "latest",
         "elysia": "latest",
         "fleet-bridge": "workspace:*",
+        "fleet-cli-kit": "workspace:*",
         "fleet-client": "workspace:*",
         "fleet-protocol": "workspace:*",
         "fleet-ship": "workspace:*",
@@ -65,6 +66,7 @@
         "commander": "latest",
         "elysia": "latest",
         "fleet-bridge": "workspace:*",
+        "fleet-cli-kit": "workspace:*",
         "fleet-protocol": "workspace:*",
       },
       "devDependencies": {
@@ -76,6 +78,15 @@
     },
     "packages/bun-vt": {
       "name": "bun-vt",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/cli-bun": {
+      "name": "cli-bun",
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -99,6 +110,19 @@
         "webterm": "workspace:*",
         "yaml": "latest",
         "zod": "latest",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+      "peerDependencies": {
+        "typescript": "^5",
+      },
+    },
+    "packages/fleet-cli-kit": {
+      "name": "fleet-cli-kit",
+      "dependencies": {
+        "@elysiajs/eden": "latest",
+        "fleet-bridge": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -181,6 +205,9 @@
     },
     "packages/git-bun": {
       "name": "git-bun",
+      "dependencies": {
+        "cli-bun": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -190,6 +217,9 @@
     },
     "packages/tmux-bun": {
       "name": "tmux-bun",
+      "dependencies": {
+        "cli-bun": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -728,6 +758,8 @@
 
     "cli": ["cli@workspace:apps/cli"],
 
+    "cli-bun": ["cli-bun@workspace:packages/cli-bun"],
+
     "cliui": ["cliui@8.0.1", "", { "dependencies": { "string-width": "^4.2.0", "strip-ansi": "^6.0.1", "wrap-ansi": "^7.0.0" } }, "sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ=="],
 
     "clsx": ["clsx@2.1.1", "", {}, "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA=="],
@@ -861,6 +893,8 @@
     "flattie": ["flattie@1.1.1", "", {}, "sha512-9UbaD6XdAL97+k/n+N7JwX46K/M6Zc6KcFYskrYL8wbBV/Uyk0CTAMY0VT+qiK5PM7AIc9aTWYtq65U7T+aCNQ=="],
 
     "fleet-bridge": ["fleet-bridge@workspace:packages/fleet-bridge"],
+
+    "fleet-cli-kit": ["fleet-cli-kit@workspace:packages/fleet-cli-kit"],
 
     "fleet-client": ["fleet-client@workspace:packages/fleet-client"],
 

@@ -1,12 +1,3 @@
-/**
- * workspace-manager.ts — owns the on-disk workspace layout, the tmux namespace
- * that tracks active/inactive state, and the git operations on each workspace.
- *
- * A workspace is a git clone of a repo on a branch, living at
- * `<fleetDirectory>/<repoName>/<name>`, where `<repoName>` is the bridge-assigned
- * repo name. It is identified by the `(repoName, name)` pair.
- */
-
 import { lstat, readdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Git, GitError, type DiffOptions } from "git-bun";
@@ -50,8 +41,6 @@ export class WorkspaceError extends Error {
     this.name = "WorkspaceError";
   }
 }
-
-export type CreateWorkspaceOptions = CreateWorkspaceRequest;
 
 export interface SwitchBranchOptions {
   readonly branch: string;
@@ -185,18 +174,15 @@ export class WorkspaceManager {
     for (const listener of this.listeners) listener(event);
   }
 
-  /** Common event fields: the emitting ship's name and an ISO timestamp. */
   private stamp(): { ship: string; at: string } {
     return { ship: this.config.name, at: new Date().toISOString() };
   }
 
-  /** Map key for the `(repoName, name)` pair that identifies a workspace. */
   private key(repoName: string, name: string): string {
     this.validateIdentifiers(repoName, name);
     return `${repoName}/${name}`;
   }
 
-  /** Deterministic tmux session name for a `(repoName, name)` pair. */
   sessionName(repoName: string, name: string): string {
     this.validateIdentifiers(repoName, name);
     return workspaceSessionName(repoName, name);
@@ -209,16 +195,11 @@ export class WorkspaceManager {
 
   /** Whether the workspace directory exists on disk (is a git working tree). */
   async has(repoName: string, name: string): Promise<boolean> {
-    this.validateIdentifiers(repoName, name);
     try {
-      const dir = await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
-      const gitStat = await lstat(containedPath(dir, ".git"));
-      if (!gitStat.isDirectory()) throw new ContainedPathError(`git metadata is not a directory: ${dir}/.git`);
-      await existingWorkspacePath(this.config.fleetDirectory, repoName, name);
+      await this.requireWorkspace(repoName, name);
       return true;
     } catch (error) {
-      if (error instanceof ContainedPathError) throw new WorkspaceError(error.message, 400);
-      if (["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+      if (error instanceof WorkspaceError && error.status === 404) return false;
       throw error;
     }
   }
@@ -394,7 +375,6 @@ export class WorkspaceManager {
     return status;
   }
 
-  /** Current agent status for a workspace, or `null` if none is attached. */
   agentStatus(repoName: string, name: string): AgentStatus | null {
     this.validateIdentifiers(repoName, name);
     return this.agentStatuses.get(this.key(repoName, name)) ?? null;
@@ -422,7 +402,7 @@ export class WorkspaceManager {
     return status;
   }
 
-  async create(options: CreateWorkspaceOptions): Promise<WorkspaceSummary> {
+  async create(options: CreateWorkspaceRequest): Promise<WorkspaceSummary> {
     const parsed = CreateWorkspaceRequestSchema.safeParse(options);
     if (!parsed.success) throw new WorkspaceError("invalid workspace create request", 400);
     const { url, repoName, name } = parsed.data;

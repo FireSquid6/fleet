@@ -1,9 +1,5 @@
-/**
- * test/unicode.test.ts — UTF-8 decoding, wide characters, combining marks.
- *
- * Characters are written with explicit \u/\u{} escapes so the test is immune to
- * whatever normalization form the editor stores the source file in.
- */
+// Characters are written with explicit \u/\u{} escapes so the test is immune to
+// whatever normalization form the editor stores the source file in.
 
 import { test, expect, describe } from "bun:test";
 import { Screen, Terminal, wcwidth } from "../src/index";

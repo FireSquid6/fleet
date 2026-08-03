@@ -4,7 +4,6 @@ import { SESSION_FORMAT, parseSessions } from "./format";
 import { Session } from "./session";
 import type { NewSessionOptions, OptionScope, SessionInfo } from "./types";
 
-/** Construction options for {@link Tmux}. */
 export type TmuxOptions = TmuxCommandOptions;
 
 // Substrings tmux uses to report an unreachable server. Seeing one of these on a
@@ -12,17 +11,15 @@ export type TmuxOptions = TmuxCommandOptions;
 const NO_SERVER = /no server running|error connecting|No such file/i;
 
 /**
- * Root handle for a single namespaced tmux server. Everything reachable from a
- * `Tmux` instance is confined to its namespace: the underlying
- * {@link TmuxCommand} injects `-L <namespace>` (or `-S <socketPath>`) into every
- * invocation, so no session, window, or pane outside this namespace can be
- * listed, touched, or killed.
+ * Everything reachable from a `Tmux` instance is confined to its namespace: the
+ * underlying {@link TmuxCommand} injects `-L <namespace>` (or `-S <socketPath>`)
+ * into every invocation, so no session, window, or pane outside this namespace
+ * can be listed, touched, or killed.
  */
 export class Tmux {
   /**
-   * The low-level command helper, exposed as an escape hatch for tmux
-   * subcommands this library does not wrap. Calls still go through the
-   * namespace socket flags, so the isolation guarantee holds here too.
+   * Escape hatch for tmux subcommands this library does not wrap. Calls still go
+   * through the namespace socket flags, so the isolation guarantee holds here too.
    */
   readonly command: TmuxCommand;
 
@@ -121,7 +118,6 @@ export class Tmux {
     return value.length === 0 ? undefined : value;
   }
 
-  /** Set an option via `set-option`. Pass {@link OptionScope.global} for `-g`. */
   async setOption(name: string, value: string, scope: OptionScope = {}): Promise<void> {
     const args = ["set-option"];
     if (scope.global) args.push("-g");

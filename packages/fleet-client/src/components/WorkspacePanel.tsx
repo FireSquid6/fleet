@@ -15,9 +15,9 @@ interface WorkspacePanelProps {
 type Tab = "terminal" | "diff";
 
 /**
- * The workspace's main pane: a Terminal/Diff tab switcher. Each tab is mounted
- * only while selected — the terminal re-attaches its (server-persistent tmux)
- * session on switch-back, and the diff is fetched fresh when its tab opens.
+ * Each tab is mounted only while selected — the terminal re-attaches its
+ * (server-persistent tmux) session on switch-back, and the diff is fetched fresh
+ * when its tab opens.
  */
 export function WorkspacePanel({ repo, name, ship, branch, active, onActivate }: WorkspacePanelProps) {
   const [tab, setTab] = useState<Tab>("terminal");

@@ -1,13 +1,3 @@
-/**
- * helpers.ts — shared fakes for the bridge test suite.
- *
- * A `FleetManager` is built against a fake `SocketLike` (`/events`) and a fake
- * Eden client, so the dedupe/routing/error logic is exercised with no real ships.
- * `FakeSocket.byBase` lets a test grab a ship's live socket to close it (force
- * offline) or `emit()` a post-init event; a ship can also be configured to never
- * sync, to return an Eden error, or to throw (network failure).
- */
-
 import type { ArmorySyncState, FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
 import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 
@@ -33,7 +23,6 @@ export interface FakeShip {
   throws?: boolean;
 }
 
-/** Reduce a `ws://host/events` (or `/…/terminal`) url back to its `http://host` base. */
 export function httpBase(wsUrl: string): string {
   const u = new URL(wsUrl);
   u.protocol = u.protocol === "wss:" ? "https:" : "http:";
@@ -73,7 +62,6 @@ export class FakeSocket implements SocketLike {
     }, 0);
   }
 
-  /** Push a `/events` message to the connection (drives post-init event tests). */
   emit(event: FleetEvent | Record<string, unknown>): void {
     this.onmessage?.({ data: JSON.stringify(event) });
   }
@@ -102,7 +90,6 @@ export function fakeResources(hostname: string): SystemResources {
   };
 }
 
-/** A fake Eden client covering the ship endpoints the manager calls. */
 export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
   const ship = () => ships.get(httpUrl);
 
@@ -226,7 +213,6 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
   };
 }
 
-/** Build `ShipConnectionDeps` backed by the fake ships (optionally overriding pieces). */
 export function makeDeps(
   ships: Map<string, FakeShip>,
   overrides?: Partial<ShipConnectionDeps>,
@@ -238,7 +224,6 @@ export function makeDeps(
   };
 }
 
-/** Convenience `WorkspaceSummary` builder. */
 export const ws = (repoName: string, name: string, active = false): WorkspaceSummary => ({
   repoName,
   name,

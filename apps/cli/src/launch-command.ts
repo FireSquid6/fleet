@@ -1,16 +1,8 @@
-/**
- * launch-command.ts — `fleet launch` and `fleet launch init`.
- *
- * `fleet launch` brings a whole fleet up in one process from a `fleet-config.yaml`
- * (bridge + ships + gui), auto-registering each ship with the bridge. `fleet
- * launch init` scaffolds a standard, commented config.
- */
-
 import { Command } from "commander";
 import { startBridge } from "fleet-bridge";
 import { startShip } from "fleet-ship";
 import { startClientServer } from "fleet-client";
-import { normalizeUrl } from "./client";
+import { normalizeUrl } from "fleet-cli-kit";
 import { CONFIG_TEMPLATE, loadLaunchConfig, publicUrlWarning } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";

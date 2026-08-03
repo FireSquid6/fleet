@@ -1,9 +1,3 @@
-/**
- * format.ts — pure formatting helpers for `fagent repo` output (no network,
- * no I/O). `renderTable` is copied from the fleet CLI (apps don't depend on
- * each other); the repo formatters are typed against the bridge's provider DTOs.
- */
-
 import type {
   CheckRun,
   Issue,
@@ -12,33 +6,17 @@ import type {
   PullRequestSummary,
   RepoInfo,
 } from "fleet-bridge/providers";
+import { renderTable } from "fleet-cli-kit";
 
 /**
- * Render an aligned, human-readable table: a header row followed by one row per
- * entry, each column padded to its widest cell. With no rows, only the header is
- * returned.
- */
-export function renderTable(headers: readonly string[], rows: readonly (readonly string[])[]): string {
-  const widths = headers.map((header, col) =>
-    Math.max(header.length, ...rows.map((row) => (row[col] ?? "").length)),
-  );
-
-  const formatRow = (cells: readonly string[]): string =>
-    cells.map((cell, col) => cell.padEnd(widths[col] ?? 0)).join("  ").trimEnd();
-
-  return [formatRow(headers), ...rows.map((row) => formatRow(row))].join("\n");
-}
-
-/**
- * Render a timestamp field as ISO text. The bridge sends timestamps as ISO-8601
- * strings, but Eden's Treaty client auto-parses ISO strings in responses into
- * `Date` objects, so the DTO's declared `string` may arrive as a `Date`.
+ * The bridge sends timestamps as ISO-8601 strings, but Eden's Treaty client
+ * auto-parses ISO strings in responses into `Date` objects, so the DTO's
+ * declared `string` may arrive as a `Date`.
  */
 function isoText(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-/** Render a repo's metadata as aligned `key: value` lines. */
 export function formatRepoInfo(info: RepoInfo): string {
   const lines: [string, string][] = [
     ["fullName", info.fullName],
@@ -53,7 +31,6 @@ export function formatRepoInfo(info: RepoInfo): string {
   return lines.map(([key, value]) => `${key.padEnd(width)}  ${value}`).join("\n");
 }
 
-/** Render a list of issue summaries as a table. */
 export function formatIssueList(issues: IssueSummary[]): string {
   return renderTable(
     ["#", "TITLE", "STATE", "AUTHOR", "UPDATED"],
@@ -67,7 +44,6 @@ export function formatIssueList(issues: IssueSummary[]): string {
   );
 }
 
-/** Render a single issue as a detail block: header, metadata, then the body. */
 export function formatIssue(issue: Issue): string {
   return [
     `#${issue.number} ${issue.title}`,
@@ -82,7 +58,6 @@ export function formatIssue(issue: Issue): string {
   ].join("\n");
 }
 
-/** Render a list of pull request summaries as a table. */
 export function formatPrList(prs: PullRequestSummary[]): string {
   return renderTable(
     ["#", "TITLE", "STATE", "AUTHOR", "BASE←HEAD", "DRAFT"],
@@ -97,7 +72,6 @@ export function formatPrList(prs: PullRequestSummary[]): string {
   );
 }
 
-/** Render a list of CI check runs as a table. */
 export function formatCheckList(checks: CheckRun[]): string {
   return renderTable(
     ["NAME", "STATUS", "CONCLUSION", "DETAILS"],
@@ -110,7 +84,6 @@ export function formatCheckList(checks: CheckRun[]): string {
   );
 }
 
-/** Render a single pull request as a detail block: header, metadata, then the body. */
 export function formatPr(pr: PullRequest): string {
   return [
     `#${pr.number} ${pr.title}`,

@@ -1,12 +1,3 @@
-/**
- * plugin-command.ts — the `ship plugin` command group.
- *
- * `doctor` reports, read-only, the install state of the fleet-agent skill and
- * the startup plugin for every provider. `install <provider|all>` (re)installs
- * both the skill and the plugin for one provider or all of them, reusing the
- * same installers the ship runs on boot.
- */
-
 import { homedir } from "node:os";
 import { Command } from "commander";
 import {
@@ -22,12 +13,7 @@ import {
   type PluginStatus,
 } from "./plugin-installer";
 import type { PresenceState } from "./managed-fs";
-
-/** Providers a user may pass to `install`; codex has a skill but no plugin. */
-const PROVIDERS = ["claude-code", "opencode", "copilot", "codex"] as const;
-
-/** Display order for `doctor`, matching PROVIDERS. */
-const DISPLAY_ORDER = PROVIDERS;
+import { PROVIDERS } from "./providers";
 
 /** The command each provider's harness is invoked as — what a skill/plugin is useless without. */
 const PROVIDER_CLI: Record<(typeof PROVIDERS)[number], string> = {
@@ -92,7 +78,7 @@ export async function performPluginInstall(
 }
 
 /** Locate each provider's CLI on PATH. Impure (reads PATH); the formatter takes the result. */
-export function inspectProviderClis(): CliStatus[] {
+function inspectProviderClis(): CliStatus[] {
   return PROVIDERS.map((provider) => {
     const binary = PROVIDER_CLI[provider];
     return { provider, binary, path: Bun.which(binary) };
@@ -124,7 +110,7 @@ export function formatDoctorReport(
 ): string {
   const lines: string[] = ["fleet-agent skill & plugin status", ""];
 
-  for (const provider of DISPLAY_ORDER) {
+  for (const provider of PROVIDERS) {
     lines.push(provider);
 
     const cli = clis.find((entry) => entry.provider === provider);
