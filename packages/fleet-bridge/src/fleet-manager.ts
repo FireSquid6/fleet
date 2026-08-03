@@ -3,6 +3,7 @@ import {
   ARMORY_DIRECTORY,
   CreateRepoInputSchema,
   FleetIdentifierSchema,
+  issueBranchName,
   ShipSchema,
   WorkspaceRefsSchema,
   WorkspaceSummarySchema,
@@ -18,7 +19,7 @@ import {
   type WorkspaceStatus,
   type WorkspaceSummary,
 } from "fleet-protocol";
-import type { DiffOptions } from "git-bun";
+import { Git, GitError, type DiffOptions, type RemoteRef } from "git-bun";
 import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import { defaultPublicUrl, type BridgeConfig } from "./config";
@@ -27,6 +28,7 @@ import {
   type BridgeWorkspaceEvent,
   type BridgeWorkspaceStatus,
   type BridgeWorkspaceSummary,
+  type RepoBranch,
   type ShipArmoryState,
   type ShipInfo,
   type ShipSystemResources,
@@ -69,13 +71,120 @@ export class BridgeError extends Error {
 /** How long to wait for a ship's first `sync` before treating it as offline. */
 const SYNC_TIMEOUT_MS = 5000;
 
-/** Body of `POST /workspaces` on the bridge (ship-targeted, names a registered repo). */
+/**
+ * Outer bound on a remote ref probe. Deliberately longer than the 15 s of
+ * stalled transfer `NON_INTERACTIVE_GIT_ENV` gives git, so that on a dead remote
+ * git aborts itself first and the client gets git's own diagnosis instead of a
+ * bare "timed out". This is the backstop for a git that somehow does neither.
+ */
+const LS_REMOTE_TIMEOUT_MS = 20000;
+
+/**
+ * Environment for every git invocation the bridge makes. Two failure modes, both
+ * of which would otherwise leave a git process alive after the HTTP request that
+ * spawned it has gone:
+ *
+ * - **Prompts.** git asks for credentials, ssh passphrases and unknown host keys
+ *   by opening `/dev/tty` directly, bypassing the pipes it was given — and the
+ *   bridge normally runs in an operator's foreground terminal, so that tty
+ *   exists. A private repo would park git on a prompt nobody answers forever.
+ * - **Tarpits.** A remote that completes the TCP handshake and then says nothing
+ *   holds git open indefinitely; git only inherits a deadline if it is given
+ *   one. The low-speed pair makes git abort a transfer moving under 1 byte/s for
+ *   15 s, and `ConnectTimeout` bounds the ssh handshake. Both make git exit on
+ *   its own, which is what actually reaps the process — killing the request that
+ *   is waiting on it would not.
+ *
+ * `GIT_HTTP_LOW_SPEED_*` only covers the http(s) transport; an ssh remote that
+ * connects and then stalls is still only bounded by `LS_REMOTE_TIMEOUT_MS`.
+ */
+const NON_INTERACTIVE_GIT_ENV: Record<string, string> = {
+  GIT_TERMINAL_PROMPT: "0",
+  GIT_ASKPASS: "",
+  GIT_SSH_COMMAND: "ssh -oBatchMode=yes -oConnectTimeout=10",
+  GIT_HTTP_LOW_SPEED_LIMIT: "1",
+  GIT_HTTP_LOW_SPEED_TIME: "15",
+};
+
+/**
+ * Reject with `message` if `promise` has not settled within `ms`.
+ *
+ * This bounds the *waiting*, not the work: `git-bun` exposes no handle to abort
+ * a running command, so a git process that outlives its deadline is left to exit
+ * on its own. That is why `NON_INTERACTIVE_GIT_ENV` configures git to give up by
+ * itself — this timer is the backstop, not the mechanism.
+ */
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A URL-shaped run of text; quotes and whitespace end it, as they do in git's messages. */
+const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/[^\s'"`]+/gi;
+
+/**
+ * Blank out `user:secret@` userinfo in every URL a message carries. A repo may
+ * be registered with an embedded token, and git echoes the URL it was given back
+ * in the command line it reports on failure — this keeps that out of an API
+ * response.
+ *
+ * Parsing beats pattern-matching here: a password may itself contain `@`
+ * (`https://user:p@ssw0rd@host/r`), and userinfo runs to the *last* `@` before
+ * the path, which a leftmost-shortest regex gets wrong. `URL` implements that
+ * rule; the regex below is only for candidates it refuses to parse.
+ *
+ * Not covered, deliberately: credentials in a query string
+ * (`?access_token=…`) and scp-style `token@host:org/repo.git`, neither of which
+ * is a URL this code can recognize as one.
+ */
+function redactUrlCredentials(text: string): string {
+  return text.replace(URL_IN_TEXT, (candidate) => {
+    try {
+      const url = new URL(candidate);
+      if (!url.username && !url.password) return candidate;
+      url.username = "***";
+      url.password = "";
+      return url.toString();
+    } catch {
+      return redactAuthority(candidate);
+    }
+  });
+}
+
+/** Fallback for an unparseable URL: strip through the last `@` of the authority. */
+function redactAuthority(candidate: string): string {
+  const parts = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)([\s\S]*)$/i.exec(candidate);
+  if (!parts) return candidate;
+  const [, scheme, authority = "", rest = ""] = parts;
+  const at = authority.lastIndexOf("@");
+  if (at === -1) return candidate;
+  return `${scheme}***@${authority.slice(at + 1)}${rest}`;
+}
+
+/**
+ * Body of `POST /workspaces` on the bridge (ship-targeted, names a registered
+ * repo). The branch comes either verbatim from `branch`, or from the issue that
+ * `issueNumber` identifies — exactly one of the two, never both.
+ */
 export interface CreateWorkspaceInput {
   readonly ship: string;
   readonly repoName: string;
   readonly name: string;
-  readonly branch: string;
+  readonly branch?: string;
+  readonly issueNumber?: number;
 }
+
+/** Which of the two mutually exclusive branch sources a create request chose. */
+type BranchSource = { readonly branch: string } | { readonly issueNumber: number };
 
 type EdenResult<T> = { data: T | null; error: unknown };
 
@@ -96,6 +205,10 @@ export class FleetManager {
   private readonly syncTimeoutMs: number;
   private readonly store: Store;
   private readonly makeProvider: (repo: Repo) => RepoProvider;
+  /** Probes a remote's refs; overridable so tests never shell out to git. */
+  private readonly lsRemote: typeof Git.lsRemote;
+  /** Deadline for one `lsRemote` probe (overridable in tests). */
+  private readonly lsRemoteTimeoutMs: number;
   private readonly armory: ArmoryService;
 
   constructor(
@@ -105,6 +218,8 @@ export class FleetManager {
       syncTimeoutMs?: number;
       store?: Store;
       providerFor?: (repo: Repo) => RepoProvider;
+      lsRemote?: typeof Git.lsRemote;
+      lsRemoteTimeoutMs?: number;
       armory?: ArmoryService;
     },
   ) {
@@ -112,6 +227,8 @@ export class FleetManager {
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
     this.store = opts?.store ?? new Store(config.dataDirectory);
     this.makeProvider = opts?.providerFor ?? providerFor;
+    this.lsRemote = opts?.lsRemote ?? Git.lsRemote;
+    this.lsRemoteTimeoutMs = opts?.lsRemoteTimeoutMs ?? LS_REMOTE_TIMEOUT_MS;
     this.armory = opts?.armory ?? new ArmoryService(join(config.dataDirectory, ARMORY_DIRECTORY));
   }
 
@@ -311,6 +428,52 @@ export class FleetManager {
     this.identifier(name, "repo");
     const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
+  }
+
+  /**
+   * `GET /repos/:name/branches` — the branches the repo's remote advertises.
+   *
+   * Answered with `ls-remote` rather than through the repo's provider on purpose:
+   * `addRepo` defaults a repo to `provider: "custom"`, for which `providerFor`
+   * throws 501, so a provider-backed listing would be dead for most registered
+   * repos. `ls-remote` speaks to any git URL and needs no token.
+   */
+  async listRepoBranches(name: string): Promise<RepoBranch[]> {
+    this.identifier(name, "repo");
+    const repo = await this.store.getRepo(name);
+    if (!repo) throw new BridgeError(`repo not found: ${name}`, 404);
+
+    let refs: RemoteRef[];
+    try {
+      refs = await withTimeout(
+        this.lsRemote(repo.url, {
+          cwd: this.config.dataDirectory,
+          heads: true,
+          env: NON_INTERACTIVE_GIT_ENV,
+        }),
+        this.lsRemoteTimeoutMs,
+        `timed out after ${this.lsRemoteTimeoutMs}ms`,
+      );
+    } catch (error) {
+      // Any failure here is the remote's or the network's, not the caller's — and
+      // a raw GitError must not reach the route, which would report it as a 500.
+      // git's own stderr is preferred over the GitError message because the
+      // message replays the command line, credentials in the URL included.
+      const detail = error instanceof GitError ? error.stderr.trim() || error.message : (error as Error).message;
+      throw new BridgeError(
+        redactUrlCredentials(`could not list branches for repo "${name}": ${detail}`),
+        502,
+      );
+    }
+
+    const prefix = "refs/heads/";
+    return refs
+      .filter((ref) => ref.ref.startsWith(prefix))
+      .map((ref) => ({ name: ref.ref.slice(prefix.length), sha: ref.sha }))
+      // Plain codepoint order, not `localeCompare`: the listing must not reorder
+      // itself with the bridge host's locale. `--heads` hides HEAD, so which
+      // branch is the default one is not knowable here.
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
   /** `ProviderError` from `fn` propagates unchanged so the API can surface its status. */
@@ -551,10 +714,15 @@ export class FleetManager {
     return parsed.data;
   }
 
-  /** `POST /workspaces {ship,repoName,name,branch}` — clones a registered repo. */
+  /**
+   * `POST /workspaces {ship,repoName,name,branch|issueNumber}` — clones a
+   * registered repo onto a branch, either named outright or derived from an
+   * issue (which also creates and links that branch on the provider).
+   */
   async createWorkspace(input: CreateWorkspaceInput): Promise<BridgeWorkspaceSummary> {
     this.identifier(input.repoName, "repo");
     this.identifier(input.name, "workspace");
+    const source = this.branchSource(input);
     const conn = this.connections.get(input.ship);
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
 
@@ -583,12 +751,24 @@ export class FleetManager {
     let retainReservation = false;
 
     try {
+      // Resolving the issue happens under the reservation, so two concurrent
+      // creates of the same workspace cannot both ask the provider for a branch;
+      // the second is turned away with a 409 before it gets here.
+      //
+      // The branch outliving a failed create is accepted rather than undone: if
+      // the ship call below fails, the linked branch stays on the remote with no
+      // workspace behind it. Nothing is corrupted — the `finally` still clears
+      // the reservation, the error the user sees is the ship's, and a retry
+      // resolves the same branch because `linkBranchToIssue` is idempotent.
+      const branch =
+        "branch" in source ? source.branch : await this.branchForIssue(input.repoName, source.issueNumber);
+
       const response = await this.call<WorkspaceSummary>(conn, () =>
         conn.client.workspaces.post({
           url: repo.url,
           repoName: input.repoName,
           name: input.name,
-          branch: input.branch,
+          branch,
         }) as Promise<EdenResult<WorkspaceSummary>>,
         { ambiguousEmptyResponse: true },
       );
@@ -638,6 +818,56 @@ export class FleetManager {
         this.createReservations.delete(key);
       }
     }
+  }
+
+  /**
+   * Validate a create request's mutually exclusive branch source. The ship also
+   * rejects a blank branch, but doing it here saves the round trip and keeps the
+   * "one of the two" rule in a single place.
+   */
+  private branchSource(input: CreateWorkspaceInput): BranchSource {
+    if (input.branch !== undefined && input.issueNumber !== undefined) {
+      throw new BridgeError("a workspace is created from a branch or an issue, not both", 400);
+    }
+    if (input.branch !== undefined) {
+      const branch = input.branch.trim();
+      if (branch.length === 0) throw new BridgeError("branch must not be empty", 400);
+      return { branch };
+    }
+    if (input.issueNumber !== undefined) {
+      // `t.Numeric()` admits 0, 1.5 and -3; rejecting them here costs nothing,
+      // where letting them through costs a provider round trip to learn that no
+      // such issue exists.
+      if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber < 1) {
+        throw new BridgeError("issueNumber must be a positive integer", 400);
+      }
+      return { issueNumber: input.issueNumber };
+    }
+    throw new BridgeError("a workspace needs either a branch or an issue to start from", 400);
+  }
+
+  /**
+   * Turn an issue into the branch a new workspace sits on: read the issue, then
+   * have the provider create and link `<number>-<slug>`. The name the provider
+   * returns wins over the computed one — it may have de-duplicated it.
+   */
+  private async branchForIssue(repoName: string, issueNumber: number): Promise<string> {
+    return this.withProvider(repoName, async (provider) => {
+      const issue = await provider.getIssue(issueNumber);
+      let computed: string;
+      try {
+        computed = issueBranchName(issue);
+      } catch (error) {
+        // The issue identity came from the provider, so a name that cannot be
+        // derived from it is an upstream fault, not a bad request.
+        throw new BridgeError(
+          `could not derive a branch name for issue ${issueNumber}: ${(error as Error).message}`,
+          502,
+        );
+      }
+      const linked = await provider.linkBranchToIssue(issueNumber, computed);
+      return linked.name;
+    });
   }
 
   /** `POST /workspaces/:repo/:name/branch`. */

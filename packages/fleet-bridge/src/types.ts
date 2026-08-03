@@ -32,6 +32,12 @@ export type BridgeWorkspaceEvent =
       readonly workspace: BridgeWorkspaceSummary;
     };
 
+/** A branch a registered repo's remote advertises — a row of `GET /repos/:name/branches`. */
+export interface RepoBranch {
+  readonly name: string;
+  readonly sha: string;
+}
+
 /**
  * One ship's entry in the aggregate `GET /system-resources`. `resources` is
  * present when the ship is online and responded; otherwise `error` explains why

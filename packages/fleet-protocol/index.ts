@@ -1,4 +1,5 @@
 export { FleetIdentifierSchema, parseFleetIdentifier } from "./src/identifier";
+export { issueBranchName } from "./src/issue-branch";
 export {
   DEFAULT_PORT,
   ATLAS_FILENAME,

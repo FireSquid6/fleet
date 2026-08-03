@@ -4,6 +4,7 @@ import type {
   Issue,
   IssueComment,
   IssueSummary,
+  LinkedBranch,
   ListOptions,
   PullRequest,
   PullRequestSummary,
@@ -23,6 +24,42 @@ export interface GitHubProviderConfig {
 }
 
 const DEFAULT_BASE_URL = "https://api.github.com";
+
+/**
+ * The only way to attach a branch to an issue: GitHub exposes the linkage
+ * through GraphQL alone, with no REST equivalent. The mutation creates the ref
+ * as well, so nothing has to push a branch beforehand.
+ */
+const CREATE_LINKED_BRANCH = `mutation CreateLinkedBranch($issueId: ID!, $oid: GitObjectID!, $name: String!) {
+  createLinkedBranch(input: { issueId: $issueId, oid: $oid, name: $name }) {
+    linkedBranch {
+      ref {
+        name
+        target { oid }
+      }
+    }
+  }
+}`;
+
+/**
+ * The branches already attached to an issue, used to make `linkBranchToIssue`
+ * idempotent. `first: 10` is generous: GitHub's own UI links one branch per
+ * issue, and only a human linking branches by hand pushes it past that.
+ */
+const LINKED_BRANCHES = `query LinkedBranches($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      linkedBranches(first: 10) {
+        nodes {
+          ref {
+            name
+            target { oid }
+          }
+        }
+      }
+    }
+  }
+}`;
 
 /**
  * Extract `{ owner, repo }` from a git clone URL. Handles the https web form
@@ -63,6 +100,8 @@ interface GitHubRepo {
 
 interface GitHubIssue {
   number: number;
+  /** GraphQL global id — the handle `createLinkedBranch` addresses the issue by. */
+  node_id?: string;
   title: string;
   state: string;
   user: GitHubUser | null;
@@ -129,6 +168,50 @@ interface GitHubJob {
   conclusion: string | null;
 }
 
+interface GitHubRef {
+  object?: { sha?: string };
+}
+
+/** Envelope of a GraphQL reply; `errors` can be present alongside HTTP 200. */
+interface GraphQLResponse<T> {
+  data?: T | null;
+  errors?: { message?: unknown }[];
+}
+
+/** The `{ name, target { oid } }` selection both linked-branch operations share. */
+interface GraphQLRef {
+  name?: string;
+  target?: { oid?: string } | null;
+}
+
+interface CreateLinkedBranchResult {
+  createLinkedBranch?: {
+    linkedBranch?: { ref?: GraphQLRef | null } | null;
+  } | null;
+}
+
+interface LinkedBranchesResult {
+  repository?: {
+    issue?: {
+      linkedBranches?: { nodes?: ({ ref?: GraphQLRef | null } | null)[] | null } | null;
+    } | null;
+  } | null;
+}
+
+/**
+ * Statuses that mean the create was refused for a reason no amount of looking
+ * around will change. Everything else is treated as "the branch may already
+ * exist" — the safe default, since a wrong guess there costs one extra read
+ * while the opposite dead-ends the issue permanently.
+ */
+const REFUSALS_TO_SURFACE = new Set([401, 403, 404]);
+
+/** A ref selection that carries both fields, or `undefined` if it does not. */
+function toLinkedBranch(ref: GraphQLRef | null | undefined): LinkedBranch | undefined {
+  if (!ref?.name || !ref.target?.oid) return undefined;
+  return { name: ref.name, sha: ref.target.oid };
+}
+
 export class GitHubProvider implements RepoProvider {
   private readonly owner: string;
   private readonly repo: string;
@@ -160,8 +243,11 @@ export class GitHubProvider implements RepoProvider {
 
   async listIssues(options?: ListOptions): Promise<IssueSummary[]> {
     const state = options?.state ?? "open";
+    // GitHub pages at 30 by default and says nothing about the truncation. The
+    // list feeds a search-over-all-issues picker, so 100 — the maximum a single
+    // page allows — is the difference between "no matches" and the issue.
     const issues = await this.request<GitHubIssue[]>(
-      `/repos/${this.owner}/${this.repo}/issues?state=${state}`,
+      `/repos/${this.owner}/${this.repo}/issues?state=${state}&per_page=100`,
     );
     // GitHub's `/issues` endpoint returns pull requests too.
     return issues
@@ -288,6 +374,133 @@ export class GitHubProvider implements RepoProvider {
     return logs;
   }
 
+  /**
+   * Create `branch` off the default branch's head and record it as issue
+   * `issueNumber`'s linked development branch, in one mutation. Needs a token
+   * with repo write scope: it writes a ref and an issue timeline entry.
+   *
+   * Three reads precede the write because the mutation is addressed by GraphQL
+   * node id and a commit oid, neither of which the caller has: the issue's
+   * `node_id`, the repo's default branch, and that branch's head SHA.
+   *
+   * Idempotent as far as it can be — asking twice for the same branch is
+   * ordinary (a second workspace off one issue, a retry after a failed clone, or
+   * a branch someone already made with `gh issue develop`). What GitHub does
+   * with a duplicate is **not verified here**: it has been reported both as a
+   * null `linkedBranch` on an HTTP 200 and as a refusal, and the API docs
+   * describe de-duplicating the name instead. So rather than encoding a guess,
+   * anything short of a clear auth/permission/not-found failure is treated as
+   * "it may already be there" and handed to {@link existingBranch}, which
+   * decides on evidence.
+   */
+  async linkBranchToIssue(issueNumber: number, branch: string): Promise<LinkedBranch> {
+    this.requireToken();
+
+    const issue = await this.request<GitHubIssue>(
+      `/repos/${this.owner}/${this.repo}/issues/${issueNumber}`,
+    );
+    if (!issue.node_id) {
+      throw new ProviderError(`GitHub issue ${issueNumber} carried no node id`, 502);
+    }
+
+    const { defaultBranch } = await this.getInfo();
+    // Not URL-encoded: a default branch may legitimately contain "/", which is a
+    // path separator in the ref endpoint rather than data.
+    const base = await this.request<GitHubRef>(
+      `/repos/${this.owner}/${this.repo}/git/ref/heads/${defaultBranch}`,
+    );
+    if (!base.object?.sha) {
+      throw new ProviderError(`GitHub returned no head commit for branch ${defaultBranch}`, 502);
+    }
+
+    let result: CreateLinkedBranchResult;
+    try {
+      result = await this.graphql<CreateLinkedBranchResult>(CREATE_LINKED_BRANCH, {
+        issueId: issue.node_id,
+        oid: base.object.sha,
+        name: branch,
+      });
+    } catch (error) {
+      // Refusals worth reporting as-is: no token, no scope, no such issue. They
+      // cannot mean "already there", and looking would only mask them. Anything
+      // else — including a refusal whose wording nothing here can anticipate —
+      // is checked against what exists before it is called a failure.
+      if (error instanceof ProviderError && REFUSALS_TO_SURFACE.has(error.status)) throw error;
+      return this.existingBranch(issueNumber, branch, error);
+    }
+
+    // A `linkedBranch` that is explicitly null is GitHub declining to create
+    // one; a *missing* payload is a reply this code cannot read. Only the first
+    // means "look for what is already there" — conflating them would throw away
+    // a branch that had just been created and silently use an older one.
+    if (result.createLinkedBranch?.linkedBranch === null) {
+      return this.existingBranch(issueNumber, branch);
+    }
+    const created = toLinkedBranch(result.createLinkedBranch?.linkedBranch?.ref);
+    if (!created) {
+      throw new ProviderError(
+        `GitHub createLinkedBranch returned an unusable payload for issue ${issueNumber}`,
+        502,
+      );
+    }
+    return created;
+  }
+
+  /**
+   * What to use when `createLinkedBranch` would not create anything, in order of
+   * how well it matches what the caller asked for:
+   *
+   * 1. a branch of exactly `requested` already linked to the issue — the retry
+   *    and second-workspace cases, and the only outright happy answer;
+   * 2. a branch named `requested` that exists but was never linked — someone
+   *    pushed it by hand; it is still the branch the caller named.
+   *
+   * A branch linked to the issue under some *other* name is deliberately not
+   * used: it is not what was asked for, and returning it would silently put a
+   * workspace on a branch the user never saw. That case fails instead, carrying
+   * `cause` so the reason the create was refused is not lost.
+   */
+  private async existingBranch(
+    issueNumber: number,
+    requested: string,
+    cause?: unknown,
+  ): Promise<LinkedBranch> {
+    const result = await this.graphql<LinkedBranchesResult>(LINKED_BRANCHES, {
+      owner: this.owner,
+      repo: this.repo,
+      number: issueNumber,
+    });
+    const linked = (result.repository?.issue?.linkedBranches?.nodes ?? [])
+      .map((node) => toLinkedBranch(node?.ref))
+      .find((ref) => ref?.name === requested);
+    if (linked) return linked;
+
+    const unlinked = await this.branchRef(requested);
+    if (unlinked) return unlinked;
+
+    const detail = cause instanceof Error ? `: ${cause.message}` : "";
+    throw new ProviderError(
+      `GitHub would not create branch "${requested}" for issue ${issueNumber}, and no branch of that name exists${detail}`,
+      409,
+    );
+  }
+
+  /** One branch by name, or `undefined` when the remote has no such ref. */
+  private async branchRef(branch: string): Promise<LinkedBranch | undefined> {
+    try {
+      const ref = await this.request<GitHubRef>(
+        `/repos/${this.owner}/${this.repo}/git/ref/heads/${branch}`,
+      );
+      return ref.object?.sha ? { name: branch, sha: ref.object.sha } : undefined;
+    } catch (error) {
+      // Only a 404 carries information — it means the ref is genuinely absent. A
+      // 403 or a 502 says nothing about whether the branch exists, and reporting
+      // either as "no such branch" would be a lie.
+      if (error instanceof ProviderError && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
   private async postComment(number: number, body: string): Promise<IssueComment> {
     this.requireToken();
     const comment = await this.request<GitHubComment>(
@@ -367,6 +580,32 @@ export class GitHubProvider implements RepoProvider {
     }
 
     return (await response.json()) as T;
+  }
+
+  /**
+   * Run a GraphQL operation through `request`, so it shares the REST path's
+   * headers, auth and failure mapping. GraphQL reports *operation* failures with
+   * HTTP 200 and a populated `errors` array, so a transport success still has to
+   * be inspected before the payload can be trusted.
+   */
+  private async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+    const payload = await this.request<GraphQLResponse<T>>("/graphql", {
+      method: "POST",
+      body: { query, variables },
+    });
+
+    const first = payload.errors?.[0];
+    if (first !== undefined) {
+      const message = typeof first.message === "string" ? first.message : "unknown GraphQL error";
+      // A GraphQL error has no status of its own. Callers that care what kind of
+      // failure it was must decide from context — matching on the wording would
+      // break the first time GitHub rephrases it, or answers in another locale.
+      throw new ProviderError(`GitHub GraphQL request failed: ${message}`, 502);
+    }
+    if (payload.data === undefined || payload.data === null) {
+      throw new ProviderError("GitHub GraphQL response carried no data", 502);
+    }
+    return payload.data;
   }
 
   /**

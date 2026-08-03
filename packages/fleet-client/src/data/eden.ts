@@ -7,6 +7,8 @@ import type {
   ArmoryManifest,
   ArmoryShipState,
   Repo,
+  RepoBranch,
+  RepoIssue,
   Ship,
   Workspace,
   WorkspaceDetail,
@@ -96,6 +98,21 @@ export class EdenFleetBridge implements FleetBridge {
     if (error) throw edenError(error);
   }
 
+  async listRepoBranches(name: string): Promise<RepoBranch[]> {
+    const { data, error } = await this.client.repos({ name }).branches.get();
+    if (error) throw edenError(error);
+    // The handler can also surface an in-band `{ error }` body on a 200.
+    if (!Array.isArray(data)) throw edenError({ value: data });
+    return data;
+  }
+
+  async listRepoIssues(name: string): Promise<RepoIssue[]> {
+    const { data, error } = await this.client.repos({ name }).issues.get({ query: { state: "open" } });
+    if (error) throw edenError(error);
+    if (!Array.isArray(data)) throw edenError({ value: data });
+    return data;
+  }
+
   async createShip(url: string): Promise<Ship> {
     const { data, error } = await this.client.ships.post({ url });
     if (error) throw edenError(error);
@@ -159,7 +176,8 @@ export class EdenFleetBridge implements FleetBridge {
     ship: string;
     repoName: string;
     name: string;
-    branch: string;
+    branch?: string;
+    issueNumber?: number;
   }): Promise<Workspace> {
     const { data, error } = await this.client.workspaces.post(input);
     if (error) throw edenError(error);

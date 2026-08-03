@@ -7,6 +7,8 @@ import type {
   ArmoryManifest,
   ArmoryShipState,
   Repo,
+  RepoBranch,
+  RepoIssue,
   Ship,
   Workspace,
   WorkspaceDetail,
@@ -29,8 +31,22 @@ interface FleetValue {
   getWorkspace: (repo: string, name: string) => Promise<WorkspaceDetail>;
   getWorkspaceDiff: (repo: string, name: string, query: DiffQuery) => Promise<string>;
   getWorkspaceRefs: (repo: string, name: string) => Promise<WorkspaceRefs>;
-  /** Create a workspace, then refresh the workspace list. Rejects on failure. */
-  createWorkspace: (input: { ship: string; repoName: string; name: string; branch: string }) => Promise<void>;
+  /**
+   * Create a workspace, then refresh the workspace list. Rejects on failure.
+   * Exactly one of `branch` and `issueNumber` may be given — the bridge rejects
+   * both, and derives the branch itself from an issue.
+   */
+  createWorkspace: (input: {
+    ship: string;
+    repoName: string;
+    name: string;
+    branch?: string;
+    issueNumber?: number;
+  }) => Promise<void>;
+  /** The branches a repo's remote advertises. Fetched on demand by the create form. */
+  listRepoBranches: (name: string) => Promise<RepoBranch[]>;
+  /** A repo's open issues, from its provider. Fetched on demand by the create form. */
+  listRepoIssues: (name: string) => Promise<RepoIssue[]>;
   /** Register a repo, then refresh the repo list. Rejects on failure. */
   createRepo: (input: { name: string; url: string; provider?: string }) => Promise<void>;
   /** Remove a repo, then refresh the repo list. Rejects on failure. */
@@ -171,12 +187,17 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   );
 
   const createWorkspace = useCallback(
-    async (input: { ship: string; repoName: string; name: string; branch: string }) => {
+    async (input: { ship: string; repoName: string; name: string; branch?: string; issueNumber?: number }) => {
       await bridge.createWorkspace(input);
       await refresh();
     },
     [refresh],
   );
+
+  // Branches and issues belong to the create form alone, so — like the armory —
+  // they stay out of the boot snapshot and are fetched when that form opens.
+  const listRepoBranches = useCallback((name: string) => bridge.listRepoBranches(name), []);
+  const listRepoIssues = useCallback((name: string) => bridge.listRepoIssues(name), []);
 
   // Like the repo/ship mutations, these rethrow so the driving modal can show the
   // failure inline rather than swallowing it into the global banner.
@@ -215,6 +236,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
     createShip,
     deleteShip,
     createWorkspace,
+    listRepoBranches,
+    listRepoIssues,
     getArmory,
     getArmoryFile,
     listArmoryShips,

@@ -95,6 +95,12 @@ export interface ListOptions {
 
 export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
 
+/** A branch the provider created and attached to an issue. */
+export interface LinkedBranch {
+  readonly name: string;
+  readonly sha: string;
+}
+
 export interface RepoProvider {
   getInfo(): Promise<RepoInfo>;
   listIssues(options?: ListOptions): Promise<IssueSummary[]>;
@@ -108,4 +114,16 @@ export interface RepoProvider {
   listChecks(ref: string): Promise<CheckRun[]>;
   /** Raw logs of the failed GitHub Actions jobs for a commit-ish. */
   getFailedLogs(ref: string): Promise<FailedJobLog[]>;
+  /**
+   * Create `branch` on the remote *and* record it as the issue's linked
+   * development branch (GitHub's "Development → create a branch for this issue"
+   * relationship). A write: it needs a token with repo write scope.
+   *
+   * Callers must use the returned `name`, never the one they passed in: a forge
+   * may hand back a different ref. What any given forge does when the name is
+   * already taken — de-duplicate it, refuse, or return the existing link — is
+   * not established here, so an implementation is expected to cope with the name
+   * coming back changed and to be safe to call twice for the same branch.
+   */
+  linkBranchToIssue(issueNumber: number, branch: string): Promise<LinkedBranch>;
 }

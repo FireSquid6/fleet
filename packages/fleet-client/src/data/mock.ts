@@ -1,4 +1,4 @@
-import type { AgentState, AgentStatus, WorkspaceDiff, WorkspaceRefs } from "fleet-protocol";
+import { issueBranchName, type AgentState, type AgentStatus, type WorkspaceDiff, type WorkspaceRefs } from "fleet-protocol";
 import type { DiffQuery } from "@/lib/diff/diff-target";
 import type { FleetBridge } from "./provider";
 import type {
@@ -8,6 +8,8 @@ import type {
   ArmoryShipState,
   ArmorySyncState,
   Repo,
+  RepoBranch,
+  RepoIssue,
   Ship,
   Workspace,
   WorkspaceDetail,
@@ -111,6 +113,61 @@ const MOCK_BRANCHES: WorkspaceRefs["branches"] = [
   { name: "develop", remote: false },
   { name: "origin/main", remote: true },
   { name: "origin/develop", remote: true },
+];
+
+/**
+ * What a repo's remote advertises, for the create-workspace branch picker. Kept
+ * apart from `MOCK_BRANCHES`, which answers a *workspace's* refs and so carries
+ * local/remote pairs rather than the `{ name, sha }` rows of the repo route.
+ */
+const MOCK_REPO_BRANCHES: RepoBranch[] = [
+  { name: "develop", sha: "1f0a2b3c4d5e6f708192a3b4c5d6e7f809102132" },
+  { name: "feat/oauth-pkce", sha: "2a1b3c4d5e6f708192a3b4c5d6e7f80910213243" },
+  { name: "feat/redesign", sha: "3b2c4d5e6f708192a3b4c5d6e7f8091021324354" },
+  { name: "fix/rate-limit", sha: "4c3d5e6f708192a3b4c5d6e7f80910213243546a" },
+  { name: "hotfix/csp", sha: "5d4e6f708192a3b4c5d6e7f8091021324354657b" },
+  { name: "main", sha: "6e5f708192a3b4c5d6e7f8091021324354657b8c" },
+  { name: "release/2.3", sha: "7f60819a2b3c4d5e6f708192a3b4c5d6e7f80910" },
+  { name: "spike/backfill", sha: "80719a2b3c4d5e6f708192a3b4c5d6e7f8091021" },
+];
+
+/**
+ * Open issues for any provider-backed repo. The titles are deliberately varied —
+ * punctuation that the slug has to collapse, and one long enough to be truncated —
+ * so mock mode exercises the derived branch name the picker previews.
+ */
+const MOCK_ISSUES: RepoIssue[] = [
+  {
+    number: 12,
+    title: "Better create workspace issue",
+    author: "firesquid",
+    url: "https://github.com/orchestra/repo/issues/12",
+  },
+  {
+    number: 47,
+    title: "Rate limiter drops the first request after a restart",
+    author: "avery",
+    url: "https://github.com/orchestra/repo/issues/47",
+  },
+  {
+    number: 103,
+    title: "Support OAuth 2.1 / PKCE (and drop the implicit flow)",
+    author: "kai",
+    url: "https://github.com/orchestra/repo/issues/103",
+  },
+  {
+    number: 118,
+    title:
+      "Workspace terminal should reconnect automatically when the ship restarts instead of leaving a dead pane",
+    author: "morgan",
+    url: "https://github.com/orchestra/repo/issues/118",
+  },
+  {
+    number: 204,
+    title: "Docs: document the armory dotfile map",
+    author: null,
+    url: "https://github.com/orchestra/repo/issues/204",
+  },
 ];
 
 const MOCK_COMMITS: WorkspaceRefs["commits"] = [
@@ -326,16 +383,49 @@ const SEED_ARMORY_SHIP_STATES: Record<string, ArmorySyncState> = {
   },
 };
 
+/** The one seed repo that is not provider-backed; see {@link seedRepos}. */
+const CUSTOM_REPO = "notifier";
+
+/**
+ * Validate a create request's mutually exclusive branch source, mirroring the
+ * bridge's own `branchSource` (`fleet-manager.ts`) — including the checks past
+ * "one or the other": a blank branch and a non-integral issue number are 400s
+ * there, and a mock that quietly accepts them would let a form ship a bug that
+ * only the real bridge would catch.
+ */
+function branchSource(input: { branch?: string; issueNumber?: number }): { branch: string } | { issueNumber: number } {
+  if (input.branch !== undefined && input.issueNumber !== undefined) {
+    throw new Error("a workspace is created from a branch or an issue, not both");
+  }
+  if (input.branch !== undefined) {
+    const branch = input.branch.trim();
+    if (branch.length === 0) throw new Error("branch must not be empty");
+    return { branch };
+  }
+  if (input.issueNumber !== undefined) {
+    if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber < 1) {
+      throw new Error("issueNumber must be a positive integer");
+    }
+    return { issueNumber: input.issueNumber };
+  }
+  throw new Error("a workspace needs either a branch or an issue to start from");
+}
+
+/**
+ * All but one seed repo are `github`, so the issue picker has something to show;
+ * the odd one out is a plain git remote, which is what makes the picker's
+ * "this provider cannot list issues" path reachable in mock mode.
+ */
 function seedRepos(): Repo[] {
   const names: string[] = [];
   for (const w of SEED_WORKSPACES) {
     if (!names.includes(w.repoName)) names.push(w.repoName);
   }
-  return names.map((name) => ({
-    name,
-    url: `git@github.com:orchestra/${name}.git`,
-    provider: "custom",
-  }));
+  return names.map((name) =>
+    name === CUSTOM_REPO
+      ? { name, url: `git@git.internal:orchestra/${name}.git`, provider: "custom" }
+      : { name, url: `git@github.com:orchestra/${name}.git`, provider: "github" },
+  );
 }
 
 export class MockFleetBridge implements FleetBridge {
@@ -353,6 +443,28 @@ export class MockFleetBridge implements FleetBridge {
     const w = this.workspaces.find((x) => x.repoName === repo && x.name === name);
     if (!w) throw new Error(`workspace not found: ${key(repo, name)}`);
     return w;
+  }
+
+  private repo(name: string): Repo {
+    const repo = this.repos.find((r) => r.name === name);
+    if (!repo) throw new Error(`repo not found: ${name}`);
+    return repo;
+  }
+
+  /** A repo whose forge can answer issue queries — the rest 501 on the bridge. */
+  private providerRepo(name: string): Repo {
+    const repo = this.repo(name);
+    if (repo.provider.toLowerCase() !== "github") {
+      throw new Error(`provider "${repo.provider}" is not supported yet`);
+    }
+    return repo;
+  }
+
+  private issue(repoName: string, number: number): RepoIssue {
+    this.providerRepo(repoName);
+    const issue = MOCK_ISSUES.find((i) => i.number === number);
+    if (!issue) throw new Error(`issue not found: #${number}`);
+    return issue;
   }
 
   async listShips(): Promise<Ship[]> {
@@ -376,6 +488,16 @@ export class MockFleetBridge implements FleetBridge {
     const i = this.repos.findIndex((r) => r.name === name);
     if (i === -1) throw new Error(`repo not found: ${name}`);
     this.repos.splice(i, 1);
+  }
+
+  async listRepoBranches(name: string): Promise<RepoBranch[]> {
+    this.repo(name);
+    return MOCK_REPO_BRANCHES.map((b) => ({ ...b }));
+  }
+
+  async listRepoIssues(name: string): Promise<RepoIssue[]> {
+    this.providerRepo(name);
+    return MOCK_ISSUES.map((i) => ({ ...i }));
   }
 
   async createShip(url: string): Promise<Ship> {
@@ -416,14 +538,28 @@ export class MockFleetBridge implements FleetBridge {
     ship: string;
     repoName: string;
     name: string;
-    branch: string;
+    branch?: string;
+    issueNumber?: number;
   }): Promise<Workspace> {
+    const source = branchSource(input);
     if (!this.ships.some((s) => s.name === input.ship)) throw new Error(`unknown ship: ${input.ship}`);
     if (!this.repos.some((r) => r.name === input.repoName)) throw new Error(`unknown repo: ${input.repoName}`);
     if (this.workspaces.some((w) => w.repoName === input.repoName && w.name === input.name)) {
       throw new Error(`workspace already exists: ${key(input.repoName, input.name)}`);
     }
-    const ws: Workspace = { ...input, active: false, agent: null };
+    // The bridge derives the branch from the issue and links it on the provider
+    // before the ship ever sees the request; the workspace it returns is on that
+    // branch, so the mock has to do the same or issue mode looks like a no-op.
+    const branch =
+      "branch" in source ? source.branch : issueBranchName(this.issue(input.repoName, source.issueNumber));
+    const ws: Workspace = {
+      ship: input.ship,
+      repoName: input.repoName,
+      name: input.name,
+      branch,
+      active: false,
+      agent: null,
+    };
     this.workspaces.push(ws);
     this.emit({ type: "workspace.created", at: new Date().toISOString(), workspace: { ...ws } });
     return { ...ws };

@@ -1,20 +1,15 @@
 import { useState } from "react";
 import { Outlet } from "react-router-dom";
-import { cn } from "@/lib/utils";
 import type { Theme } from "@/App";
 import { useFleet } from "@/data/FleetContext";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
-/**
- * The theme is applied here by toggling the `.dark` class that switches every
- * Bridge design token (see styles/globals.css).
- */
 export function Shell({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
   const { error } = useFleet();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
-    <div className={cn("flex h-full w-full bg-bg text-text font-prose", theme === "dark" && "dark")}>
+    <div className="flex h-full w-full bg-bg text-text font-prose">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       {sidebarOpen && (
         <div

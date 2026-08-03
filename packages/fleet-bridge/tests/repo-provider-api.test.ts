@@ -166,6 +166,11 @@ describe("repo provider API", () => {
         recorder.failedLogsRef = ref;
         return [failedLog];
       },
+      // Unused by these routes, but the interface requires it.
+      async linkBranchToIssue(_issueNumber: number, branch: string) {
+        guard();
+        return { name: branch, sha: "sha-of-linked-branch" };
+      },
     };
   }
 

@@ -25,6 +25,7 @@ export function reposPlugin(manager: FleetManager) {
       return { ok: true as const };
     })
     .get("/repos/:name/info", ({ params }) => manager.repoInfo(params.name))
+    .get("/repos/:name/branches", ({ params }) => manager.listRepoBranches(params.name))
     .get(
       "/repos/:name/issues",
       ({ params, query }) => manager.listRepoIssues(params.name, { state: query.state }),

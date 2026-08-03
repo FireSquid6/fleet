@@ -1,6 +1,6 @@
 import "./index.css";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { FleetProvider } from "./data/FleetContext";
 import { Shell } from "./layouts/Shell";
@@ -16,6 +16,12 @@ export type Theme = "dark" | "light";
 export function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+
+  // On the document root rather than a wrapper element so that content
+  // portalled to `document.body` — the combobox list — is themed too.
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
 
   return (
     <FleetProvider>

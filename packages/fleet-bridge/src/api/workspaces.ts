@@ -85,7 +85,10 @@ export function workspacesPlugin(manager: FleetManager) {
           ship: t.String(),
           repoName: t.String(),
           name: t.String(),
-          branch: t.String(),
+          // Either/or, enforced by the manager rather than the schema so the
+          // client gets a 400 with a reason instead of a shapeless 422.
+          branch: t.Optional(t.String()),
+          issueNumber: t.Optional(t.Numeric()),
         }),
       },
     )

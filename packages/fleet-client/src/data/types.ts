@@ -41,6 +41,25 @@ export type WorkspaceEvent =
       readonly workspace: Workspace;
     };
 
+/** A branch a repo's remote advertises — a row of `GET /repos/:name/branches`. */
+export interface RepoBranch {
+  readonly name: string;
+  readonly sha: string;
+}
+
+/**
+ * An issue on a repo's provider — a row of `GET /repos/:name/issues`. The bridge's
+ * `IssueSummary` carries more than this (`state`, `createdAt`, `updatedAt`); only
+ * the fields the picker renders are mirrored, so the shape stays honest about what
+ * the UI depends on.
+ */
+export interface RepoIssue {
+  readonly number: number;
+  readonly title: string;
+  readonly author: string | null;
+  readonly url: string;
+}
+
 /** Detail: `WorkspaceStatus` with `ship` guaranteed on both variants. */
 export type WorkspaceDetail = WorkspaceStatus & { readonly ship: string };
 
