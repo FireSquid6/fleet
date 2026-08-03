@@ -1,9 +1,3 @@
-/**
- * events-ws.test.ts — exercises the ship's read-only `/events` WebSocket over a
- * real ephemeral-port server: snapshot-on-connect, fan-out broadcast to every
- * client, and continued delivery after one client disconnects.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { FleetEvent } from "fleet-protocol";
 import { createApp } from "../src/api";
@@ -80,14 +74,12 @@ describe("ship /events WebSocket", () => {
     await Promise.all([opened(a), opened(b)]);
     await Promise.all([nextMessage(a), nextMessage(b)]); // drain both snapshots
 
-    // Both receive the first broadcast.
     const aFirst = nextMessage(a);
     const bFirst = nextMessage(b);
     emit(created("one"));
     expect((await aFirst).type).toBe("workspace.created");
     expect((await bFirst).type).toBe("workspace.created");
 
-    // Close a; b keeps receiving.
     a.close();
     await new Promise((r) => setTimeout(r, 20)); // let the server observe the close
     const bSecond = nextMessage(b);

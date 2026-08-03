@@ -1,16 +1,3 @@
-/**
- * render-grid.ts — turn a webterm `GridMsg` snapshot into an ANSI frame the CLI
- * writes to a real terminal.
- *
- * The webterm server is the VT emulator: it streams full active-screen grid
- * snapshots (never raw PTY bytes), so the CLI has to repaint the screen itself.
- * This is the terminal-side analog of fleet-client's canvas `TerminalGrid` — same
- * cell semantics, but it emits SGR escapes instead of drawing to a canvas.
- *
- * Pure and side-effect-free (returns a string) so it can be unit-tested without a
- * TTY or a socket.
- */
-
 import { ATTR, type GridMsg, type WireCell, type WireColor } from "webterm/protocol";
 
 const ESC = "\x1b[";
@@ -23,7 +10,6 @@ function colorParams(color: WireColor | undefined, base: 38 | 48): string {
   return `${base};2;${color[0]};${color[1]};${color[2]}`;
 }
 
-/** Full SGR sequence (`ESC[…m`) that styles a single non-blank cell. */
 function cellSgr(cell: Exclude<WireCell, 0>): string {
   const params: string[] = ["0"];
   const attrs = cell.a ?? 0;
@@ -57,10 +43,9 @@ function cursorShapeSeq(shape: GridMsg["cursor"]["shape"]): string {
 }
 
 /**
- * Render a grid snapshot to a full ANSI frame. Repaints every row from the home
- * position (`ESC[H`) using clear-to-EOL (`ESC[K`) rather than a full-screen clear,
- * which avoids flicker. Each `GridMsg` is a complete snapshot, so a full repaint
- * is always correct.
+ * Repaints every row from the home position (`ESC[H`) using clear-to-EOL
+ * (`ESC[K`) rather than a full-screen clear, which avoids flicker. Each
+ * `GridMsg` is a complete snapshot, so a full repaint is always correct.
  */
 export function renderGrid(grid: GridMsg): string {
   let out = `${ESC}?25l${ESC}H`; // hide cursor while painting, home

@@ -1,8 +1,4 @@
-/**
- * helpers.ts — a stub `WorkspaceManager` for exercising the ship's API layer in
- * isolation (no tmux/git). Only the methods the routes call are implemented;
- * override any of them per test to assert error mapping and status codes.
- */
+// Only the methods the routes call are implemented; override any of them per test.
 
 import type { WorkspaceManager } from "../src/workspace-manager";
 import { workspaceSessionName } from "../src/workspace-session";

@@ -1,10 +1,5 @@
-/**
- * dotfile-linker.test.ts — drives `linkDotfiles` against a temp home holding a
- * fabricated armory cache. Links are checked with `lstat`/`readlink` as well as
- * by reading through them: "the content is right" and "it is a symlink into the
- * cache" are separate claims, and only the second one distinguishes this
- * installer from a copy.
- */
+// Links are checked with `lstat`/`readlink` as well as by reading through them:
+// only "it is a symlink into the cache" distinguishes this installer from a copy.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readlink, rm, symlink, writeFile } from "node:fs/promises";

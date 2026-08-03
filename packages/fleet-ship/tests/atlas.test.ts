@@ -1,8 +1,3 @@
-/**
- * atlas.test.ts — verifies the ship's `atlas.json` discovery file is written
- * with the reachable port and validates against the shared `AtlasSchema`.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";

@@ -20,9 +20,7 @@ interface FleetValue {
   repos: Repo[];
   workspaces: Workspace[];
   loading: boolean;
-  /** Set when talking to the bridge fails (e.g. it is unreachable). */
   error: string | null;
-  /** Number of active workspaces across the fleet (drives "N sessions live"). */
   liveCount: number;
   activate: (repo: string, name: string) => Promise<void>;
   deactivate: (repo: string, name: string) => Promise<void>;
@@ -31,9 +29,7 @@ interface FleetValue {
   /** Delete a workspace, then refresh the workspace list. Rejects on failure. */
   deleteWorkspace: (repo: string, name: string) => Promise<void>;
   getWorkspace: (repo: string, name: string) => Promise<WorkspaceDetail>;
-  /** Raw `git diff` text for a workspace, narrowed by the caller's diff query. */
   getWorkspaceDiff: (repo: string, name: string, query: DiffQuery) => Promise<string>;
-  /** Branches and recent commits a workspace's diff can be taken against. */
   getWorkspaceRefs: (repo: string, name: string) => Promise<WorkspaceRefs>;
   /**
    * Create a workspace, then refresh the workspace list. Rejects on failure.
@@ -59,20 +55,17 @@ interface FleetValue {
   createShip: (url: string) => Promise<void>;
   /** Deregister a ship, then refresh the ship list. Rejects on failure. */
   deleteShip: (name: string) => Promise<void>;
-  /** The bridge's armory manifest. Fetched on demand — the armory is not part of the boot snapshot. */
   getArmory: () => Promise<ArmoryManifest>;
-  /** One armory file's contents. */
   getArmoryFile: (path: string) => Promise<ArmoryFile>;
-  /** What each ship has pulled and installed from the armory. */
   listArmoryShips: () => Promise<ArmoryShipState[]>;
 }
 
 const FleetContext = createContext<FleetValue | null>(null);
 
 /**
- * Loads the fleet snapshot once and shares it with every view. Mutations refresh
- * the workspace list from the bridge, so all derived indicators — grid dots,
- * repo ACTIVE counts, sibling dots, the sidebar live counter — update together.
+ * Mutations refresh the workspace list from the bridge, so all derived
+ * indicators — grid dots, repo ACTIVE counts, sibling dots, the sidebar live
+ * counter — update together.
  */
 export function FleetProvider({ children }: { children: ReactNode }) {
   const [ships, setShips] = useState<Ship[]>([]);

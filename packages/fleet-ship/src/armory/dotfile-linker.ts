@@ -1,38 +1,9 @@
-/**
- * armory/dotfile-linker.ts — put the armory's dotfiles in place, as symlinks.
- *
- * `dotfile-map.json` names `dotfiles/`-relative sources and where each belongs:
- *
- *   ".tmux.conf": "~/.tmux.conf"   → ~/.tmux.conf   -> <cache>/files/dotfiles/.tmux.conf
- *   "nvim":       "~/.config/nvim" → ~/.config/nvim -> <cache>/files/dotfiles/nvim
- *
- * Links, not copies, and deliberately so: the cache is already an exact mirror
- * of the bridge's armory, so a content edit reaches the user through the link on
- * the next pull with nothing to reinstall, and a directory source is one link
- * rather than a copy per file. This is the one place Fleet's blanket refusal to
- * touch symlinks (see managed-fs.ts, which refuses them on every path it
- * touches) is relaxed — and only for links this module can prove it created:
- * every decision is made on `lstat`/`readlink` of the target itself, and a link
- * is only ever replaced or removed while it still points inside this cache's
- * `files/dotfiles/`. Anything else at a target belongs to the user or to their
- * own dotfile manager and is left exactly as found. managed-fs cannot serve
- * this: it manages regular files by content hash. Do not route dotfiles through
- * it, and do not weaken its checks to make that possible.
- *
- * `<cache>/dotfiles.json` records the links this module put in place, so a
- * mapping that later leaves the map can be undone without guessing.
- *
- * The map is untrusted network input. A destination is resolved against *this
- * ship's* home directory and must land strictly inside it, so no bridge can
- * make a fleet symlink into `/etc` or `/usr`. That confinement is lexical: a
- * user who has symlinked a directory of their own home elsewhere is taken at
- * their word, the same way the rest of their dotfile setup takes them.
- */
-
 import { lstat, mkdir, readlink, rename, rm, symlink, unlink } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { isSafeArmoryPath, type DotfileMap } from "fleet-protocol";
+import { isStrictDescendant } from "../contained-path";
+import { readOwnershipRecord, writeRecordAtomically } from "./record-file";
 
 export type DotfileLinkStatus = "linked" | "unchanged" | "relinked" | "conflict" | "skipped";
 
@@ -69,10 +40,14 @@ const OwnedLinksSchema = z.object({
 
 type OwnedLink = z.infer<typeof OwnedLinksSchema>["links"][number];
 
+const OwnedLinksArraySchema = OwnedLinksSchema.transform((record) => record.links);
+
 type PlannedLink = { source: string; target: string; sourcePath: string };
 
 type Placement = { status: Exclude<DotfileLinkStatus, "skipped">; detail?: string };
 
+// The sole place Fleet creates symlinks: managed-fs refuses them outright, and
+// dotfiles must not be routed through it to make this work.
 export async function linkDotfiles(options: LinkDotfilesOptions): Promise<DotfileLinkReport> {
   const homeDirectory = resolve(options.homeDirectory);
   const cacheRoot = resolve(options.cacheDirectory);
@@ -105,7 +80,13 @@ export async function linkDotfiles(options: LinkDotfilesOptions): Promise<Dotfil
     }
   }
 
-  for (const previous of await readOwnedLinks(cacheRoot, report.warnings)) {
+  const previouslyOwned = await readOwnershipRecord(
+    ownedLinksPath(cacheRoot),
+    OwnedLinksArraySchema,
+    report.warnings,
+    "previously linked dotfiles",
+  );
+  for (const previous of previouslyOwned) {
     if (retained.has(previous.target)) continue;
     try {
       await unlinkOwned(previous.target, dotfilesRoot, report);
@@ -118,7 +99,7 @@ export async function linkDotfiles(options: LinkDotfilesOptions): Promise<Dotfil
 
   // Before the throw: links that did land are ours whether or not a sibling
   // mapping failed, and a record that omits them would orphan them forever.
-  await writeOwnedLinks(cacheRoot, owned);
+  await writeRecordAtomically(ownedLinksPath(cacheRoot), { version: 1, links: owned });
 
   if (failures.length > 0) throw new AggregateError(failures, "Failed to link the armory dotfiles");
   return report;
@@ -150,6 +131,7 @@ async function plan(
       skip(target, `"${source}" is not a safe path under dotfiles/`);
       continue;
     }
+    // The map is untrusted network input, so never weaken this check.
     if (!isStrictDescendant(homeDirectory, target)) {
       skip(target, `destination "${destination}" is outside ${homeDirectory}`);
       continue;
@@ -251,44 +233,4 @@ async function entry(path: string) {
 
 function ownedLinksPath(cacheRoot: string): string {
   return join(cacheRoot, "dotfiles.json");
-}
-
-async function readOwnedLinks(cacheRoot: string, warnings: string[]): Promise<OwnedLink[]> {
-  const path = ownedLinksPath(cacheRoot);
-  let parsed: unknown;
-  try {
-    parsed = await Bun.file(path).json();
-  } catch (error) {
-    // A first run has no record; an unreadable one must not block linking, but
-    // it does mean this run cannot undo what the last one linked.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      warnings.push(`ignored unreadable ${path}: previously linked dotfiles cannot be removed`);
-    }
-    return [];
-  }
-  const record = OwnedLinksSchema.safeParse(parsed);
-  if (!record.success) {
-    warnings.push(`ignored invalid ${path}: previously linked dotfiles cannot be removed`);
-    return [];
-  }
-  return record.data.links;
-}
-
-async function writeOwnedLinks(cacheRoot: string, links: OwnedLink[]): Promise<void> {
-  const path = ownedLinksPath(cacheRoot);
-  const body = `${JSON.stringify({ version: 1, links }, null, 2)}\n`;
-  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    await mkdir(cacheRoot, { recursive: true });
-    await Bun.write(temporary, body);
-    await rename(temporary, path);
-  } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    throw error;
-  }
-}
-
-function isStrictDescendant(root: string, target: string): boolean {
-  const within = relative(root, target);
-  return within !== "" && !within.startsWith("..") && !within.startsWith(sep) && !isAbsolute(within);
 }

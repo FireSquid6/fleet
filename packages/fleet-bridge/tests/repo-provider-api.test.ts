@@ -1,9 +1,3 @@
-/**
- * repo-provider-api.test.ts — drives the composed bridge app in-process (like
- * api.test.ts) but injects a FAKE provider factory so the `/repos/:name/...`
- * routes exercise the FleetManager → provider seam with no network.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -205,7 +199,7 @@ describe("repo provider API", () => {
       providerFor: makeProvider,
     });
     await manager.init();
-    app = createApp(manager, config);
+    app = createApp(manager);
     // Register the repo so the lookup in withProvider succeeds.
     expect((await call("POST", "/repos", { name: "repo1", url: "https://github.com/acme/repo1", provider: "github" })).status).toBe(201);
   });

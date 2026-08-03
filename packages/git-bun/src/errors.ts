@@ -1,3 +1,4 @@
+import { CliError } from "cli-bun";
 import type { GitRunResult } from "./backend";
 
 /**
@@ -6,21 +7,9 @@ import type { GitRunResult } from "./backend";
  * the expected non-zero exit into `false`/`undefined` — so a GitError always
  * signals a genuine failure worth surfacing.
  */
-export class GitError extends Error {
-  readonly args: readonly string[];
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number;
-
+export class GitError extends CliError {
   constructor(args: readonly string[], result: GitRunResult) {
-    // Prefer stderr for the message; fall back to stdout since some git errors
-    // land on stdout depending on the subcommand.
-    const detail = result.stderr.trim() || result.stdout.trim() || "no output";
-    super(`git ${args.join(" ")} failed (exit ${result.exitCode}): ${detail}`);
+    super("git", args, result);
     this.name = "GitError";
-    this.args = args;
-    this.stdout = result.stdout;
-    this.stderr = result.stderr;
-    this.exitCode = result.exitCode;
   }
 }

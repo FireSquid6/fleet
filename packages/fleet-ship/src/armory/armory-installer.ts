@@ -1,34 +1,6 @@
-/**
- * armory/armory-installer.ts — turn the cached armory into installed files.
- *
- * `ArmoryCache` mirrors the bridge's armory under `<cache>/files/`; this module
- * is the half that acts on it:
- *
- *   files/skills/<skill>/**        → <every present provider's skills dir>/<skill>/**
- *   files/plugins/<provider>/<rest> → <that provider's config root>/<rest>
- *   files/dotfiles/<source>         → symlinked wherever the dotfile map says
- *
- * Skills are modelled because every provider agrees on what one is: a directory
- * discovered under a skills root. Plugins are not — each tool's plugin layout
- * differs and changes — so the armory author, who can read their own tool's
- * docs, chooses the path and the ship simply places the file inside that
- * provider's config root. A `plugins/<name>` that is not a known provider is
- * skipped with a warning rather than guessed at.
- *
- * Everything is written through `managed-fs`, never directly: that is what
- * gives adopt/conflict semantics, a crash-recoverable manifest, and — via
- * `session.remove` — an uninstall that refuses to delete a file the user has
- * since edited. `<cache>/installed.json` records what this installer wrote, so
- * the next run can tell "removed from the armory" from "never installed".
- *
- * Dotfiles are the exception: they are symlinked, not copied, which managed-fs
- * cannot express. `dotfile-linker.ts` owns that phase and its own ownership
- * record; this module only sequences it and folds its report into this one.
- */
-
-import { lstat, readdir, rename, rm, rmdir } from "node:fs/promises";
+import { lstat, readdir, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { isSafeArmoryPath } from "fleet-protocol";
 import {
@@ -44,7 +16,9 @@ import {
   skillRootsFor,
   type Provider,
 } from "../providers";
+import { isStrictDescendant } from "../contained-path";
 import { armoryCacheDirectory, cachedDotfileMap } from "./armory-cache";
+import { readOwnershipRecord, writeRecordAtomically } from "./record-file";
 import { linkDotfiles, type DotfileLink } from "./dotfile-linker";
 
 export type ArmoryInstallOptions = {
@@ -76,6 +50,8 @@ const InstalledRecordSchema = z.object({
 });
 
 type InstalledEntry = z.infer<typeof InstalledRecordSchema>["files"][number];
+
+const InstalledFilesSchema = InstalledRecordSchema.transform((record) => record.files);
 
 type PresentProvider = { provider: Provider; configRoot: string; skillRoots: string[] };
 
@@ -120,13 +96,19 @@ export async function installArmory(
   ].sort((a, b) => a.destination.localeCompare(b.destination));
 
   const plannedPaths = new Set(planned.map((file) => file.destination));
-  const stale = (await readInstalledRecord(cacheRoot, report.warnings)).filter(
-    (entry) => !plannedPaths.has(entry.path),
-  );
+  const stale = (
+    await readOwnershipRecord(
+      installedRecordPath(cacheRoot),
+      InstalledFilesSchema,
+      report.warnings,
+      "previously installed files",
+    )
+  ).filter((entry) => !plannedPaths.has(entry.path));
 
   const installed: InstalledEntry[] = [];
   const failures: Error[] = [];
 
+  // Every write into the home directory goes through this session, never directly.
   await withManagedFiles(homeDirectory, async (session) => {
     const ensured = new Set<string>();
     for (const file of planned) {
@@ -187,7 +169,7 @@ export async function installArmory(
   for (const path of report.removed) {
     await pruneEmptyDirectories(homeDirectory, boundaryFor(homeDirectory, path), path);
   }
-  await writeInstalledRecord(cacheRoot, installed);
+  await writeRecordAtomically(installedRecordPath(cacheRoot), { version: 1, files: installed });
 
   // Third phase, after the copied files: the map comes from the cache's own
   // state, so a ship installs exactly the map that arrived with the revision it
@@ -365,48 +347,6 @@ async function pruneEmptyDirectories(
   }
 }
 
-function isStrictDescendant(root: string, target: string): boolean {
-  const within = relative(root, target);
-  return within !== "" && !within.startsWith("..") && !within.startsWith(sep);
-}
-
 function installedRecordPath(cacheRoot: string): string {
   return join(cacheRoot, "installed.json");
-}
-
-async function readInstalledRecord(
-  cacheRoot: string,
-  warnings: string[],
-): Promise<InstalledEntry[]> {
-  const path = installedRecordPath(cacheRoot);
-  let parsed: unknown;
-  try {
-    parsed = await Bun.file(path).json();
-  } catch (error) {
-    // A first run has no record; a corrupt one must not block installing, but
-    // it does mean this run cannot uninstall what the last one wrote.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      warnings.push(`ignored unreadable ${path}: previously installed files cannot be removed`);
-    }
-    return [];
-  }
-  const record = InstalledRecordSchema.safeParse(parsed);
-  if (!record.success) {
-    warnings.push(`ignored invalid ${path}: previously installed files cannot be removed`);
-    return [];
-  }
-  return record.data.files;
-}
-
-async function writeInstalledRecord(cacheRoot: string, files: InstalledEntry[]): Promise<void> {
-  const path = installedRecordPath(cacheRoot);
-  const body = `${JSON.stringify({ version: 1, files }, null, 2)}\n`;
-  const temporary = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  try {
-    await Bun.write(temporary, body);
-    await rename(temporary, path);
-  } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    throw error;
-  }
 }

@@ -1,6 +1,3 @@
-// Typed structs parsed out of tmux `-F` format strings. Field names mirror the
-// tmux format variables they come from (e.g. `#{session_windows}`).
-
 /** A tmux session as reported by `list-sessions` / `display-message`. */
 export interface SessionInfo {
   /** Server-unique id, e.g. `"$0"`. Usable directly as a `-t` target. */
@@ -46,7 +43,6 @@ export interface PaneInfo {
   pid: number;
 }
 
-/** Options for {@link Tmux.newSession}. */
 export interface NewSessionOptions {
   /** Session name (`-s`). tmux assigns a numeric name if omitted. */
   name?: string;
@@ -60,7 +56,6 @@ export interface NewSessionOptions {
   height?: number;
 }
 
-/** Options for {@link Session.newWindow}. */
 export interface NewWindowOptions {
   /** Window name (`-n`). */
   name?: string;
@@ -75,7 +70,6 @@ export interface NewWindowOptions {
 /** Direction of a pane split: `"horizontal"` = side by side, `"vertical"` = stacked. */
 export type SplitDirection = "horizontal" | "vertical";
 
-/** Options for {@link Pane.split} / {@link Window.split}. */
 export interface SplitOptions {
   direction: SplitDirection;
   /** New pane size (`-l`). Interpreted as a percentage when {@link percent} is set. */
@@ -90,10 +84,9 @@ export interface SplitOptions {
   select?: boolean;
 }
 
-/** Directional step for {@link Pane.resize}. */
 export type ResizeDirection = "left" | "right" | "up" | "down";
 
-/** Options for {@link Pane.resize}. Directional and absolute forms may be combined. */
+/** Directional and absolute forms may be combined. */
 export interface ResizeOptions {
   /** Resize toward this edge by {@link amount} cells. */
   direction?: ResizeDirection;
@@ -105,13 +98,11 @@ export interface ResizeOptions {
   height?: number;
 }
 
-/** Options for {@link Pane.sendKeys}. */
 export interface SendKeysOptions {
   /** Send a trailing `Enter` after the literal text, submitting the line. */
   enter?: boolean;
 }
 
-/** Options for {@link Pane.capture}. */
 export interface CaptureOptions {
   /** First line to capture (`-S`). Negative values reach into scrollback. */
   start?: number;
@@ -121,7 +112,6 @@ export interface CaptureOptions {
   escapes?: boolean;
 }
 
-/** Options for {@link Pane.run}. */
 export interface RunOptions {
   /** Give up after this many milliseconds. Defaults to 5000. */
   timeoutMs?: number;
@@ -129,7 +119,6 @@ export interface RunOptions {
   pollMs?: number;
 }
 
-/** Target scope for option get/set operations. */
 export interface OptionScope {
   /** Operate on a server/global option (`-g`). */
   global?: boolean;

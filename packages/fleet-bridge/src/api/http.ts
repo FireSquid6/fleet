@@ -1,10 +1,4 @@
-/**
- * api/http.ts — shared HTTP error mapping for the bridge's Elysia plugins.
- *
- * Mirrors the ship's `mapError`: a `BridgeError` (or a provider-layer
- * `ProviderError`) carries the status to surface; anything else is a 500.
- */
-
+import { InvalidCookieSignature, InvalidFileType, NotFoundError, ParseError, ValidationError } from "elysia";
 import { BridgeError } from "../fleet-manager";
 import { ProviderError } from "../providers";
 
@@ -14,3 +8,30 @@ export function mapError(err: unknown): { status: number; body: { error: string 
   }
   return { status: 500, body: { error: err instanceof Error ? err.message : String(err) } };
 }
+
+type ErrorContext = { error: unknown; set: { status?: number | string } };
+
+/**
+ * Elysia raises its own errors (validation, parse, unmatched route) around the
+ * handler rather than inside it, so they were unreachable from the per-route
+ * `try`/`catch` this hook replaces. Returning `undefined` leaves them to
+ * Elysia's own rendering — mapping them would turn a 422 into a 500.
+ */
+export function errorHook(map: (err: unknown) => { status: number; body: { error: string } }) {
+  return ({ error, set }: ErrorContext) => {
+    if (
+      error instanceof ValidationError ||
+      error instanceof NotFoundError ||
+      error instanceof ParseError ||
+      error instanceof InvalidCookieSignature ||
+      error instanceof InvalidFileType
+    ) {
+      return;
+    }
+    const mapped = map(error);
+    set.status = mapped.status;
+    return mapped.body;
+  };
+}
+
+export const mapErrorHook = errorHook(mapError);

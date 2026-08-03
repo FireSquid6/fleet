@@ -25,7 +25,7 @@ export class Session {
     return info;
   }
 
-  /** Whether this session exists, via `has-session`. Genuine errors still throw. */
+  /** Whether this session exists, via `has-session`. */
   async exists(): Promise<boolean> {
     const res = await this.cmd.tryRun(["has-session", "-t", this.target]);
     return res.exitCode === 0;
@@ -40,7 +40,6 @@ export class Session {
     await this.cmd.run(["kill-session", "-t", this.target]);
   }
 
-  /** Create a new window in this session, returning a handle to it. */
   async newWindow(options: NewWindowOptions = {}): Promise<Window> {
     // A trailing ":" forces tmux to read the target as a session, not a window —
     // `new-window -t main` would otherwise look for a window named "main".

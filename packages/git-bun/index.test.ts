@@ -13,8 +13,7 @@ import {
 } from "./index";
 
 // Deterministic identity so commits never fail on missing user.name/user.email,
-// regardless of the machine's global git config (the analog of tmux-bun's
-// `configFile: "/dev/null"` determinism trick).
+// regardless of the machine's global git config.
 const IDENTITY: Record<string, string> = {
   GIT_AUTHOR_NAME: "git-bun test",
   GIT_AUTHOR_EMAIL: "test@example.com",
@@ -22,8 +21,7 @@ const IDENTITY: Record<string, string> = {
   GIT_COMMITTER_EMAIL: "test@example.com",
 };
 
-// --- pure parsers — no git required, so these always run --------------------
-
+// Pure parsers — no git required, so these always run.
 describe("parseLog", () => {
   test("splits records by line and fields by the unit separator", () => {
     const S = String.fromCharCode(0x1f);
@@ -240,8 +238,6 @@ describe("parseLsRemote", () => {
   });
 });
 
-// --- end-to-end against a real git binary -----------------------------------
-
 const gitAvailable = await (async () => {
   try {
     return (await Bun.$`git --version`.quiet().nothrow()).exitCode === 0;
@@ -256,7 +252,7 @@ if (!gitAvailable) {
 }
 
 suite("git-bun end-to-end", () => {
-  let root: string; // throwaway parent dir holding all repos for the suite
+  let root: string;
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), "git-bun-test-"));
@@ -270,7 +266,6 @@ suite("git-bun end-to-end", () => {
     const repo = await Git.init(dir, { initialBranch: "main", env: IDENTITY });
     expect(repo.cwd).toBe(dir);
     expect(await repo.isRepo()).toBe(true);
-    // A fresh dir that was never init'd is not a repo.
     const bare = new Git({ cwd: root });
     expect(await bare.isRepo()).toBe(false);
   });
@@ -306,7 +301,6 @@ suite("git-bun end-to-end", () => {
     await repo.add(".");
     await repo.commit("initial commit");
 
-    // Modify the tracked file (unstaged) and create a brand-new untracked file.
     await Bun.write(join(dir, "tracked.txt"), "one\ntwo changed\n");
     await Bun.write(join(dir, "brand-new.txt"), "fresh line\n");
 
@@ -315,7 +309,6 @@ suite("git-bun end-to-end", () => {
     expect(plain).toContain("tracked.txt");
     expect(plain).not.toContain("brand-new.txt");
 
-    // With includeUntracked it is appended as a `new file` add-diff.
     const full = await repo.diff({ range: "HEAD", includeUntracked: true });
     expect(full).toContain("tracked.txt");
     expect(full).toContain("+two changed");
@@ -411,7 +404,6 @@ suite("git-bun end-to-end", () => {
     expect(await repo.currentBranch()).toBe("feature");
     expect((await repo.branches()).find((b) => b.name === "feature")?.current).toBe(true);
 
-    // checkout with create is the other entry point.
     await repo.checkout("second", { create: true });
     expect(await repo.currentBranch()).toBe("second");
 

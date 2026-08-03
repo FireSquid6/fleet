@@ -16,13 +16,6 @@ import type {
   WorkspaceEvent,
 } from "./types";
 
-/**
- * In-memory implementation of {@link FleetBridge}. Seed data is ported from the
- * design prototype (`support.js`); the `active` flags are mutable so
- * activate/deactivate persist for the session. The live terminal is not mocked —
- * it streams over a real WebSocket (see the Terminal component's `useWebterm`).
- */
-
 const SHIPS: Ship[] = [
   { name: "forge-01", spec: "2×A100 · us-east-1", status: "online" },
   { name: "forge-02", spec: "2×A100 · us-east-1", status: "online" },
@@ -55,14 +48,12 @@ function key(repo: string, name: string): string {
   return `${repo}/${name}`;
 }
 
-/** Deterministic pseudo-pid from a workspace name (matches the prototype hash). */
 function hashPid(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return 10000 + (Math.abs(h) % 89999);
 }
 
-/** Deterministic mock working-tree diff for an active workspace. */
 function mockDiff(name: string): WorkspaceDiff {
   const h = Math.abs(hashPid(name));
   return { added: 8 + (h % 40), removed: h % 15, commits: 1 + (h % 3) };
@@ -421,9 +412,8 @@ function branchSource(input: { branch?: string; issueNumber?: number }): { branc
 }
 
 /**
- * Seed the repo registry from the distinct repo names in the seed workspaces.
- * All but one are `github`, so the issue picker has something to show; the
- * odd one out is a plain git remote, which is what makes the picker's
+ * All but one seed repo are `github`, so the issue picker has something to show;
+ * the odd one out is a plain git remote, which is what makes the picker's
  * "this provider cannot list issues" path reachable in mock mode.
  */
 function seedRepos(): Repo[] {

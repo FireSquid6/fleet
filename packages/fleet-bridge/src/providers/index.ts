@@ -1,13 +1,3 @@
-/**
- * providers/index.ts — the entry point that builds a `RepoProvider` for a repo.
- *
- * `providerFor` switches on the repo's `provider` string and resolves a token
- * from explicit deps, then the environment (GITHUB_TOKEN, then GH_TOKEN). Only
- * GitHub is wired today; other providers throw a 501 so the API can report that
- * the forge is recognized but not yet implemented. The public provider surface
- * is re-exported here so consumers import everything from one place.
- */
-
 import type { Repo } from "fleet-protocol";
 import { GitHubProvider, parseGitHubRepo } from "./github";
 import { ProviderError, type RepoProvider } from "./provider";

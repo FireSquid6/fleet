@@ -1,23 +1,14 @@
-/**
- * attach.ts — `fleet client attach`: drive a workspace's webterm terminal from a
- * real TTY.
- *
- * Output direction: the server streams full grid snapshots, which we repaint with
- * `renderGrid`. Input direction is trivial — a TTY in raw mode already emits the
- * exact byte sequences a PTY expects (arrows, ctrl chars, …), so we forward raw
- * stdin straight through as `input` messages. Ctrl-] detaches without killing the
- * shell (the tmux session survives for re-attach).
- */
-
 import type { WorkspaceStatus } from "fleet-protocol";
 import {
   decodeServerMessage,
+  GridStream,
   splitInput,
   TERMINAL_CONFLICT_CLOSE_CODE,
   TERMINAL_TAKEOVER_CLOSE_CODE,
   type ClientMsg,
 } from "webterm/protocol";
-import { makeClient, unwrap } from "./client";
+import { unwrap } from "fleet-cli-kit";
+import { makeClient } from "./client";
 import { renderGrid } from "./render-grid";
 
 /** Ctrl-] — reserved as the detach key; never forwarded to the PTY. */
@@ -31,7 +22,6 @@ function terminalSize(): { cols: number; rows: number } {
   return { cols: process.stdout.columns ?? 80, rows: process.stdout.rows ?? 24 };
 }
 
-/** Build the terminal websocket URL from a normalized ship base URL. */
 function terminalWsUrl(shipUrl: string, repo: string, name: string): string {
   const base = shipUrl.replace(/^http/, "ws");
   return `${base}/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
@@ -58,20 +48,16 @@ export function attachCloseOutcome(
   return { exitCode: 0 };
 }
 
-/** Ensure the workspace has a running session, activating it if inactive. */
 async function ensureActive(shipUrl: string, repo: string, name: string): Promise<void> {
   const client = makeClient(shipUrl);
-  const status = unwrap(await client.workspaces({ repo })({ name }).get()) as WorkspaceStatus;
+  const status = unwrap(await client.workspaces({ repo })({ name }).get(), "fleet") as WorkspaceStatus;
   if (status.state === "inactive") {
     console.error(`fleet: activating ${repo}/${name}…`);
-    unwrap(await client.workspaces({ repo })({ name }).activate.post());
+    unwrap(await client.workspaces({ repo })({ name }).activate.post(), "fleet");
   }
 }
 
-/**
- * Attach to `repo/name`'s terminal until the shell exits or the user detaches.
- * Resolves with the exit code to hand to `process.exit`.
- */
+/** Resolves with the exit code to hand to `process.exit`. */
 export async function attachToWorkspace(shipUrl: string, repo: string, name: string): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error("fleet: attach requires an interactive terminal");
@@ -84,6 +70,7 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
     const ws = new WebSocket(terminalWsUrl(shipUrl, repo, name));
 
     let torn = false;
+    const stream = new GridStream();
     const send = (msg: ClientMsg) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
     };
@@ -137,8 +124,13 @@ export async function attachToWorkspace(shipUrl: string, repo: string, name: str
 
     ws.onmessage = (event) => {
       const msg = decodeServerMessage(event.data);
-      if (msg.type === "grid") process.stdout.write(renderGrid(msg));
-      else teardown(msg.code);
+      if (msg.type === "exit") {
+        teardown(msg.code);
+        return;
+      }
+      const { grid, reply } = stream.accept(msg);
+      if (reply) send(reply);
+      if (grid) process.stdout.write(renderGrid(grid));
     };
 
     ws.onerror = () => {

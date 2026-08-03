@@ -1,18 +1,3 @@
-/**
- * src/color.ts — terminal color model.
- *
- * A cell foreground/background color is a tagged union, mirroring how
- * libghostty-vt models `style.Color`:
- *   - `default` — use the terminal default (no explicit color set).
- *   - `palette` — an index 0..255 into the 256-color palette. Indices 0..15 are
- *     the named ANSI colors (index 1 == red), 16..231 the 6×6×6 color cube, and
- *     232..255 the grayscale ramp.
- *   - `rgb` — a 24-bit true color.
- *
- * SGR 30–37 / 90–97 (and the bg equivalents) select *palette* colors, not RGB —
- * so `\x1b[31m` yields `{ type: "palette", index: 1 }`, matching Ghostty.
- */
-
 export type Color =
   | { readonly type: "default" }
   | { readonly type: "palette"; readonly index: number }

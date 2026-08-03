@@ -1,25 +1,3 @@
-/**
- * armory/armory-service.ts — scans `<dataDirectory>/armory` into a content-addressed
- * `ArmoryManifest` and serves individual files out of it.
- *
- * Read-only and human-authored: the directory is hand-edited or git-synced, so the
- * scan is defensive rather than trusting. Symlinks at or below the section level
- * are skipped outright (never followed, never listed) — including a section
- * directory that is itself a symlink — because such a link would let a manifest
- * consumer pull a file from anywhere on the bridge host, and the rest of this
- * codebase refuses symlinks for the same reason. The one exception is the armory
- * root, which the operator may point wherever they like; see `scan`.
- *
- * The manifest gates which paths `readFile` will serve, but it does not by itself
- * confine reads: it is cached, so it describes the tree as of the last scan, and a
- * directory that was real then may be a symlink now. `readFile` therefore
- * re-resolves the file against the armory root before reading a byte.
- *
- * A scan is cached until `invalidate()` (a filesystem watcher calls it) and
- * serialized through a promise queue, mirroring `store.ts`, so concurrent
- * requests never walk the tree simultaneously.
- */
-
 import { lstat, readdir, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import {
@@ -34,11 +12,11 @@ import {
   type ArmorySection,
   type DotfileMap,
 } from "fleet-protocol";
+import { SerialQueue } from "../serial-queue";
 
 /** Ceiling on a single `readFile`; oversized files are still listed in the manifest. */
-export const MAX_ARMORY_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_ARMORY_FILE_BYTES = 10 * 1024 * 1024;
 
-/** Names never worth shipping, skipped wherever they appear in the tree. */
 const IGNORED_NAMES = new Set([".git", ".DS_Store"]);
 
 export class ArmoryPathError extends Error {
@@ -83,32 +61,21 @@ export class ArmoryMapError extends Error {
 
 export class ArmoryService {
   private cached: ArmoryManifest | undefined;
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly queue = new SerialQueue();
   private readonly root: string;
 
   constructor(armoryDirectory: string) {
     this.root = resolve(armoryDirectory);
   }
 
-  private serialized<T>(operation: () => Promise<T> | T): Promise<T> {
-    const result = this.queue.then(operation, operation);
-    this.queue = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  }
-
-  /** The current manifest, scanning only when the cache is cold. */
   async manifest(): Promise<ArmoryManifest> {
-    return this.serialized(async () => {
+    return this.queue.run(async () => {
       if (this.cached) return this.cached;
       this.cached = await this.scan();
       return this.cached;
     });
   }
 
-  /** Drop the cached manifest so the next `manifest()` rescans. */
   invalidate(): void {
     this.cached = undefined;
   }
@@ -158,8 +125,6 @@ export class ArmoryService {
       ? { path, section, size, sha256, mode, encoding: "base64", contents: toBase64(bytes) }
       : { path, section, size, sha256, mode, encoding: "utf8", contents: text };
   }
-
-  // --- scanning -------------------------------------------------------------
 
   /**
    * The root and the sections are trusted differently, which is worth stating

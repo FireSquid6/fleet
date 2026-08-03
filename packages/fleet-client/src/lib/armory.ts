@@ -1,14 +1,6 @@
-/**
- * lib/armory.ts — pure helpers behind the Armory page.
- *
- * They live outside the route so the derivations an operator actually reads —
- * above all "is this ship in sync?" — can be unit-tested without rendering.
- */
-
 import { ARMORY_SECTIONS } from "fleet-protocol";
 import type { ArmorySection, ArmorySyncState } from "@/data/types";
 
-/** Group order for the file browser, straight from the protocol's own order. */
 export const SECTION_ORDER: readonly ArmorySection[] = ARMORY_SECTIONS;
 
 /**
@@ -36,7 +28,6 @@ export function abbreviateRevision(revision: string | null): string {
   return revision.slice(0, 12);
 }
 
-/** The manifest path with its section prefix removed, since the section is the group heading. */
 export function stripSection(path: string, section: string): string {
   return path.startsWith(`${section}/`) ? path.slice(section.length + 1) : path;
 }

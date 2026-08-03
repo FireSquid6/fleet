@@ -116,10 +116,6 @@ function parsePort(value: string): number {
   return port;
 }
 
-/**
- * Bring up a ship: canonicalize its fleet directory, install agent integrations,
- * serve the API, and publish the `atlas.json` discovery file. Throws on failure.
- */
 export async function startShip(config: FleetShipConfig): Promise<void> {
   // Deferred so merely mounting this subcommand in the unified CLI doesn't
   // eagerly pull in tmux-bun/webterm. They're only needed when the ship

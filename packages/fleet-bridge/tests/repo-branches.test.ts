@@ -61,7 +61,7 @@ describe("GET /repos/:name/branches", () => {
       },
     });
     await manager.init();
-    app = createApp(manager, config);
+    app = createApp(manager);
     expect((await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" })).status).toBe(201);
   });
   afterEach(async () => {

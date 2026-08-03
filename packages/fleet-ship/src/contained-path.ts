@@ -12,6 +12,11 @@ function assertDescendant(root: string, path: string): void {
   }
 }
 
+export function isStrictDescendant(root: string, target: string): boolean {
+  const within = relative(root, target);
+  return within !== "" && !within.startsWith("..") && !within.startsWith(sep) && !isAbsolute(within);
+}
+
 export function containedPath(root: string, ...components: string[]): string {
   for (const component of components) parseFleetIdentifier(component);
   const path = resolve(root, ...components);
@@ -37,7 +42,7 @@ export function existingRepoPath(root: string, repoName: string): Promise<string
   return assertDirectory(root, containedPath(root, repoName));
 }
 
-export async function ensureRepoPath(root: string, repoName: string): Promise<string> {
+async function ensureRepoPath(root: string, repoName: string): Promise<string> {
   const repo = containedPath(root, repoName);
   try {
     await mkdir(repo);

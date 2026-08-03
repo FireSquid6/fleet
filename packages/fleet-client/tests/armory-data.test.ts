@@ -1,12 +1,3 @@
-/**
- * armory-data.test.ts — the Armory page's data layer: the three Eden calls it
- * makes, the mock fixture it is developed against, and the pure helpers that
- * decide what an operator reads on the page.
- *
- * The Eden half runs against a recording `Bun.serve`, so route, method and query
- * are asserted as they go over the wire rather than through the treaty's types.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { EdenFleetBridge } from "../src/data/eden";
 import { makeBridgeClient } from "../src/data/client";

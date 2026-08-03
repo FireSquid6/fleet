@@ -85,7 +85,6 @@ const checkRun = {
 
 const failedLog = { workflow: "CI", job: "test", jobId: 901, log: "boom: the test failed" };
 
-/** Stand up a fake bridge that records every request and returns canned DTOs. */
 function makeFakeBridge(overrides?: (path: string) => Response | undefined) {
   const requests: RecordedRequest[] = [];
   const server = Bun.serve({

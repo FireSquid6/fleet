@@ -8,6 +8,7 @@ import { Combobox, highlight, splitRanges } from "@/components/ui/combobox";
 import { cn } from "@/lib/utils";
 import { branchState, createWorkspaceInput, issueBranchPreview, issueText } from "@/lib/create-workspace";
 import { Field, ModalActions } from "@/routes/ReposRoute";
+import { useSubmitAction } from "@/lib/useSubmitAction";
 
 // Module-level so the pickers' memoised filtering is not invalidated every render.
 const branchName = (branch: RepoBranch) => branch.name;
@@ -38,8 +39,6 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
   const [selectedShip, setSelectedShip] = useState(ship ?? ships[0]?.name ?? "");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
 
   // null while unknown — loading or failed. `branchState` reads it as "cannot say".
   const [branches, setBranches] = useState<RepoBranch[] | null>(null);
@@ -97,26 +96,18 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
   const state = branchState(branch, branches);
   const input = createWorkspaceInput({ ship: shipName, repoName, name, fromIssue, branch, issue });
 
-  const submit = async (e: FormEvent) => {
+  const { error, pending, submit } = useSubmitAction(() => createWorkspace(input!), onClose);
+
+  const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     // `input` being null is what disables the Create button, but implicit
     // submission can still reach here.
-    if (!input || pending) return;
-    setPending(true);
-    setError(null);
-    try {
-      await createWorkspace(input);
-      onClose();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setPending(false);
-    }
+    if (input && !pending) void submit();
   };
 
   return (
     <Modal open title="New Workspace" onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={onSubmit} className="flex flex-col gap-3">
         <Field label="Repo">
           <div className="font-mono text-[12px] text-text">▣ {repoName}</div>
         </Field>

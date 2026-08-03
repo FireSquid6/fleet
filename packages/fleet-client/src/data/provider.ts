@@ -13,21 +13,6 @@ import type {
   WorkspaceEvent,
 } from "./types";
 
-/**
- * The data our UI needs from the fleet bridge, expressed as one async surface.
- *
- * Every method maps 1:1 to a bridge route. The real implementation would be a
- * thin wrapper over an Eden treaty client:
- *
- *   import { treaty } from "@elysiajs/eden";
- *   import type { App } from "fleet-bridge/api";
- *   const client = treaty<App>(bridgeUrl);
- *   // listWorkspaces() -> client.workspaces.get() -> { data, error }
- *
- * `MockFleetBridge` (see ./mock) implements this against in-memory fixtures so
- * the whole app runs with no bridge attached. Swapping in the Eden-backed
- * implementation is the only change needed to go live.
- */
 export interface FleetBridge {
   /** `GET /ships` (joined with `GET /system-resources` for the spec blurb). */
   listShips(): Promise<Ship[]>;

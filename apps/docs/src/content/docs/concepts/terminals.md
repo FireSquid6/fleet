@@ -60,12 +60,15 @@ frames are text; a binary frame closes the connection.
 | `init` | `cols`, `rows` | first message: allocate the emulator and spawn the PTY at this size |
 | `input` | `data` | keystrokes or pasted bytes to write to the PTY |
 | `resize` | `cols`, `rows` | resize both the PTY and the emulator |
+| `ack` | `seq` | this frame arrived and was painted |
+| `resync` | — | the frame sequence broke; send a full snapshot |
 
 **Server → client**
 
 | Message | Payload | Meaning |
 |---|---|---|
-| `grid` | `cols`, `rows`, `cursor`, `cells` | a full snapshot of the active screen |
+| `grid` | `seq`, `cols`, `rows`, `cursor`, `cells` | a full snapshot of the active screen |
+| `patch` | `seq`, `cols`, `rows`, `cursor`, `runs` | the cells that changed since frame `seq - 1` |
 | `exit` | `code` | the process exited; the connection is closing |
 
 `init` must be the first message and must be sent exactly once — sending it
@@ -77,23 +80,42 @@ Sizes are bounded (1–1024 columns, 1–512 rows) and a single `input` is cappe
 256 KiB, which the client-side helper handles by splitting large pastes into
 chunks on UTF-8 character boundaries.
 
-### Frames are full snapshots
+### Frames are cells, not escape sequences
 
-There is no scrollback protocol, no incremental cell diffing, and no escape
-sequences on the wire. When the PTY produces output, the ship feeds the raw
-bytes to [`bun-vt`](/packages/bun-vt/) — a pure-TypeScript port of libghostty's
-VT emulation — and schedules a frame. Frames are coalesced at roughly 16 ms
-(~60 fps), so a burst of output produces one snapshot rather than thousands.
+There is no scrollback protocol and no escape sequences on the wire. When the PTY
+produces output, the ship feeds the raw bytes to [`bun-vt`](/packages/bun-vt/) —
+a pure-TypeScript port of libghostty's VT emulation — and schedules a frame.
+Frames are coalesced at roughly 16 ms (~60 fps), so a burst of output produces
+one frame rather than thousands, and an interval in which nothing changed
+produces none at all.
 
-To keep those snapshots small, cells use a compact encoding: a blank default
-cell — a space, default colors, no styling, which is most of a screen —
+Two frame types carry the screen. A `grid` is a **complete** snapshot: it can be
+applied to any state, which makes it self-syncing. A `patch` carries only the
+runs of cells that changed, and is valid only against the frame numbered
+`seq - 1`. A connection opens with a `grid`, and so does the first frame after a
+resize — a patch cannot cross a size change — or after a client asks to `resync`.
+Everything else is a patch.
+
+That is safe alongside the coalescing above because the diff baseline is the last
+frame the ship actually **sent**, not the last one it computed. Frames the ship
+chose to skip are simply folded into the next patch.
+
+Skipping is the other half of the design. The client acks every frame it paints,
+and the ship stops producing once too many frames are unacked, so a slow link
+makes the terminal coarser rather than putting it further and further behind.
+Every WebSocket in the chain also negotiates permessage-deflate, which these
+frames — repetitive JSON, mostly blank cells — compress extremely well.
+
+To keep frames small in the first place, cells use a compact encoding: a blank
+default cell — a space, default colors, no styling, which is most of a screen —
 serializes as the literal number `0`. Anything else is an object carrying only
 its non-default fields: character, foreground, background, an attribute bitmask,
 underline style, and cell width.
 
-The upshot is that the browser side is genuinely simple: decode, paint cells to
-a canvas, encode key events back. The [webterm reference](/packages/webterm/)
-has the full table of attribute bits and color forms.
+The upshot is that the browser side stays simple: decode, fold the frame into
+the current snapshot with the shared `GridStream` helper, paint cells to a
+canvas, encode key events back. The [webterm reference](/packages/webterm/) has
+the full table of attribute bits and color forms.
 
 ### One terminal per workspace
 

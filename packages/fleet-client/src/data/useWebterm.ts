@@ -4,6 +4,7 @@ import {
   BINARY_MESSAGE_CLOSE_REASON,
   clampTerminalSize,
   decodeServerMessage,
+  GridStream,
   INVALID_MESSAGE_CLOSE_CODE,
   INVALID_MESSAGE_CLOSE_REASON,
   splitInput,
@@ -11,7 +12,7 @@ import {
   TERMINAL_TAKEOVER_CLOSE_CODE,
   TERMINAL_TAKEOVER_QUERY,
 } from "webterm/protocol";
-import type { GridMsg } from "webterm/protocol";
+import type { ClientMsg, GridMsg } from "webterm/protocol";
 import { wsBridgeUrl } from "./client";
 
 export type WebtermStatus =
@@ -26,15 +27,18 @@ export type WebtermStatus =
   | "error";
 
 interface UseWebtermOptions {
-  /** Called on every grid frame. Kept out of React state on purpose — the caller
-   *  paints imperatively so 60fps snapshots don't re-render the tree. */
+  /** Called with each complete snapshot, whether the server sent it whole or as a
+   *  patch. Kept out of React state on purpose — the caller paints imperatively
+   *  so 60fps snapshots don't re-render the tree. */
   onGrid?: (grid: GridMsg) => void;
   onExit?: (code: number) => void;
 }
 
 export function handleServerFrame(
   data: unknown,
+  stream: GridStream,
   opts: UseWebtermOptions,
+  send: (msg: ClientMsg) => void,
   close: (code: number, reason: string) => void,
 ): void {
   if (typeof data !== "string") {
@@ -43,14 +47,18 @@ export function handleServerFrame(
   }
   try {
     const msg = decodeServerMessage(data);
-    if (msg.type === "grid") opts.onGrid?.(msg);
-    else opts.onExit?.(msg.code);
+    if (msg.type === "exit") {
+      opts.onExit?.(msg.code);
+      return;
+    }
+    const { grid, reply } = stream.accept(msg);
+    if (reply) send(reply);
+    if (grid) opts.onGrid?.(grid);
   } catch {
     close(INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON);
   }
 }
 
-/** Status a closed socket leaves behind, derived from the ship's close code. */
 export function closeStatus(code: number): WebtermStatus {
   if (code === TERMINAL_CONFLICT_CLOSE_CODE) return "conflict";
   if (code === TERMINAL_TAKEOVER_CLOSE_CODE) return "superseded";
@@ -64,7 +72,6 @@ export function terminalPath(repo: string, name: string, takeover = false): stri
 
 interface UseWebtermResult {
   status: WebtermStatus;
-  /** Write keystroke/paste bytes to the PTY. */
   send: (data: string) => void;
   /**
    * Reconnect, evicting whichever connection currently owns the workspace's
@@ -80,9 +87,8 @@ interface UseWebtermResult {
 }
 
 /**
- * Connect to a workspace's live terminal over the webterm grid protocol. Opens
- * the WebSocket only while `active`, tearing it down (and releasing the ship's
- * single-terminal guard) when `active` goes false or the component unmounts.
+ * Opens the WebSocket only while `active`, tearing it down (and releasing the
+ * ship's single-terminal guard) when `active` goes false or on unmount.
  */
 export function useWebterm(
   repo: string,
@@ -102,6 +108,9 @@ export function useWebterm(
    * replay an `init` rather than a `resize`.
    */
   const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  // Frames never go through React state: they arrive at up to 60fps and the
+  // caller paints imperatively.
+  const streamRef = useRef(new GridStream());
   // Bumping the attempt is what re-runs the socket effect; the flag rides in a
   // ref that the effect consumes, so eviction applies to that attempt alone and
   // never to a later reconnect.
@@ -112,7 +121,6 @@ export function useWebterm(
   const optsRef = useRef(opts);
   optsRef.current = opts;
 
-  /** Send `init` the first time, `resize` thereafter. */
   const sendSize = useCallback((ws: WebSocket, cols: number, rows: number) => {
     ({ cols, rows } = clampTerminalSize(cols, rows));
     const type = initializedRef.current ? "resize" : "init";
@@ -132,6 +140,9 @@ export function useWebterm(
     }
     // A fresh socket needs `init` before anything else; `lastSizeRef` carries over.
     initializedRef.current = false;
+    // The new connection numbers its frames from scratch, and a snapshot left
+    // over from the previous one is not a baseline any of its patches anchor to.
+    streamRef.current.reset();
     setStatus("connecting");
 
     const ws = new WebSocket(wsBridgeUrl(terminalPath(repo, name, requestTakeover)));
@@ -143,7 +154,15 @@ export function useWebterm(
       if (size) sendSize(ws, size.cols, size.rows);
     };
     ws.onmessage = (ev) => {
-      handleServerFrame(ev.data, optsRef.current, (code, reason) => ws.close(code, reason));
+      handleServerFrame(
+        ev.data,
+        streamRef.current,
+        optsRef.current,
+        (msg) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+        },
+        (code, reason) => ws.close(code, reason),
+      );
     };
     ws.onclose = (ev) => setStatus(closeStatus(ev.code));
     // An error event can trail a close (e.g. the ship refusing the attach), and

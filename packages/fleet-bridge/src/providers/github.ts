@@ -1,14 +1,3 @@
-/**
- * providers/github.ts — a `RepoProvider` backed by GitHub's REST API v3.
- *
- * Every dependency (owner/repo, token, `fetch`, base URL) is injected through
- * the constructor so the provider is exercisable in unit tests without env vars
- * or the network. GitHub's `/issues` endpoint also returns pull requests, so
- * `listIssues` filters out any element carrying a `pull_request` key to keep the
- * two streams distinct. Write operations require a token — GitHub cannot accept
- * anonymous comments/reviews — so those methods reject early with a 401.
- */
-
 import type {
   CheckRun,
   FailedJobLog,
@@ -260,6 +249,7 @@ export class GitHubProvider implements RepoProvider {
     const issues = await this.request<GitHubIssue[]>(
       `/repos/${this.owner}/${this.repo}/issues?state=${state}&per_page=100`,
     );
+    // GitHub's `/issues` endpoint returns pull requests too.
     return issues
       .filter((issue) => issue.pull_request === undefined)
       .map((issue) => this.toIssueSummary(issue));
@@ -559,10 +549,7 @@ export class GitHubProvider implements RepoProvider {
     }
   }
 
-  private async request<T>(
-    path: string,
-    init?: { method?: string; body?: unknown },
-  ): Promise<T> {
+  private baseHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: "application/vnd.github+json",
       "User-Agent": "fleet-bridge",
@@ -570,6 +557,14 @@ export class GitHubProvider implements RepoProvider {
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
+    return headers;
+  }
+
+  private async request<T>(
+    path: string,
+    init?: { method?: string; body?: unknown },
+  ): Promise<T> {
+    const headers = this.baseHeaders();
     if (init?.body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
@@ -620,13 +615,7 @@ export class GitHubProvider implements RepoProvider {
    * auth headers at all.
    */
   private async downloadText(path: string): Promise<string> {
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "fleet-bridge",
-    };
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
-    }
+    const headers = this.baseHeaders();
 
     let response = await this.fetchImpl(`${this.baseUrl}${path}`, { headers, redirect: "manual" });
 

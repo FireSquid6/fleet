@@ -59,11 +59,6 @@ function deriveSpec(r: SystemResources | null): string {
   return `${r.cpu.cores} cores · ${gb} GB · ${r.os.arch}`;
 }
 
-/**
- * Real {@link FleetBridge} backed by an Eden treaty against the fleet bridge.
- * The live terminal is a WebSocket stream, handled separately by the Terminal
- * component (see `useWebterm`), not through this request/response surface.
- */
 export class EdenFleetBridge implements FleetBridge {
   constructor(
     private readonly client: BridgeClient = makeBridgeClient(),

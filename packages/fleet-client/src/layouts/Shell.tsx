@@ -7,10 +7,8 @@ import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
 /**
- * The persistent app frame: sidebar + top bar wrapping the routed page. The
- * theme is applied here by toggling the `.dark` class that switches every
- * Bridge design token (see styles/globals.css). On mobile the sidebar collapses
- * into a slide-out drawer whose open state lives here.
+ * The theme is applied here by toggling the `.dark` class that switches every
+ * Bridge design token (see styles/globals.css).
  */
 export function Shell({ theme, onToggleTheme }: { theme: Theme; onToggleTheme: () => void }) {
   const { error } = useFleet();

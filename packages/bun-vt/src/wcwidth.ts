@@ -1,16 +1,5 @@
-/**
- * src/wcwidth.ts — display width of a Unicode scalar value.
- *
- * Returns the number of terminal cells a codepoint occupies:
- *   - 0 for combining marks / zero-width characters,
- *   - 2 for East Asian wide & fullwidth characters and most emoji,
- *   - 1 otherwise.
- *
- * This is a compact implementation covering the ranges that matter for terminal
- * rendering. It is not a full Unicode grapheme segmenter (Ghostty ships a
- * generated table); it is faithful for the common cases — ASCII, CJK, combining
- * marks and emoji — which is what the terminal grid needs to place cells.
- */
+// A compact approximation, not a generated Unicode width table: it covers
+// ASCII, CJK, combining marks and emoji, which is what grid placement needs.
 
 type Range = readonly [number, number];
 

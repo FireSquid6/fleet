@@ -191,7 +191,6 @@ suite("WorkspaceManager end-to-end", () => {
   });
 
   afterAll(async () => {
-    // Clean up any tmux sessions this suite may have started.
     const active = await manager.list("active");
     for (const w of active) {
       await manager.deactivate(w.repoName, w.name).catch(() => {});
@@ -355,7 +354,6 @@ suite("WorkspaceManager end-to-end", () => {
     ]);
     for (const event of events) expect(event.ship).toBe("test-ship");
 
-    // Spot-check embedded summaries reflect the resulting state.
     const activated = events.find((e) => e.type === "workspace.activated");
     if (activated && activated.type === "workspace.activated") {
       expect(activated.workspace.active).toBe(true);

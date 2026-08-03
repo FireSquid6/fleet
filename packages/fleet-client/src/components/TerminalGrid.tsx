@@ -17,7 +17,6 @@ interface CellMetrics {
   height: number;
 }
 
-/** Terminal default colors, read once from the fixed `--color-term-*` palette. */
 interface TermColors {
   fg: string;
   bg: string;
@@ -39,25 +38,20 @@ function baseFont(bold: boolean, italic: boolean): string {
 }
 
 /**
- * Whether a delegated React event was aimed at the handler's own element rather
- * than bubbled up from a descendant — the takeover button. Only keys aimed at
- * the container itself belong to the PTY: without this guard, Enter/Space on
- * that button would be swallowed (`encodeKeyEvent` maps them, and the
- * `preventDefault` cancels the button's synthesized click), stranding
- * keyboard-only users on the conflict overlay.
+ * Only keys aimed at the container itself belong to the PTY: without this guard,
+ * Enter/Space on the takeover button would be swallowed (`encodeKeyEvent` maps
+ * them, and the `preventDefault` cancels the button's synthesized click).
  */
 function ownEvent(e: { target: EventTarget; currentTarget: EventTarget }): boolean {
   return e.target === e.currentTarget;
 }
 
-/** How the cursor cell should be painted this frame. */
 export type CursorRender = "hidden" | "solid" | "outline";
 
 /**
- * Whether the cursor's phase is currently animating. The single source of truth
- * for the blink condition: both the renderer and the blink timer ask this, so a
- * timer tick can never disagree with what the next frame would paint.
- * `blinking` is optional on the wire and defaults to on.
+ * The single source of truth for the blink condition: both the renderer and the
+ * blink timer ask this, so a timer tick can never disagree with what the next
+ * frame would paint. `blinking` is optional on the wire and defaults to on.
  */
 export function cursorBlinks(cursor: GridMsg["cursor"], focused: boolean): boolean {
   return cursor.visible && focused && (cursor.blinking ?? true);
@@ -80,7 +74,7 @@ export function cursorRender(
   return cursorOn ? "solid" : "hidden";
 }
 
-/** Paint a full grid snapshot. The context transform already accounts for DPR. */
+/** The context transform already accounts for DPR. */
 function drawGrid(
   ctx: CanvasRenderingContext2D,
   grid: GridMsg,
@@ -237,11 +231,10 @@ function line(ctx: CanvasRenderingContext2D, x: number, y: number, w: number) {
 }
 
 /**
- * A live terminal painted on a canvas. Grid snapshots arrive at up to 60fps, so
- * they bypass React state entirely: the newest frame lives in a ref and is drawn
- * on the next animation frame (multiple frames between paints coalesce, which is
- * lossless since each `GridMsg` is a full snapshot). Only the rare status/exit
- * transitions use React state.
+ * Grid snapshots arrive at up to 60fps, so they bypass React state entirely: the
+ * newest frame lives in a ref and is drawn on the next animation frame (multiple
+ * frames between paints coalesce, which is lossless since each `GridMsg` is a
+ * full snapshot). Only the rare status/exit transitions use React state.
  */
 export function TerminalGrid({ repo, name, active }: { repo: string; name: string; active: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -294,7 +287,6 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     onExit: (code) => setExitCode(code),
   });
 
-  // Reset transient session state whenever we (re)attach.
   useEffect(() => {
     if (active) {
       setExitCode(null);
@@ -334,7 +326,6 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     };
   }, [active, scheduleDraw]);
 
-  // Size the canvas to the container, tell the PTY, and repaint on any change.
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -378,7 +369,6 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
     return () => observer.disconnect();
   }, [active, resize, scheduleDraw]);
 
-  // Blink the cursor independently of terminal output.
   useEffect(() => {
     if (!active) return;
     const id = setInterval(() => {
@@ -456,7 +446,6 @@ export function TerminalGrid({ repo, name, active }: { repo: string; name: strin
       className="relative min-h-0 flex-1 cursor-text overflow-hidden bg-term-bg px-3 py-2 outline-none focus:ring-1 focus:ring-inset focus:ring-term-line"
     >
       <canvas ref={canvasRef} />
-      {/* The conflict overlay owns pointer events — its button is the only way out. */}
       {status === "conflict" && exitCode === null ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-[15px] bg-term-bg p-10 text-center">
           <div className="max-w-[360px] font-mono text-[11.5px] leading-[1.6] text-term-sys">

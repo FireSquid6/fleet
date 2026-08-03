@@ -1,22 +1,12 @@
-// The transport seam. Every tmux invocation in this library flows through a
-// TmuxBackend, so a future control-mode (`tmux -C`) backend can be dropped in
-// without touching any call site — only this interface must be satisfied.
+import type { Backend, RunResult } from "cli-bun";
 
-/** Raw result of a single `tmux` invocation. */
-export interface TmuxRunResult {
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly exitCode: number;
-}
+export type TmuxRunResult = RunResult;
 
 /**
- * A transport that runs one tmux command and reports its raw result. The
- * `args` it receives already include the namespace socket flags, so a backend
- * must never inject its own — it just executes what it is given.
+ * The `args` a backend receives already include the namespace socket flags, so a
+ * backend must never inject its own.
  */
-export interface TmuxBackend {
-  run(args: readonly string[]): Promise<TmuxRunResult>;
-}
+export type TmuxBackend = Backend;
 
 /**
  * Default backend: spawn one-shot `tmux` processes via Bun's shell. Bun.$
