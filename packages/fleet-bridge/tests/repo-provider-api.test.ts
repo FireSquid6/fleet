@@ -21,7 +21,7 @@ import {
   type Review,
   type ReviewEvent,
 } from "../src/providers";
-import { makeDeps } from "./helpers";
+import { makeDeps, makeTestAuth } from "./helpers";
 
 /** Records the args each provider method was called with, per repo. */
 interface Recorder {
@@ -199,7 +199,7 @@ describe("repo provider API", () => {
       providerFor: makeProvider,
     });
     await manager.init();
-    app = createApp(manager);
+    app = createApp(manager, makeTestAuth());
     // Register the repo so the lookup in withProvider succeeds.
     expect((await call("POST", "/repos", { name: "repo1", url: "https://github.com/acme/repo1", provider: "github" })).status).toBe(201);
   });

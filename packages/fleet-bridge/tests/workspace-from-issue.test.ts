@@ -14,7 +14,7 @@ import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
 import { ProviderError, type Issue, type RepoProvider } from "../src/providers";
-import { FakeSocket, makeDeps, type FakeShip } from "./helpers";
+import { FakeSocket, makeDeps, makeTestAuth, type FakeShip } from "./helpers";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -120,7 +120,7 @@ describe("POST /workspaces from an issue", () => {
       providerFor: makeProvider,
     });
     await manager.init();
-    app = createApp(manager);
+    app = createApp(manager, makeTestAuth());
     expect(
       (await call("POST", "/repos", { name: "repo1", url: "https://github.com/acme/repo1", provider: "github" }))
         .status,

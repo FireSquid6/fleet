@@ -1,6 +1,9 @@
 import { Elysia } from "elysia";
 import { MAX_CLIENT_FRAME_BYTES } from "webterm/protocol";
+import type { AuthService } from "../auth/auth-service";
 import type { FleetManager } from "../fleet-manager";
+import { authPlugin } from "./auth";
+import { usersPlugin } from "./users";
 import { workspacesPlugin } from "./workspaces";
 import { shipsPlugin } from "./ships";
 import { systemResourcesPlugin } from "./system-resources";
@@ -9,7 +12,7 @@ import { armoryPlugin } from "./armory";
 import { eventsPlugin } from "./events";
 import { Logestic } from "logestic";
 
-export function createApp(manager: FleetManager) {
+export function createApp(manager: FleetManager, auth: AuthService) {
   // Terminal frames are highly repetitive JSON; permessage-deflate is worth an
   // order of magnitude on them, and Bun's client WebSocket already offers the
   // extension, so accepting it here compresses the fleet-client→bridge hop.
@@ -20,7 +23,9 @@ export function createApp(manager: FleetManager) {
     .use(systemResourcesPlugin(manager))
     .use(reposPlugin(manager))
     .use(armoryPlugin(manager))
-    .use(eventsPlugin(manager));
+    .use(eventsPlugin(manager))
+    .use(authPlugin(auth))
+    .use(usersPlugin(auth));
 }
 
 export type App = ReturnType<typeof createApp>;

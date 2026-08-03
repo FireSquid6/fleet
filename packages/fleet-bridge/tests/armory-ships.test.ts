@@ -6,7 +6,7 @@ import type { ArmorySyncState } from "fleet-protocol";
 import { createApp } from "../src/api";
 import { FleetManager } from "../src/fleet-manager";
 import { Store } from "../src/store/store";
-import { FakeSocket, makeDeps, type FakeShip } from "./helpers";
+import { FakeSocket, makeDeps, makeTestAuth, type FakeShip } from "./helpers";
 
 const SYNCED: ArmorySyncState = {
   revision: "a".repeat(64),
@@ -108,7 +108,7 @@ describe("FleetManager armoryShipStates", () => {
       ["http://ship-a", { name: "ship-a", workspaces: [], armoryState: SYNCED }],
     ]);
     const mgr = await boot(ships);
-    const app = createApp(mgr);
+    const app = createApp(mgr, makeTestAuth());
 
     const response = await app.handle(new Request("http://bridge/armory/ships"));
 

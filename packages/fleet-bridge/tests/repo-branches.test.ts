@@ -12,7 +12,7 @@ import { GitError, type RemoteRef } from "git-bun";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { makeDeps } from "./helpers";
+import { makeDeps, makeTestAuth } from "./helpers";
 
 /** What the fake `lsRemote` was asked, and what it answers with. */
 interface LsRemoteStub {
@@ -61,7 +61,7 @@ describe("GET /repos/:name/branches", () => {
       },
     });
     await manager.init();
-    app = createApp(manager);
+    app = createApp(manager, makeTestAuth());
     expect((await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" })).status).toBe(201);
   });
   afterEach(async () => {

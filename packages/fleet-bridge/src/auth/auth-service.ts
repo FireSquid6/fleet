@@ -7,52 +7,86 @@ import {
   type Role,
   type User,
 } from "fleet-protocol";
+import { z } from "zod";
 import type { AuthDatabase, UserRow } from "./auth-database";
 
-export class InvalidCredentialsError extends Error {
-  readonly status = 401;
+/**
+ * The authority on what a valid username, email and password are. Parsed as
+ * fields rather than bare values so a failure names the field it came from —
+ * `mapError` has nothing else to go on when it renders the 400.
+ */
+const UserFieldsSchema = z.object({
+  username: UsernameSchema,
+  email: EmailSchema,
+  password: PasswordSchema,
+});
+
+const EmailFieldSchema = UserFieldsSchema.pick({ email: true });
+const PasswordFieldSchema = UserFieldsSchema.pick({ password: true });
+
+/** Carries the HTTP status the auth layer wants, so `mapError` needs one `instanceof`. */
+export class AuthError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
+export class InvalidCredentialsError extends AuthError {
   constructor() {
-    super("invalid username or password");
+    super("invalid username or password", 401);
     this.name = "InvalidCredentialsError";
   }
 }
 
-export class UserAlreadyExistsError extends Error {
-  readonly status = 409;
+export class UnauthenticatedError extends AuthError {
+  constructor(message = "authentication required") {
+    super(message, 401);
+    this.name = "UnauthenticatedError";
+  }
+}
+
+export class ForbiddenError extends AuthError {
+  constructor(message = "forbidden") {
+    super(message, 403);
+    this.name = "ForbiddenError";
+  }
+}
+
+export class UserAlreadyExistsError extends AuthError {
   constructor(readonly username: string) {
-    super(`user already exists: ${username}`);
+    super(`user already exists: ${username}`, 409);
     this.name = "UserAlreadyExistsError";
   }
 }
 
-export class EmailAlreadyExistsError extends Error {
-  readonly status = 409;
+export class EmailAlreadyExistsError extends AuthError {
   constructor(readonly email: string) {
-    super(`email already in use: ${email}`);
+    super(`email already in use: ${email}`, 409);
     this.name = "EmailAlreadyExistsError";
   }
 }
 
-export class UserNotFoundError extends Error {
-  readonly status = 404;
+export class UserNotFoundError extends AuthError {
   constructor(readonly username: string) {
-    super(`user not found: ${username}`);
+    super(`user not found: ${username}`, 404);
     this.name = "UserNotFoundError";
   }
 }
 
-export class LastAdminError extends Error {
-  readonly status = 409;
+export class LastAdminError extends AuthError {
   constructor(readonly username: string) {
-    super(`cannot remove the last admin: ${username}`);
+    super(`cannot remove the last admin: ${username}`, 409);
     this.name = "LastAdminError";
   }
 }
 
-export class AlreadyBootstrappedError extends Error {
-  readonly status = 409;
+export class AlreadyBootstrappedError extends AuthError {
   constructor() {
-    super("the first admin has already been created");
+    super("the first admin has already been created", 409);
     this.name = "AlreadyBootstrappedError";
   }
 }
@@ -198,7 +232,7 @@ export class AuthService {
 
   setEmail(username: string, email: string): User {
     const row = this.requireUser(username);
-    const next = EmailSchema.parse(email);
+    const { email: next } = EmailFieldSchema.parse({ email });
     this.db.immediateTransaction(() => {
       const owner = this.db.findUserByEmail(next);
       if (owner && owner.id !== row.id) throw new EmailAlreadyExistsError(next);
@@ -209,7 +243,7 @@ export class AuthService {
 
   async setPassword(username: string, password: string): Promise<void> {
     const row = this.requireUser(username);
-    const passwordHash = await Bun.password.hash(PasswordSchema.parse(password));
+    const passwordHash = await Bun.password.hash(PasswordFieldSchema.parse({ password }).password);
     this.db.transaction(() => {
       this.db.updatePasswordHash(row.id, passwordHash);
       this.db.deleteSessionsForUser(row.id);
@@ -281,9 +315,8 @@ export class AuthService {
     input: { username: string; email: string; password: string },
     role: Role,
   ): Promise<UserRow> {
-    const username = UsernameSchema.parse(input.username);
-    const email = EmailSchema.parse(input.email);
-    const passwordHash = await Bun.password.hash(PasswordSchema.parse(input.password));
+    const { username, email, password } = UserFieldsSchema.parse(input);
+    const passwordHash = await Bun.password.hash(password);
     return {
       id: crypto.randomUUID(),
       username,
@@ -343,7 +376,8 @@ function dummyPasswordHash(): Promise<string> {
   return (dummyHash ??= Bun.password.hash(generateToken()));
 }
 
-function parseBearer(header: string | null | undefined): string | null {
+/** The one place an `Authorization` header is split; routes that need the raw token reuse it. */
+export function parseBearer(header: string | null | undefined): string | null {
   if (!header) return null;
   const match = /^\s*bearer\s+(\S+)\s*$/i.exec(header);
   return match?.[1] ?? null;

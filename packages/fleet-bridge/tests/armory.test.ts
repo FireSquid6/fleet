@@ -12,7 +12,7 @@ import {
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { makeDeps, type FakeShip } from "./helpers";
+import { makeDeps, makeTestAuth, type FakeShip } from "./helpers";
 
 const directories: string[] = [];
 
@@ -365,7 +365,7 @@ describe("armory API", () => {
       store,
     });
     await manager.init();
-    return { root: join(directory, "armory"), app: createApp(manager) };
+    return { root: join(directory, "armory"), app: createApp(manager, makeTestAuth()) };
   }
 
   async function call(handler: ReturnType<typeof createApp>, path: string) {

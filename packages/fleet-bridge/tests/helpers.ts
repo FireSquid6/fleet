@@ -1,5 +1,32 @@
-import type { ArmorySyncState, FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
+import type { ArmorySyncState, FleetEvent, Role, SystemResources, User, WorkspaceSummary } from "fleet-protocol";
+import { AuthDatabase } from "../src/auth/auth-database";
+import { AuthService } from "../src/auth/auth-service";
 import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
+
+export const TEST_PASSWORD = "test-password";
+
+/** An `AuthService` over a throwaway in-memory database, for `createApp`. */
+export function makeTestAuth(): AuthService {
+  const db = new AuthDatabase(":memory:");
+  db.migrate();
+  return new AuthService(db);
+}
+
+/** Creates a user and logs it in; `authorization` is ready to spread into request headers. */
+export async function seedUser(
+  auth: AuthService,
+  input: { username: string; email?: string; password?: string; role?: Role },
+): Promise<{ user: User; token: string; authorization: string }> {
+  const password = input.password ?? TEST_PASSWORD;
+  const user = await auth.createUser({
+    username: input.username,
+    email: input.email ?? `${input.username}@fleet.test`,
+    password,
+    role: input.role ?? "member",
+  });
+  const { token } = await auth.login(input.username, password);
+  return { user, token, authorization: `Bearer ${token}` };
+}
 
 /** A ship the fakes pretend exists at a given base URL. */
 export interface FakeShip {

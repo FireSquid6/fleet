@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
+import { FakeSocket, makeDeps, makeTestAuth, ws, type FakeShip } from "./helpers";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -54,7 +54,7 @@ describe("bridge API", () => {
     await store.createShip({ name: "ship-b", url: "http://ship-b" });
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
-    app = createApp(manager);
+    app = createApp(manager, makeTestAuth());
   });
   afterEach(async () => {
     manager.shutdown();

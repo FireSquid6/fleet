@@ -16,7 +16,7 @@ import {
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
+import { FakeSocket, makeDeps, makeTestAuth, ws, type FakeShip } from "./helpers";
 
 const opened = (sock: WebSocket) =>
   new Promise<void>((resolve, reject) => {
@@ -79,7 +79,7 @@ describe("bridge terminal proxy", () => {
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
 
-    bridge = createApp(manager);
+    bridge = createApp(manager, makeTestAuth());
     bridge.listen(0);
     bridgeUrl = `ws://localhost:${bridge.server?.port}`;
   });
