@@ -27,6 +27,18 @@ export async function startBridge(
   await mkdir(config.dataDirectory, { recursive: true });
 
   const manager = new FleetManager(config);
+
+  // Listening has to precede `init`: init connects to the persisted roster, and
+  // every ship that comes online is pushed an armory sync it answers by pulling
+  // `GET /armory` back off this port. Listen after init and that pull fails
+  // against a closed port, and since the connection is already "online" there is
+  // no later status change to retry on. `/armory` is served off the
+  // `ArmoryService` the constructor builds, so it is ready now; the routes that
+  // do read init's state are briefly empty, which `rebuildIndex` corrects.
+  const app = createApp(manager);
+  app.listen(config.port);
+  console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
+
   await manager.init();
 
   // Started after `init` — the ships that come online during it push themselves
@@ -36,9 +48,6 @@ export async function startBridge(
     void manager.pushArmory();
   });
 
-  const app = createApp(manager);
-  app.listen(config.port);
-  console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
   return { manager, watcher };
 }
 

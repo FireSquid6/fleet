@@ -13,33 +13,56 @@ export function shipUrl(ship: NormalizedShip): string {
   return ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
 }
 
-export interface ShipRegistration {
-  ship: NormalizedShip;
+/** One ship on the bridge's roster, as `listShips()` reports it. */
+export interface RosterEntry {
+  name: string;
   url: string;
-  alreadyRegistered: boolean;
 }
+
+export type ShipRegistration = { ship: NormalizedShip; url: string } & (
+  | { skip: null }
+  | { skip: "on-bridge" }
+  | { skip: "on-bridge-stale-url"; rosterUrl: string }
+  | { skip: "duplicate-config-entry"; firstKey: string }
+);
 
 /**
  * Decide, in config order, which ships the bridge still needs told about.
  *
- * The bridge dedupes on ship *name*, which a remote config entry never carries,
- * so the comparison has to happen on URL — normalized on both sides, since a
- * roster entry added over the HTTP API may carry a trailing slash. Ships are
- * marked registered as they are planned, so two entries sharing a URL yield one
- * registration.
+ * Matched with the bridge's own key wherever the config knows it. The bridge
+ * dedupes on ship *name*, so a local entry — whose name `parseLaunchConfig`
+ * always fills in — is matched by name and not by URL: matching it by URL would
+ * both miss a ship whose port moved (`addShip` would then 409 on the name) and
+ * suppress the adoption that teaches the bridge a renamed ship's real name. A
+ * remote entry carries no name, so URL is all it can offer.
+ *
+ * URLs are normalized on both sides, since a roster entry added over the HTTP
+ * API may carry a trailing slash.
  */
 export function planRegistrations(
   ships: NormalizedShip[],
-  registeredUrls: Iterable<string>,
+  roster: Iterable<RosterEntry>,
 ): ShipRegistration[] {
-  const registered = new Set([...registeredUrls].map(normalizeUrl));
+  const entries = [...roster];
+  const rosterByName = new Map(entries.map((entry) => [entry.name, entry.url]));
+  const rosterByUrl = new Map(entries.map((entry) => [normalizeUrl(entry.url), entry.url]));
+  const claimedBy = new Map<string, string>();
 
-  return ships.map((ship) => {
+  return ships.map((ship): ShipRegistration => {
     const url = shipUrl(ship);
     const normalized = normalizeUrl(url);
-    const alreadyRegistered = registered.has(normalized);
-    registered.add(normalized);
-    return { ship, url, alreadyRegistered };
+
+    const firstKey = claimedBy.get(normalized);
+    if (firstKey !== undefined) return { ship, url, skip: "duplicate-config-entry", firstKey };
+    claimedBy.set(normalized, ship.key);
+
+    const rosterUrl =
+      ship.source === "local" ? rosterByName.get(ship.name) : rosterByUrl.get(normalized);
+    if (rosterUrl === undefined) return { ship, url, skip: null };
+
+    return normalizeUrl(rosterUrl) === normalized
+      ? { ship, url, skip: "on-bridge" }
+      : { ship, url, skip: "on-bridge-stale-url", rosterUrl };
   });
 }
 
@@ -52,9 +75,9 @@ async function runLaunch(configPath: string): Promise<void> {
   }
 
   // A launch knows both sides, so it can pin each ship it spawns to the bridge
-  // it just started rather than leaving it to trust whoever pushes first. The
-  // value must be the one the bridge pushes with, not the one this process would
-  // dial, hence `publicUrl` and the same fallback the bridge uses.
+  // this same config describes rather than leaving it to trust whoever pushes
+  // first. The value must be the one the bridge pushes with, not the one this
+  // process would dial, hence `publicUrl` and the same fallback the bridge uses.
   const launchedBridgeUrl = config.bridge
     ? (config.bridge.publicUrl ?? `http://localhost:${config.bridge.port}`)
     : undefined;
@@ -71,8 +94,8 @@ async function runLaunch(configPath: string): Promise<void> {
 
   // Ships come up before the bridge so that the roster the bridge restores from
   // disk during `init()` connects to live ships instead of timing out on every
-  // one of them. A ship needs no running bridge to start; its `bridgeUrl` is
-  // only a pin, read from the config rather than from the started bridge.
+  // one of them. Nothing below needs the bridge running: the pin above is read
+  // from the config.
   for (const ship of config.ships) {
     if (ship.source !== "local") continue;
     await startShip({
@@ -93,13 +116,22 @@ async function runLaunch(configPath: string): Promise<void> {
       console.log(`no bridge configured; not registering ship "${ship.key}" (${shipUrl(ship)})`);
     }
   } else {
-    const plan = planRegistrations(
-      config.ships,
-      manager.listShips().map((info) => info.url),
-    );
-    for (const { ship, url, alreadyRegistered } of plan) {
-      if (alreadyRegistered) {
+    for (const entry of planRegistrations(config.ships, manager.listShips())) {
+      const { ship, url } = entry;
+      if (entry.skip === "duplicate-config-entry") {
+        console.warn(
+          `ships "${entry.firstKey}" and "${ship.key}" both point at ${url}; registering it once`,
+        );
+        continue;
+      }
+      if (entry.skip === "on-bridge") {
         console.log(`ship "${ship.key}" (${url}) is already registered with the bridge`);
+        continue;
+      }
+      if (entry.skip === "on-bridge-stale-url") {
+        console.warn(
+          `ship "${ship.key}" is already registered with the bridge at ${entry.rosterUrl}, not ${url}`,
+        );
         continue;
       }
       try {
