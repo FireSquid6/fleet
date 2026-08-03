@@ -22,7 +22,6 @@ describe("ensureFirstUser", () => {
     output = [];
   });
 
-  /** Answers prompts from fixed queues and records what was asked. */
   function fakePrompts(lines: string[], secrets: string[]) {
     const asked: string[] = [];
     const next = (queue: string[], question: string) => {

@@ -13,7 +13,6 @@ export const BridgeConfigSchema = z.object({
    * `resolveBridgeConfig` may omit it; `defaultPublicUrl` fills the gap.
    */
   publicUrl: z.string().min(1).optional(),
-  /** Development escape hatch: serve every route without authentication. */
   insecureNoAuth: z.boolean().default(false),
 });
 

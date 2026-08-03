@@ -10,11 +10,7 @@ import {
 import { z } from "zod";
 import type { AuthDatabase, UserRow } from "./auth-database";
 
-/**
- * The authority on what a valid username, email and password are. Parsed as
- * fields rather than bare values so a failure names the field it came from —
- * `mapError` has nothing else to go on when it renders the 400.
- */
+/** One object rather than three bare values, so a zod failure names the field `mapError` puts in the 400. */
 const UserFieldsSchema = z.object({
   username: UsernameSchema,
   email: EmailSchema,
@@ -24,7 +20,6 @@ const UserFieldsSchema = z.object({
 const EmailFieldSchema = UserFieldsSchema.pick({ email: true });
 const PasswordFieldSchema = UserFieldsSchema.pick({ password: true });
 
-/** Carries the HTTP status the auth layer wants, so `mapError` needs one `instanceof`. */
 export class AuthError extends Error {
   constructor(
     message: string,
@@ -99,9 +94,8 @@ export type Principal =
 /** Absolute, never extended: a session dies 30 days after it was issued. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /**
- * Authentication runs on every request, so writing `last_used_at` on each hit
- * would fsync the database per API call. It is a coarse liveness signal, not an
- * audit log, so it is only refreshed once per interval.
+ * `last_used_at` is a coarse liveness signal, not an audit log: refreshing it on
+ * every authenticated request would mean a database write per API call.
  */
 export const SESSION_TOUCH_INTERVAL_MS = 60_000;
 export const WS_TICKET_TTL_MS = 30_000;
@@ -112,10 +106,6 @@ type WsTicket = { principal: Principal; expiresAt: number };
 
 export class AuthService {
   private readonly now: () => number;
-  /**
-   * Tickets are deliberately not persisted: they live for 30 seconds on the
-   * WebSocket handshake path, and losing them on restart costs a reconnect.
-   */
   private readonly tickets = new Map<string, WsTicket>();
 
   constructor(
@@ -174,7 +164,6 @@ export class AuthService {
     this.db.deleteSession(hashToken(token));
   }
 
-  /** Resolves an `Authorization` header to a principal. Returns null rather than throwing. */
   authenticate(header: string | null | undefined): Principal | null {
     const token = parseBearer(header);
     if (!token) return null;
@@ -268,7 +257,6 @@ export class AuthService {
     return entry.expiresAt <= this.now() ? null : entry.principal;
   }
 
-  /** Returns both secrets in cleartext once; only the ship token is recoverable afterwards. */
   createShipCredentials(shipName: string): { shipToken: string; bridgeToken: string } {
     const shipToken = generateToken();
     const bridgeToken = generateToken();
@@ -336,10 +324,7 @@ export class AuthService {
     try {
       this.db.insertUser(row);
     } catch (error) {
-      // Backstop only: callers check both unique columns under a write lock
-      // first. Sqlite names the column that collided, so use it when it is
-      // there and let anything else surface as itself rather than blaming a
-      // field that may not be the one at fault.
+      // Backstop only: callers check both unique columns under a write lock first.
       if (error instanceof SQLiteError && error.code?.startsWith("SQLITE_CONSTRAINT")) {
         if (error.message.includes("users.username")) throw new UserAlreadyExistsError(row.username);
         if (error.message.includes("users.email")) throw new EmailAlreadyExistsError(row.email);
@@ -376,7 +361,6 @@ function dummyPasswordHash(): Promise<string> {
   return (dummyHash ??= Bun.password.hash(generateToken()));
 }
 
-/** The one place an `Authorization` header is split; routes that need the raw token reuse it. */
 export function parseBearer(header: string | null | undefined): string | null {
   if (!header) return null;
   const match = /^\s*bearer\s+(\S+)\s*$/i.exec(header);

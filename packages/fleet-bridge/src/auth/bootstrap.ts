@@ -15,7 +15,6 @@ export interface BootstrapOptions {
   promptSecret?: (question: string) => Promise<string>;
 }
 
-/** Creates the first admin when the auth database is empty; a no-op afterwards. */
 export async function ensureFirstUser(auth: AuthService, opts?: BootstrapOptions): Promise<void> {
   if (auth.hasUsers()) return;
 
@@ -29,9 +28,6 @@ export async function ensureFirstUser(auth: AuthService, opts?: BootstrapOptions
     return;
   }
 
-  // Half-configured is almost always a typo in a variable name, and falling
-  // through to "you have configured nothing" would send the operator hunting
-  // in the wrong place.
   const set = ADMIN_ENV_VARS.filter((name) => env[name]);
   if (set.length > 0) {
     const missing = ADMIN_ENV_VARS.filter((name) => !env[name]);
@@ -40,9 +36,8 @@ export async function ensureFirstUser(auth: AuthService, opts?: BootstrapOptions
     );
   }
 
-  // A bridge started by systemd or in a container has a stdin that will never
-  // produce a line, so prompting there would hang forever with no output.
-  // Failing with the variable names is the only actionable thing left.
+  // Under systemd or in a container stdin never produces a line, so prompting
+  // there would hang forever with no output.
   if (!(opts?.isTty ?? Boolean(process.stdin.isTTY))) {
     throw new Error(
       `fleet-bridge has no users and stdin is not a terminal — set ${ADMIN_ENV_VARS.join(", ")} to create the first admin, or start with --insecure-no-auth`,

@@ -6,9 +6,8 @@ import { mapErrorHook } from "./http";
 const roleSchema = t.Union([t.Literal("admin"), t.Literal("member")]);
 
 /**
- * 403 rather than 404 for an unknown target: the caller is authenticated but
- * not entitled to know who exists, and a 404 here would read as "your own
- * account is gone".
+ * 403 rather than 404 for an unknown target: a member is not entitled to learn
+ * who exists by probing.
  */
 function requireSelfOrAdmin(auth: AuthService, headers: AuthHeaders, username: string): UserPrincipal {
   const principal = requireUser(auth, headers);

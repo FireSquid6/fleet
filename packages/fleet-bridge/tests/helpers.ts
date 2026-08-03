@@ -5,14 +5,12 @@ import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 
 export const TEST_PASSWORD = "test-password";
 
-/** An `AuthService` over a throwaway in-memory database, for `createApp`. */
 export function makeTestAuth(): AuthService {
   const db = new AuthDatabase(":memory:");
   db.migrate();
   return new AuthService(db);
 }
 
-/** Creates a user and logs it in; `authorization` is ready to spread into request headers. */
 export async function seedUser(
   auth: AuthService,
   input: { username: string; email?: string; password?: string; role?: Role },

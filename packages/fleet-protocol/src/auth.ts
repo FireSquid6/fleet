@@ -32,7 +32,6 @@ export const LoginRequestSchema = z.object({
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
 export const LoginResponseSchema = z.object({
-  /** Opaque session token; the server keeps only its hash, so it is shown once. */
   token: z.string(),
   user: UserSchema,
 });

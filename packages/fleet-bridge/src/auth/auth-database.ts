@@ -4,11 +4,6 @@ import { z } from "zod";
 
 export const SCHEMA_VERSION = 1;
 
-/**
- * Storage rows, deliberately not in `fleet-protocol`: they never cross a
- * process boundary. Every read parses through them, so the declared shape and
- * what sqlite actually holds cannot quietly diverge.
- */
 export const UserRowSchema = z.object({
   id: z.string(),
   username: z.string(),
@@ -50,10 +45,9 @@ const column = (
 
 /**
  * What `PRAGMA table_info` must report for the tables `SCHEMA_SQL` creates.
- * It only reports name/type/notnull/pk, so the `CREATE` statements below stay
- * literal and keep the parts it cannot see (UNIQUE, COLLATE, CHECK, REFERENCES).
- * `migrate()` checks the live file against this and this against the row
- * schemas, so no two of the three can drift apart unnoticed.
+ * Duplicated on purpose: the pragma cannot see UNIQUE, COLLATE, CHECK or
+ * REFERENCES, so `SCHEMA_SQL` stays literal and `verifySchema` cross-checks the
+ * live file, this table and the row schemas against each other.
  */
 const EXPECTED_COLUMNS: Record<string, ColumnSpec[]> = {
   version: [column("version", "INTEGER", { notNull: true })],
@@ -168,16 +162,10 @@ type Statements = ReturnType<typeof prepareStatements>;
 const describeColumn = (c: ColumnSpec): string =>
   `${c.name} ${c.type}${c.notNull ? " NOT NULL" : ""}${c.pk ? " PRIMARY KEY" : ""}`;
 
-/** The integrity boundary: nothing leaves sqlite without matching its row schema. */
 function parseRow<T>(schema: z.ZodType<T>, row: unknown): T | undefined {
   return row === null || row === undefined ? undefined : schema.parse(row);
 }
 
-/**
- * Every SQL statement fleet's authentication uses. Policy (hashing, expiry,
- * last-admin rules) belongs one layer up in `AuthService`; this class only
- * reads and writes rows.
- */
 export class AuthDatabase {
   private readonly db: Database;
   /** Prepared lazily: the tables do not exist until `migrate()` has run. */
@@ -327,7 +315,6 @@ export class AuthDatabase {
     return (this.statements ??= prepareStatements(this.db));
   }
 
-  /** Rejects a hand-edited or drifted database file at startup, not at the first failed query. */
   private verifySchema(): void {
     for (const [table, expected] of Object.entries(EXPECTED_COLUMNS)) {
       const info = this.db
