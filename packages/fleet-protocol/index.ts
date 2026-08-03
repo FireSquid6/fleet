@@ -32,6 +32,29 @@ export type { SystemResources } from "./src/system";
 export { RepoSchema, CreateRepoInputSchema, type Repo, type CreateRepoInput } from "./src/repo";
 export { ShipSchema, type Ship } from "./src/ship";
 export {
+  RoleSchema,
+  UsernameSchema,
+  PasswordSchema,
+  EmailSchema,
+  UserSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
+  CreateUserRequestSchema,
+  SetPasswordRequestSchema,
+  SetEmailRequestSchema,
+  SetRoleRequestSchema,
+  WsTicketResponseSchema,
+  type Role,
+  type User,
+  type LoginRequest,
+  type LoginResponse,
+  type CreateUserRequest,
+  type SetPasswordRequest,
+  type SetEmailRequest,
+  type SetRoleRequest,
+  type WsTicketResponse,
+} from "./src/auth";
+export {
   ARMORY_SECTIONS,
   ARMORY_DIRECTORY,
   DOTFILE_MAP_FILENAME,
