@@ -45,6 +45,7 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
   const [branchesError, setBranchesError] = useState<string | null>(null);
 
   const [fromIssue, setFromIssue] = useState(false);
+  const [ephemeral, setEphemeral] = useState(true);
   const [issues, setIssues] = useState<RepoIssue[]>([]);
   const [issuesLoaded, setIssuesLoaded] = useState(false);
   const [issuesLoading, setIssuesLoading] = useState(false);
@@ -94,7 +95,7 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
   }, [fromIssue, issuesLoaded, listRepoIssues, repoName]);
 
   const state = branchState(branch, branches);
-  const input = createWorkspaceInput({ ship: shipName, repoName, name, fromIssue, branch, issue });
+  const input = createWorkspaceInput({ ship: shipName, repoName, name, fromIssue, ephemeral, branch, issue });
 
   const { error, pending, submit } = useSubmitAction(() => createWorkspace(input!), onClose);
 
@@ -169,6 +170,9 @@ export function CreateWorkspaceModal({ repoName, ship, onClose }: Props) {
             ) : issue ? (
               <SelectedIssue issue={issue} />
             ) : null}
+            <Checkbox checked={ephemeral} onChange={setEphemeral}>
+              Ephemeral — delete this workspace once the issue's pull request closes
+            </Checkbox>
           </Field>
         ) : (
           <Field label="Branch">

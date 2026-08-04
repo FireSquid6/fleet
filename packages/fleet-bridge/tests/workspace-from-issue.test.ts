@@ -64,6 +64,7 @@ describe("POST /workspaces from an issue", () => {
       getInfo: unused,
       listIssues: unused,
       listPullRequests: unused,
+      pullRequestsForBranch: unused,
       getPullRequest: unused,
       commentOnIssue: unused,
       commentOnPullRequest: unused,

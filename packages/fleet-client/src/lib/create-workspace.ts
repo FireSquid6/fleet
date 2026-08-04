@@ -64,6 +64,8 @@ export interface CreateWorkspaceForm {
   readonly name: string;
   /** Whether the "Create from issue" checkbox is ticked. */
   readonly fromIssue: boolean;
+  /** Whether the "Ephemeral" checkbox is ticked; only issue mode can send it. */
+  readonly ephemeral: boolean;
   readonly branch: string;
   readonly issue: RepoIssue | null;
 }
@@ -75,6 +77,7 @@ export interface CreateWorkspaceInput {
   readonly name: string;
   readonly branch?: string;
   readonly issueNumber?: number;
+  readonly ephemeral?: boolean;
 }
 
 /**
@@ -92,7 +95,13 @@ export function createWorkspaceInput(form: CreateWorkspaceForm): CreateWorkspace
 
   if (form.fromIssue) {
     if (!form.issue) return null;
-    return { ship: form.ship, repoName: form.repoName, name, issueNumber: form.issue.number };
+    return {
+      ship: form.ship,
+      repoName: form.repoName,
+      name,
+      issueNumber: form.issue.number,
+      ephemeral: form.ephemeral,
+    };
   }
 
   const branch = form.branch.trim();

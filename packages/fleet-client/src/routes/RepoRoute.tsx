@@ -5,6 +5,7 @@ import { useFleet } from "@/data/FleetContext";
 import { CreateWorkspaceModal } from "@/components/CreateWorkspaceModal";
 import { RowLabel } from "./ReposRoute";
 import { agentStateColor } from "@/lib/agent-status";
+import { EphemeralBadge } from "@/components/Ephemeral";
 
 const COLS = "140px 190px 150px 90px 100px minmax(220px,1fr) 150px 120px 120px";
 
@@ -93,7 +94,10 @@ export function RepoRoute() {
             )}
             style={{ gridTemplateColumns: COLS }}
           >
-            <span className="text-[12px] font-semibold text-text">◇ {w.name}</span>
+            <span className="flex items-center gap-2 text-[12px] font-semibold text-text">
+              ◇ {w.name}
+              {w.ephemeral && <EphemeralBadge ephemeral={w.ephemeral} />}
+            </span>
             <span className="min-w-0 break-all text-[11px] text-dim md:overflow-hidden md:text-ellipsis md:whitespace-nowrap md:break-normal">
               <RowLabel>BRANCH</RowLabel>
               ⎇ {w.branch}

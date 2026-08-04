@@ -319,6 +319,7 @@ describe("MockFleetBridge create-workspace surface", () => {
       branch: "feature/x",
       active: false,
       agent: null,
+      ephemeral: null,
     });
   });
 });

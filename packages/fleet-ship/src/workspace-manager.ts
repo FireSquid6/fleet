@@ -46,6 +46,11 @@ export interface SwitchBranchOptions {
   readonly branch: string;
 }
 
+export interface RemoveOptions {
+  /** With `false`, refuse to remove a workspace holding work no remote has. */
+  readonly force?: boolean;
+}
+
 export interface InitAgentOptions {
   readonly model: string;
   readonly provider: string;
@@ -96,6 +101,31 @@ async function withDestinationRollback<T>(dir: string, work: () => Promise<T>): 
     }
     throw error;
   }
+}
+
+async function unrecoverableWork(git: Git): Promise<string[]> {
+  const held: string[] = [];
+
+  const status = await git.status();
+  if (!status.clean) held.push(plural(status.files.length, "uncommitted file"));
+
+  const unpushed = await git.command.tryRun(["log", "--branches", "--not", "--remotes", "--format=%H"]);
+  if (unpushed.exitCode !== 0) {
+    held.push(`unpushed commits could not be counted: ${unpushed.stderr.trim() || "git failed"}`);
+  } else {
+    const commits = unpushed.stdout.split("\n").filter((line) => line.length > 0).length;
+    if (commits > 0) held.push(`${plural(commits, "commit")} not on any remote`);
+  }
+
+  if ((await git.command.tryRun(["rev-parse", "--verify", "--quiet", "refs/stash"])).exitCode === 0) {
+    held.push("a stash");
+  }
+
+  return held;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 /**
@@ -476,13 +506,23 @@ export class WorkspaceManager {
     this.emit({ type: "workspace.deactivated", ...this.stamp(), workspace });
   }
 
-  async remove(repoName: string, name: string): Promise<void> {
+  async remove(repoName: string, name: string, options: RemoveOptions = {}): Promise<void> {
     const dir = await this.requireWorkspace(repoName, name);
 
     // Capture the branch before deleting the directory so the `removed` event can
     // still identify the workspace's last-known state.
     const git = new Git({ cwd: dir });
     const branch = await git.currentBranch().catch(() => "");
+
+    if (options.force === false) {
+      const held = await unrecoverableWork(git);
+      if (held.length > 0) {
+        throw new WorkspaceError(
+          `workspace ${repoName}/${name} holds work that is not on a remote: ${held.join("; ")}`,
+          409,
+        );
+      }
+    }
 
     const sessionName = this.sessionName(repoName, name);
     if (await this.tmux.hasSession(sessionName)) {

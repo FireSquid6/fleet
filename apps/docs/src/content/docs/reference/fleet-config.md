@@ -66,10 +66,11 @@ Every field has a default, so `bridge: {}` is valid.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `dataDirectory` | string (non-empty) | no | `./.fleet/bridge` | Where the bridge persists `ships.json` and `repos.json`, and where its `armory/` directory lives. Resolved to an absolute path. |
+| `dataDirectory` | string (non-empty) | no | `./.fleet/bridge` | Where the bridge persists `ships.json`, `repos.json` and `ephemeral.json`, and where its `armory/` directory lives. Resolved to an absolute path. |
 | `port` | integer | no | `4800` | Port the bridge's HTTP + WebSocket API listens on. |
 | `name` | string (non-empty) | no | `bridge` | Human-facing name of the bridge. |
 | `publicUrl` | string (non-empty) | no | `http://localhost:<port>` | URL **ships** use to reach this bridge. |
+| `sweepIntervalMs` | integer ≥ 0 | no | `300000` (5 minutes) | How often to check [ephemeral workspaces](/concepts/workspaces/#ephemeral-workspaces) for a closed pull request. `0` turns the sweep off, leaving `POST /workspaces/sweep` as the only way to run one. |
 
 :::note
 The `dataDirectory` default here (`./.fleet/bridge`) is *not* the same as the

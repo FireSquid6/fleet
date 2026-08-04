@@ -15,10 +15,15 @@ export {
   WorkspaceRefsSchema,
   AgentStatusSchema,
   CreateWorkspaceRequestSchema,
+  EphemeralWorkspaceSchema,
   AGENT_STATES,
+  EPHEMERAL_CLEANUP_STATES,
+  MAX_BLOCKED_REASON_LENGTH,
   type WorkspaceSummary,
 } from "./src/workspace";
 export type {
+  EphemeralWorkspace,
+  EphemeralCleanupState,
   WorkspaceDiff,
   WorkspaceRefs,
   WorkspaceStatus,

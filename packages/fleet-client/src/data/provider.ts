@@ -45,6 +45,7 @@ export interface FleetBridge {
     name: string;
     branch?: string;
     issueNumber?: number;
+    ephemeral?: boolean;
   }): Promise<Workspace>;
   /** `GET /workspaces/:repo/:name` — detailed status (diff, ship, …). */
   getWorkspace(repo: string, name: string): Promise<WorkspaceDetail>;

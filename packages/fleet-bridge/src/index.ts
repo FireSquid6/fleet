@@ -47,6 +47,8 @@ export async function startBridge(
     void manager.pushArmory();
   });
 
+  manager.startSweeping();
+
   return { manager, watcher };
 }
 

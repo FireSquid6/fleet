@@ -170,6 +170,47 @@ This kills the tmux session if one is up, then recursively deletes the workspace
 directory. Uncommitted or unpushed work in that clone is gone — nothing pushes
 for you.
 
+The ship also takes `?force=false` on that endpoint, which refuses the delete
+with a `409` when the clone holds anything no remote has: a dirty working tree
+(untracked files included), commits missing from every remote on *any* local
+branch, or a stash. The CLI and the web GUI both delete unconditionally — the
+non-forcing form is what the bridge's ephemeral cleanup uses.
+
+## Ephemeral workspaces
+
+When you create a workspace from an issue in the web GUI, **Ephemeral** is
+ticked by default. The bridge then deletes that workspace on its own once every
+pull request on the linked branch has closed — or, if no pull request was ever
+opened, once the issue itself closes. See
+[Workspaces](/concepts/workspaces/#ephemeral-workspaces) for the exact rules.
+
+Ephemeral workspaces are labelled wherever they appear, with the issue and the
+pull request the last sweep saw:
+
+```
+◇ ws-9c11  ⧗ EPHEMERAL   issue #88 · PR #214 open
+```
+
+Cleanup never destroys work the remote does not have. When it is refused, the
+workspace stays put and the label turns red with the reason:
+
+```
+◇ ws-a071  ⚠ EPHEMERAL   issue #41 · PR #118 closed ·
+                         cleanup blocked: 2 commits not on any remote
+```
+
+That is a state you resolve, not one the fleet resolves for you: push the branch
+(or delete the workspace yourself), and the next sweep clears it. To check
+immediately rather than waiting for the timer:
+
+```bash
+curl -X POST http://localhost:4800/workspaces/sweep
+```
+
+```json
+{ "checked": 3, "destroyed": 1, "blocked": 1, "skipped": 0, "forgotten": 0 }
+```
+
 ## Where this maps in the API
 
 Every command above is a thin wrapper over one ship endpoint

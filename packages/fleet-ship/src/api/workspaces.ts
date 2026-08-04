@@ -183,10 +183,14 @@ export function workspacesPlugin(
       await manager.deactivate(params.repo, params.name);
       return { ok: true as const };
     })
-    .delete("/workspaces/:repo/:name", async ({ params }) => {
-      await manager.remove(params.repo, params.name);
-      return { ok: true as const };
-    })
+    .delete(
+      "/workspaces/:repo/:name",
+      async ({ params, query }) => {
+        await manager.remove(params.repo, params.name, { force: query.force });
+        return { ok: true as const };
+      },
+      { query: t.Object({ force: t.Optional(t.Boolean()) }) },
+    )
     .ws("/workspaces/:repo/:name/terminal", {
       query: t.Object({
         takeover: t.Optional(t.Boolean()),

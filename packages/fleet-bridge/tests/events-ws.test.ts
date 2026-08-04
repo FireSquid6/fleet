@@ -12,6 +12,7 @@ function managerStub() {
     active: true,
     agent: null,
     ship: "ship-a",
+    ephemeral: null,
   };
   const manager = {
     subscribe(listener: (event: BridgeWorkspaceEvent) => void) {

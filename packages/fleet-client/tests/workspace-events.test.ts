@@ -18,6 +18,7 @@ const workspace = (name: string, agent: AgentStatus | null = null): Workspace =>
   active: agent !== null,
   agent,
   ship: "ship-a",
+  ephemeral: null,
 });
 
 describe("applyWorkspaceEvent", () => {

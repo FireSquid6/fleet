@@ -20,6 +20,8 @@ const BridgeSectionSchema = z.object({
    * for any ship on another machine.
    */
   publicUrl: z.string().min(1).optional(),
+  /** How often to check ephemeral workspaces for a closed pull request; `0` never checks. */
+  sweepIntervalMs: z.number().int().nonnegative().optional(),
 });
 
 const GuiSectionSchema = z.object({
@@ -73,6 +75,7 @@ export interface NormalizedBridge {
   port: number;
   name: string;
   publicUrl?: string;
+  sweepIntervalMs?: number;
 }
 
 export interface NormalizedLocalShip {

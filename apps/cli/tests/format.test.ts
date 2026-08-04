@@ -39,8 +39,8 @@ describe("formatFleetWorkspaceTable", () => {
 
   test("includes the owning ship and aligns columns", () => {
     const out = formatFleetWorkspaceTable([
-      { ship: "orca", repoName: "Hello-World", name: "ws1", branch: "master", active: true, agent: null },
-      { ship: "a", repoName: "x", name: "y", branch: "main", active: false, agent: null },
+      { ship: "orca", repoName: "Hello-World", name: "ws1", branch: "master", active: true, agent: null, ephemeral: null },
+      { ship: "a", repoName: "x", name: "y", branch: "main", active: false, agent: null, ephemeral: null },
     ]);
 
     const lines = out.split("\n");

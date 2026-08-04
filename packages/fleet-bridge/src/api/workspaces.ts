@@ -89,9 +89,11 @@ export function workspacesPlugin(manager: FleetManager) {
           // client gets a 400 with a reason instead of a shapeless 422.
           branch: t.Optional(t.String()),
           issueNumber: t.Optional(t.Numeric()),
+          ephemeral: t.Optional(t.Boolean()),
         }),
       },
     )
+    .post("/workspaces/sweep", () => manager.sweepEphemeral())
     .post(
       "/workspaces/:repo/:name/branch",
       async ({ params, body }) => {
