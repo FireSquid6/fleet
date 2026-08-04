@@ -85,13 +85,18 @@ const checkRun = {
 
 const failedLog = { workflow: "CI", job: "test", jobId: 901, log: "boom: the test failed" };
 
-function makeFakeBridge(overrides?: (path: string) => Response | undefined) {
+function makeFakeBridge(overrides?: (path: string) => Response | undefined, requiredToken?: string) {
   const requests: RecordedRequest[] = [];
+  const authorizations: (string | null)[] = [];
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
       const path = url.pathname;
+      authorizations.push(request.headers.get("authorization"));
+      if (requiredToken !== undefined && request.headers.get("authorization") !== `Bearer ${requiredToken}`) {
+        return Response.json({ error: "authentication required" }, { status: 401 });
+      }
       let body: unknown = null;
       if (request.method === "POST") {
         try {
@@ -118,7 +123,37 @@ function makeFakeBridge(overrides?: (path: string) => Response | undefined) {
       return Response.json({ error: "unexpected route" }, { status: 404 });
     },
   });
-  return { server, requests };
+  return { server, requests, authorizations };
+}
+
+const SHIP_AGENT_TOKEN = "atlas-agent-token";
+const BRIDGE_AGENT_TOKEN = "ship-agent-session";
+
+function makeFakeShip(credential: { bridgeUrl: string; token: string } | null) {
+  const authorizations: (string | null)[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const authorization = request.headers.get("authorization");
+      authorizations.push(authorization);
+      if (authorization !== `Bearer ${SHIP_AGENT_TOKEN}`) {
+        return Response.json({ error: "authentication required" }, { status: 401 });
+      }
+      if (credential === null) {
+        return Response.json({ error: "this ship has no bridge credential yet" }, { status: 503 });
+      }
+      return Response.json(credential);
+    },
+  });
+  return { server, authorizations };
+}
+
+async function makeWorkspace(shipPort: number | undefined, agentToken?: string): Promise<{ workspace: string; root: string }> {
+  const root = await mkdtemp(join(tmpdir(), "fleet-repo-credential-"));
+  const workspace = join(root, "acme", "work");
+  await mkdir(workspace, { recursive: true });
+  await Bun.write(join(root, "atlas.json"), JSON.stringify({ port: shipPort, ...(agentToken ? { agentToken } : {}) }));
+  return { workspace, root };
 }
 
 async function runFagent(args: string[], cwd?: string) {
@@ -332,6 +367,87 @@ describe("fagent repo", () => {
       expect(stderr).toContain("fagent: choose at most one of --pr, --ref");
     } finally {
       server.stop(true);
+    }
+  });
+
+  test("reaches an enforcing bridge with the credential its ship hands out", async () => {
+    const bridge = makeFakeBridge(undefined, BRIDGE_AGENT_TOKEN);
+    const bridgeUrl = `http://localhost:${bridge.server.port}`;
+    const ship = makeFakeShip({ bridgeUrl, token: BRIDGE_AGENT_TOKEN });
+    const { workspace, root } = await makeWorkspace(ship.server.port, SHIP_AGENT_TOKEN);
+
+    try {
+      const { exitCode, stdout, stderr } = await runFagent(["repo", "info"], workspace);
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("acme/acme");
+      expect(ship.authorizations).toEqual([`Bearer ${SHIP_AGENT_TOKEN}`]);
+      expect(bridge.requests[0]!.path).toBe("/repos/acme/info");
+      expect(bridge.authorizations).toEqual([`Bearer ${BRIDGE_AGENT_TOKEN}`]);
+    } finally {
+      bridge.server.stop(true);
+      ship.server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit --bridge-url wins and never asks the ship", async () => {
+    const bridge = makeFakeBridge();
+    const ship = makeFakeShip({ bridgeUrl: "http://unused.test:4800", token: BRIDGE_AGENT_TOKEN });
+    const { workspace, root } = await makeWorkspace(ship.server.port, SHIP_AGENT_TOKEN);
+
+    try {
+      const url = `http://localhost:${bridge.server.port}`;
+      const { exitCode, stderr } = await runFagent(["repo", "info", "--bridge-url", url], workspace);
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      expect(bridge.requests[0]!.path).toBe("/repos/acme/info");
+      expect(ship.authorizations).toEqual([]);
+    } finally {
+      bridge.server.stop(true);
+      ship.server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("says what to do when its ship has no bridge credential yet", async () => {
+    const ship = makeFakeShip(null);
+    const { workspace, root } = await makeWorkspace(ship.server.port, SHIP_AGENT_TOKEN);
+
+    try {
+      const { exitCode, stderr } = await runFagent(["repo", "info"], workspace);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("this ship has no bridge credential yet");
+      expect(stderr).toContain("--bridge-url");
+    } finally {
+      ship.server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("says what to do when the ship refuses the atlas's agentToken", async () => {
+    const ship = makeFakeShip({ bridgeUrl: "http://unused.test:4800", token: BRIDGE_AGENT_TOKEN });
+    const { workspace, root } = await makeWorkspace(ship.server.port, "stale-token");
+
+    try {
+      const { exitCode, stderr } = await runFagent(["repo", "info"], workspace);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("refused this workspace's agent token (401)");
+    } finally {
+      ship.server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("says what to do outside a workspace with no --bridge-url", async () => {
+    const root = await mkdtemp(join(tmpdir(), "fleet-repo-no-workspace-"));
+
+    try {
+      const { exitCode, stderr } = await runFagent(["repo", "info", "--repo", "acme"], root);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("not inside a fleet workspace (pass --bridge-url <url>");
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

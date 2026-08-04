@@ -16,6 +16,7 @@ export const FleetShipConfigSchema = z.object({
   bridgeUrl: z.url().optional(),
   shipToken: z.string().min(1).optional(),
   bridgeToken: z.string().min(1).optional(),
+  agentToken: z.string().min(1).optional(),
 });
 
 export type FleetShipConfig = z.infer<typeof FleetShipConfigSchema>;
@@ -36,6 +37,14 @@ export const ATLAS_FILENAME = "atlas.json";
 /** Contents of `atlas.json` — how a workspace-local agent reaches its ship. */
 export const AtlasSchema = z.object({
   port: z.number().int(),
+  agentToken: z.string().min(1).optional(),
 });
 
 export type Atlas = z.infer<typeof AtlasSchema>;
+
+export const AgentBridgeCredentialSchema = z.object({
+  bridgeUrl: z.string().min(1),
+  token: z.string().min(1),
+});
+
+export type AgentBridgeCredential = z.infer<typeof AgentBridgeCredentialSchema>;

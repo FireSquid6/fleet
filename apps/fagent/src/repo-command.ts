@@ -10,7 +10,8 @@ import type {
   RepoInfo,
   Review,
 } from "fleet-bridge/providers";
-import { findWorkspace } from "./agent-workspace";
+import { findWorkspace, type WorkspaceLocation } from "./agent-workspace";
+import { fetchBridgeCredential } from "./agent-ship";
 import { makeBridgeClient, normalizeUrl, unwrap } from "fleet-cli-kit";
 import {
   formatCheckList,
@@ -26,11 +27,28 @@ type StateFilter = "open" | "closed" | "all" | undefined;
 export const repoCommand = new Command()
   .name("repo")
   .description("repo operations for the current workspace, via the fleet bridge")
-  .option("--bridge-url <url>", "base URL of the Fleet Bridge", "http://localhost:4800")
+  .option("--bridge-url <url>", "base URL of the Fleet Bridge (default: the bridge this ship is connected to)")
   .option("-r, --repo <name>", "repo name (defaults to the auto-detected workspace repo)");
 
-function bridge() {
-  return makeBridgeClient(normalizeUrl(repoCommand.opts().bridgeUrl));
+let located: Promise<WorkspaceLocation | null> | undefined;
+
+function workspace(): Promise<WorkspaceLocation | null> {
+  return (located ??= findWorkspace());
+}
+
+async function bridge() {
+  const explicit = repoCommand.opts().bridgeUrl as string | undefined;
+  if (repoCommand.getOptionValueSource("bridgeUrl") === "cli" && explicit !== undefined) {
+    return makeBridgeClient(normalizeUrl(explicit));
+  }
+
+  const location = await workspace();
+  if (!location) {
+    console.error("fagent: not inside a fleet workspace (pass --bridge-url <url> to reach a bridge directly)");
+    process.exit(1);
+  }
+  const credential = await fetchBridgeCredential(location);
+  return makeBridgeClient(normalizeUrl(credential.bridgeUrl), credential.token);
 }
 
 /** Exits 1 when there is neither a `--repo` nor a workspace to infer one from. */
@@ -38,7 +56,7 @@ async function resolveRepo(): Promise<string> {
   const override = repoCommand.opts().repo as string | undefined;
   if (override) return override;
 
-  const location = await findWorkspace();
+  const location = await workspace();
   if (location) return location.repo;
 
   console.error("fagent: not inside a fleet workspace (pass --repo <name>)");
@@ -92,7 +110,7 @@ repoCommand
   .description("show metadata about the repo")
   .action(async () => {
     const name = await resolveRepo();
-    const info = unwrap(await bridge().repos({ name }).info.get(), "fagent") as RepoInfo;
+    const info = unwrap(await (await bridge()).repos({ name }).info.get(), "fagent") as RepoInfo;
     console.log(formatRepoInfo(info));
   });
 
@@ -104,7 +122,7 @@ issue
   .option("-s, --state <state>", "filter by state (open|closed|all)")
   .action(async (options: { state?: StateFilter }) => {
     const name = await resolveRepo();
-    const issues = unwrap(await bridge().repos({ name }).issues.get({ query: { state: options.state } }), "fagent") as IssueSummary[];
+    const issues = unwrap(await (await bridge()).repos({ name }).issues.get({ query: { state: options.state } }), "fagent") as IssueSummary[];
     console.log(formatIssueList(issues));
   });
 
@@ -114,7 +132,7 @@ issue
   .action(async (value: string) => {
     const name = await resolveRepo();
     const number = parseNumber(value);
-    const result = unwrap(await bridge().repos({ name }).issues({ number }).get(), "fagent") as Issue;
+    const result = unwrap(await (await bridge()).repos({ name }).issues({ number }).get(), "fagent") as Issue;
     console.log(formatIssue(result));
   });
 
@@ -124,7 +142,7 @@ issue
   .action(async (value: string, body: string) => {
     const name = await resolveRepo();
     const number = parseNumber(value);
-    const comment = unwrap(await bridge().repos({ name }).issues({ number }).comments.post({ body }), "fagent") as IssueComment;
+    const comment = unwrap(await (await bridge()).repos({ name }).issues({ number }).comments.post({ body }), "fagent") as IssueComment;
     console.log(`commented on issue #${number}: ${comment.url}`);
   });
 
@@ -138,7 +156,7 @@ pr
   .option("-s, --state <state>", "filter by state (open|closed|all)")
   .action(async (options: { state?: StateFilter }) => {
     const name = await resolveRepo();
-    const prs = unwrap(await bridge().repos({ name }).pulls.get({ query: { state: options.state } }), "fagent") as PullRequestSummary[];
+    const prs = unwrap(await (await bridge()).repos({ name }).pulls.get({ query: { state: options.state } }), "fagent") as PullRequestSummary[];
     console.log(formatPrList(prs));
   });
 
@@ -148,7 +166,7 @@ pr
   .action(async (value: string) => {
     const name = await resolveRepo();
     const number = parseNumber(value);
-    const result = unwrap(await bridge().repos({ name }).pulls({ number }).get(), "fagent") as PullRequest;
+    const result = unwrap(await (await bridge()).repos({ name }).pulls({ number }).get(), "fagent") as PullRequest;
     console.log(formatPr(result));
   });
 
@@ -158,7 +176,7 @@ pr
   .action(async (value: string, body: string) => {
     const name = await resolveRepo();
     const number = parseNumber(value);
-    const comment = unwrap(await bridge().repos({ name }).pulls({ number }).comments.post({ body }), "fagent") as IssueComment;
+    const comment = unwrap(await (await bridge()).repos({ name }).pulls({ number }).comments.post({ body }), "fagent") as IssueComment;
     console.log(`commented on pr #${number}: ${comment.url}`);
   });
 
@@ -186,7 +204,7 @@ repoCommand
 
     const name = await resolveRepo();
     const number = parseNumber(value);
-    const review = unwrap(await bridge().repos({ name }).pulls({ number }).reviews.post({ event, body: options.body }), "fagent") as Review;
+    const review = unwrap(await (await bridge()).repos({ name }).pulls({ number }).reviews.post({ event, body: options.body }), "fagent") as Review;
     console.log(`submitted ${event} review on pr #${number}: ${review.url}`);
   });
 
@@ -198,7 +216,7 @@ repoCommand
   .action(async (options: { pr?: string; ref?: string }) => {
     const query = await resolveCheckTarget(options);
     const name = await resolveRepo();
-    const checks = unwrap(await bridge().repos({ name }).checks.get({ query }), "fagent") as CheckRun[];
+    const checks = unwrap(await (await bridge()).repos({ name }).checks.get({ query }), "fagent") as CheckRun[];
     console.log(checks.length === 0 ? "no checks" : formatCheckList(checks));
   });
 
@@ -210,7 +228,7 @@ repoCommand
   .action(async (options: { pr?: string; ref?: string }) => {
     const query = await resolveCheckTarget(options);
     const name = await resolveRepo();
-    const logs = unwrap(await bridge().repos({ name }).checks.logs.get({ query }), "fagent") as FailedJobLog[];
+    const logs = unwrap(await (await bridge()).repos({ name }).checks.logs.get({ query }), "fagent") as FailedJobLog[];
     if (logs.length === 0) {
       console.log("no failed jobs");
       return;

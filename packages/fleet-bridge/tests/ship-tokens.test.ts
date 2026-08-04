@@ -101,6 +101,66 @@ describe("ship credentials", () => {
     expect(mgr.listShips()).toHaveLength(0);
   });
 
+  test("pushes a freshly minted ship-agent credential to a credentialed ship on connect", async () => {
+    const ships = new Map<string, FakeShip>([["http://ship-a", { name: "ship-a", workspaces: [] }]]);
+    await store.createShip({ name: "ship-a", url: "http://ship-a" });
+    auth.createShipCredentials("ship-a");
+
+    const mgr = build(ships);
+    await mgr.init();
+    await Bun.sleep(20);
+
+    const pushes = ships.get("http://ship-a")!.agentCredentials ?? [];
+    expect(pushes).toHaveLength(1);
+    expect(pushes[0]!.bridgeUrl).toBe("http://localhost:4800");
+    expect(auth.authenticate(`Bearer ${pushes[0]!.token}`)).toEqual({ kind: "ship-agent", ship: "ship-a" });
+  });
+
+  test("re-mints on every reconnect, invalidating the token it pushed before", async () => {
+    const ships = new Map<string, FakeShip>([["http://ship-a", { name: "ship-a", workspaces: [] }]]);
+    await store.createShip({ name: "ship-a", url: "http://ship-a" });
+    auth.createShipCredentials("ship-a");
+
+    const mgr = build(ships);
+    await mgr.init();
+    await Bun.sleep(20);
+
+    const socket = FakeSocket.byBase.get("http://ship-a")!;
+    socket.onclose?.({});
+    socket.onopen?.({});
+    await Bun.sleep(20);
+
+    const pushes = ships.get("http://ship-a")!.agentCredentials ?? [];
+    expect(pushes).toHaveLength(2);
+    expect(pushes[1]!.token).not.toBe(pushes[0]!.token);
+    expect(auth.authenticate(`Bearer ${pushes[0]!.token}`)).toBeNull();
+    expect(auth.authenticate(`Bearer ${pushes[1]!.token}`)).toEqual({ kind: "ship-agent", ship: "ship-a" });
+  });
+
+  test("pushes no agent credential to a ship that has none", async () => {
+    const ships = new Map<string, FakeShip>([["http://ship-a", { name: "ship-a", workspaces: [] }]]);
+    await store.createShip({ name: "ship-a", url: "http://ship-a" });
+
+    const mgr = build(ships);
+    await mgr.init();
+    await Bun.sleep(20);
+
+    expect(ships.get("http://ship-a")!.agentCredentials).toBeUndefined();
+  });
+
+  test("addShip pushes an agent credential to the ship it just registered", async () => {
+    const ships = new Map<string, FakeShip>([["http://ship-b", { name: "ship-b", workspaces: [] }]]);
+    const mgr = build(ships);
+    await mgr.init();
+
+    await mgr.addShip("http://ship-b", { shipToken: "ship-secret", bridgeToken: "bridge-secret" });
+    await Bun.sleep(20);
+
+    const pushes = ships.get("http://ship-b")!.agentCredentials ?? [];
+    expect(pushes).toHaveLength(1);
+    expect(auth.authenticate(`Bearer ${pushes[0]!.token}`)).toEqual({ kind: "ship-agent", ship: "ship-b" });
+  });
+
   test("removeShip deletes the ship's credentials", async () => {
     const ships = new Map<string, FakeShip>([["http://ship-a", { name: "ship-a", workspaces: [] }]]);
     await store.createShip({ name: "ship-a", url: "http://ship-a" });

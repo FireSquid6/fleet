@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm, symlink } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AtlasSchema } from "fleet-protocol";
@@ -28,6 +28,24 @@ describe("atlas", () => {
     const written = await Bun.file(atlasPath(dir)).json();
     expect(written).toEqual({ port: 4700 });
     expect(AtlasSchema.parse(written).port).toBe(4700);
+  });
+
+  test("writeAtlas carries the agent token, readable only by its owner", async () => {
+    const dir = await tempDir();
+    await writeAtlas(dir, { port: 4700, agentToken: "agent-secret" });
+
+    const written = await Bun.file(atlasPath(dir)).json();
+    expect(AtlasSchema.parse(written)).toEqual({ port: 4700, agentToken: "agent-secret" });
+    expect((await stat(atlasPath(dir))).mode & 0o777).toBe(0o600);
+  });
+
+  test("writeAtlas replaces an existing atlas without widening its mode", async () => {
+    const dir = await tempDir();
+    await writeAtlas(dir, { port: 4700, agentToken: "first" });
+    await writeAtlas(dir, { port: 4700, agentToken: "second" });
+
+    expect(await Bun.file(atlasPath(dir)).json()).toEqual({ port: 4700, agentToken: "second" });
+    expect((await stat(atlasPath(dir))).mode & 0o777).toBe(0o600);
   });
 
   test("writeAtlas uses the startup-created fleet directory", async () => {

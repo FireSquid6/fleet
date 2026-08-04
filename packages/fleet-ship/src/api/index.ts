@@ -5,7 +5,9 @@ import { workspacesPlugin } from "./workspaces";
 import { eventsPlugin } from "./events";
 import { systemResourcesPlugin } from "./system-resources";
 import { armoryPlugin } from "./armory";
+import { agentPlugin } from "./agent";
 import { shipGuardPlugin } from "./guard";
+import { AgentBridgeCredentialStore } from "../agent-credentials";
 import { ArmoryCache } from "../armory/armory-cache";
 import { Logestic } from "logestic";
 import { MAX_CLIENT_FRAME_BYTES, type TerminalBridge } from "webterm";
@@ -26,7 +28,7 @@ export function createApp(
   // WebSocket offers the extension by default, so the bridge→ship hop starts
   // compressing purely from the server accepting it here.
   return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: true } })
-    .use(shipGuardPlugin({ bridgeToken: config.bridgeToken, env }))
+    .use(shipGuardPlugin({ bridgeToken: config.bridgeToken, agentToken: config.agentToken, env }))
     .use(Logestic.preset("commontz"))
     .use(workspacesPlugin(manager, createTerminal, terminalInitTimeoutMs))
     .use(eventsPlugin(manager))
@@ -34,7 +36,7 @@ export function createApp(
     // The default cache carries the configured bridge pin; a caller passing its
     // own cache (tests) has already decided what that cache accepts.
     .use(armoryPlugin(armory ?? new ArmoryCache({ bridgeUrl: config.bridgeUrl, shipToken: config.shipToken })))
-
+    .use(agentPlugin(new AgentBridgeCredentialStore()))
 }
 
 export type App = ReturnType<typeof createApp>;

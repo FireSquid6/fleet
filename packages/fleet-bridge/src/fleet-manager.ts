@@ -196,6 +196,7 @@ export interface ShipCredentials {
 export interface ShipCredentialStore {
   bridgeTokenFor(shipName: string): string | undefined;
   setShipCredentials(shipName: string, credentials: ShipCredentials): void;
+  mintShipAgentToken(shipName: string): string;
   deleteShipCredentials(shipName: string): void;
 }
 
@@ -361,6 +362,7 @@ export class FleetManager {
 
     // Fire-and-forget: registering a ship must not fail, or wait, on the armory.
     void this.pushArmoryTo(probe);
+    void this.pushAgentCredentialTo(probe);
 
     return { name, url, status: probe.status };
   }
@@ -638,6 +640,32 @@ export class FleetManager {
     // The ship may have dropped while the armory was being scanned.
     if (conn.status !== "online") return;
     await this.syncArmoryOn(conn, revision);
+  }
+
+  private async pushAgentCredentialTo(conn: ShipConnection): Promise<void> {
+    if (!conn.member || conn.status !== "online") return;
+    if (this.credentials?.bridgeTokenFor(conn.name) === undefined) return;
+
+    let token: string;
+    try {
+      token = this.credentials.mintShipAgentToken(conn.name);
+    } catch (error) {
+      console.warn(
+        `fleet-bridge: could not mint an agent credential for ship "${conn.name}": ${(error as Error).message}`,
+      );
+      return;
+    }
+
+    const bridgeUrl = this.config.publicUrl ?? defaultPublicUrl(this.config.port);
+    try {
+      await this.call(conn, () =>
+        conn.client.agent.credentials.post({ bridgeUrl, token }) as Promise<EdenResult<unknown>>,
+      );
+    } catch (error) {
+      console.warn(
+        `fleet-bridge: could not push the agent credential to ship "${conn.name}": ${(error as Error).message}`,
+      );
+    }
   }
 
   /** The current revision, or `undefined` when the armory cannot be scanned. */
@@ -959,9 +987,11 @@ export class FleetManager {
     conn.setHandlers({
       onEvent: (c, event) => this.onEvent(c, event),
       // A ship that restarts or reconnects may have missed pushes, so every
-      // arrival at "online" re-syncs it. Fire-and-forget; `pushArmoryTo` warns.
+      // arrival at "online" re-syncs it. Fire-and-forget; both helpers warn.
       onStatusChange: (c, status) => {
-        if (status === "online") void this.pushArmoryTo(c);
+        if (status !== "online") return;
+        void this.pushArmoryTo(c);
+        void this.pushAgentCredentialTo(c);
       },
     });
     return conn;

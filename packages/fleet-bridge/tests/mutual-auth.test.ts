@@ -51,10 +51,10 @@ describe("bridge and ship authenticate each other", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  function startShip(bridgeToken?: string, shipToken?: string): string {
+  function startShip(bridgeToken?: string, shipToken?: string, agentToken?: string): string {
     ship = createShipApp(
       shipManager(),
-      { fleetDirectory: dir, port: 0, name: "ship-a", bridgeToken, shipToken },
+      { fleetDirectory: dir, port: 0, name: "ship-a", bridgeToken, shipToken, agentToken },
       undefined,
       undefined,
       undefined,
@@ -97,6 +97,38 @@ describe("bridge and ship authenticate each other", () => {
       mgr.addShip(url, { shipToken: "wrong", bridgeToken: "wrong" }),
     ).rejects.toMatchObject({ status: 502 });
     expect(mgr.listShips()).toHaveLength(0);
+  });
+
+  test("an agent asks its ship for a bridge credential the bridge honours", async () => {
+    const credentials = auth.createShipCredentials("ship-a");
+    const url = startShip(credentials.bridgeToken, credentials.shipToken, "agent-secret");
+    const mgr = buildManager();
+    await mgr.init();
+    await mgr.addShip(url, credentials);
+    await Bun.sleep(50);
+
+    const response = await fetch(`${url}/agent/credentials`, {
+      headers: { authorization: "Bearer agent-secret" },
+    });
+    expect(response.status).toBe(200);
+
+    const credential = (await response.json()) as { bridgeUrl: string; token: string };
+    expect(credential.bridgeUrl).toBe("http://localhost:4800");
+    expect(auth.authenticate(`Bearer ${credential.token}`)).toEqual({ kind: "ship-agent", ship: "ship-a" });
+  });
+
+  test("a ship keeps its bridge credential out of reach of the bridge's own token holders", async () => {
+    const credentials = auth.createShipCredentials("ship-a");
+    const url = startShip(credentials.bridgeToken, credentials.shipToken, "agent-secret");
+    const mgr = buildManager();
+    await mgr.init();
+    await mgr.addShip(url, credentials);
+    await Bun.sleep(50);
+
+    const wrong = await fetch(`${url}/agent/credentials`, {
+      headers: { authorization: `Bearer ${credentials.shipToken}` },
+    });
+    expect(wrong.status).toBe(401);
   });
 
   test("a ship with no bridgeToken still admits a bridge that has none", async () => {

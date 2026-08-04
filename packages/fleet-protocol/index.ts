@@ -7,6 +7,8 @@ export {
   type FleetShipConfig,
   AtlasSchema,
   type Atlas,
+  AgentBridgeCredentialSchema,
+  type AgentBridgeCredential,
 } from "./src/config";
 export {
   WorkspaceSummarySchema,

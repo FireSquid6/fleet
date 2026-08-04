@@ -51,6 +51,8 @@ export interface FakeShip {
   neverSync?: boolean;
   /** Every `POST /armory/sync` this ship received, in order. */
   armorySyncs?: { bridgeUrl: string; revision: string }[];
+  /** Every `POST /agent/credentials` this ship received, in order. */
+  agentCredentials?: { bridgeUrl: string; token: string }[];
   /** What `GET /armory` reports; defaults to a ship that has never synced. */
   armoryState?: ArmorySyncState;
   authorizations?: (string | null)[];
@@ -225,6 +227,15 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>, br
   return {
     workspaces: workspacesFn,
     "system-resources": { get: () => wrap(() => fakeResources(ship()?.name ?? "unknown")) },
+    agent: {
+      credentials: {
+        post: (body: { bridgeUrl: string; token: string }) => {
+          const s = ship();
+          if (s) (s.agentCredentials ??= []).push(body);
+          return wrap(() => ({ ok: true }));
+        },
+      },
+    },
     armory: {
       get: () =>
         wrap(

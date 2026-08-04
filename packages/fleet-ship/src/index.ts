@@ -7,6 +7,7 @@ import {
   resolveFleetShipConfig,
 } from "./config";
 import { writeAtlas } from "./atlas";
+import { generateAgentToken } from "./agent-credentials";
 import { installFleetSkill } from "./skill-installer";
 import { installFleetPlugin } from "./plugin-installer";
 import { installArmory } from "./armory/armory-installer";
@@ -128,14 +129,17 @@ export async function startShip(config: FleetShipConfig): Promise<void> {
   const { WorkspaceManager } = await import("./workspace-manager");
   const { createApp } = await import("./api");
 
-  const canonical = await canonicalizeFleetDirectory(config);
+  const canonical = { ...(await canonicalizeFleetDirectory(config)), agentToken: generateAgentToken() };
   await installStartupIntegrations();
   const manager = new WorkspaceManager(canonical);
   const app = createApp(manager, canonical);
   app.listen(canonical.port);
 
   // Publish the discovery file so agents inside workspaces can reach us.
-  await writeAtlas(canonical.fleetDirectory, { port: app.server?.port ?? canonical.port });
+  await writeAtlas(canonical.fleetDirectory, {
+    port: app.server?.port ?? canonical.port,
+    agentToken: canonical.agentToken,
+  });
 
   console.log(`fleet-ship "${canonical.name}" listening on http://localhost:${canonical.port}`);
   if (resolveBridgeToken(canonical.bridgeToken) === undefined) {
