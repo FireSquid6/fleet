@@ -42,6 +42,7 @@ interface FleetValue {
     name: string;
     branch?: string;
     issueNumber?: number;
+    ephemeral?: boolean;
   }) => Promise<void>;
   /** The branches a repo's remote advertises. Fetched on demand by the create form. */
   listRepoBranches: (name: string) => Promise<RepoBranch[]>;
@@ -187,7 +188,14 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   );
 
   const createWorkspace = useCallback(
-    async (input: { ship: string; repoName: string; name: string; branch?: string; issueNumber?: number }) => {
+    async (input: {
+      ship: string;
+      repoName: string;
+      name: string;
+      branch?: string;
+      issueNumber?: number;
+      ephemeral?: boolean;
+    }) => {
       await bridge.createWorkspace(input);
       await refresh();
     },

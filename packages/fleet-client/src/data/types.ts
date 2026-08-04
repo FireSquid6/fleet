@@ -3,7 +3,7 @@
  * exported from `fleet-bridge`, so they are mirrored here.
  */
 
-import type { ArmorySyncState, WorkspaceSummary, WorkspaceStatus } from "fleet-protocol";
+import type { ArmorySyncState, EphemeralWorkspace, WorkspaceSummary, WorkspaceStatus } from "fleet-protocol";
 
 export type { Repo } from "fleet-protocol";
 export type {
@@ -25,7 +25,11 @@ export interface Ship {
   readonly status: ShipStatus;
 }
 
-export type Workspace = WorkspaceSummary & { readonly ship: string };
+export type Workspace = WorkspaceSummary & {
+  readonly ship: string;
+  /** Null unless the bridge will delete this workspace when its issue closes. */
+  readonly ephemeral: EphemeralWorkspace | null;
+};
 
 export type WorkspaceEvent =
   | { readonly type: "sync"; readonly at: string; readonly workspaces: Workspace[] }
@@ -61,7 +65,10 @@ export interface RepoIssue {
 }
 
 /** Detail: `WorkspaceStatus` with `ship` guaranteed on both variants. */
-export type WorkspaceDetail = WorkspaceStatus & { readonly ship: string };
+export type WorkspaceDetail = WorkspaceStatus & {
+  readonly ship: string;
+  readonly ephemeral: EphemeralWorkspace | null;
+};
 
 /**
  * A row of `GET /armory/ships`. `state` is null when the bridge could not ask

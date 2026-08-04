@@ -27,9 +27,26 @@ function agent(state: AgentState, description: string, model = "claude-sonnet-4"
   return { state, description, model, provider: "anthropic", harness: "opencode" };
 }
 
-const SEED_WORKSPACES: Workspace[] = [
+type SeedWorkspace = Omit<Workspace, "ephemeral"> & { ephemeral?: Workspace["ephemeral"] };
+
+const SEED_WORKSPACES: Workspace[] = ([
   { name: "ws-4f2a", repoName: "api-gateway", ship: "forge-01", branch: "main", active: true, agent: agent("building", "Implementing request routing") },
-  { name: "ws-9c11", repoName: "api-gateway", ship: "forge-01", branch: "fix/rate-limit", active: true, agent: agent("verifying", "Running rate-limit tests") },
+  {
+    name: "ws-9c11",
+    repoName: "api-gateway",
+    ship: "forge-01",
+    branch: "88-rate-limit-headers",
+    active: true,
+    agent: agent("verifying", "Running rate-limit tests"),
+    ephemeral: {
+      issueNumber: 88,
+      branch: "88-rate-limit-headers",
+      cleanup: "watching",
+      blockedReason: null,
+      blockedAt: null,
+      pullRequest: { number: 214, state: "open", url: "https://github.com/acme/api-gateway/pull/214" },
+    },
+  },
   { name: "ws-2e70", repoName: "api-gateway", ship: "atlas-7", branch: "release/2.3", active: false, agent: null },
   { name: "ws-6b83", repoName: "auth-svc", ship: "forge-02", branch: "main", active: true, agent: agent("planning", "Tracing token refresh flow") },
   { name: "ws-d904", repoName: "auth-svc", ship: "nimbus", branch: "feat/oauth-pkce", active: false, agent: null },
@@ -42,7 +59,24 @@ const SEED_WORKSPACES: Workspace[] = [
   { name: "ws-0a3e", repoName: "data-pipeline", ship: "forge-02", branch: "spike/backfill", active: false, agent: null },
   { name: "ws-b6d1", repoName: "search-idx", ship: "atlas-7", branch: "main", active: true, agent: null },
   { name: "ws-e812", repoName: "mobile-bff", ship: "nimbus", branch: "feat/push", active: true, agent: agent("planning", "Reviewing push delivery paths") },
-];
+  {
+    name: "ws-a071",
+    repoName: "billing",
+    ship: "nimbus",
+    branch: "41-proration-rounding",
+    active: false,
+    agent: null,
+    ephemeral: {
+      issueNumber: 41,
+      branch: "41-proration-rounding",
+      cleanup: "blocked",
+      blockedReason:
+        "workspace billing/ws-a071 holds work that is not on a remote: 2 commits not on any remote",
+      blockedAt: "2026-08-02T09:14:00.000Z",
+      pullRequest: { number: 118, state: "closed", url: "https://github.com/acme/billing/pull/118" },
+    },
+  },
+] as SeedWorkspace[]).map((workspace) => ({ ephemeral: null, ...workspace }));
 
 function key(repo: string, name: string): string {
   return `${repo}/${name}`;
@@ -540,8 +574,12 @@ export class MockFleetBridge implements FleetBridge {
     name: string;
     branch?: string;
     issueNumber?: number;
+    ephemeral?: boolean;
   }): Promise<Workspace> {
     const source = branchSource(input);
+    if (input.ephemeral && !("issueNumber" in source)) {
+      throw new Error("an ephemeral workspace is created from an issue");
+    }
     if (!this.ships.some((s) => s.name === input.ship)) throw new Error(`unknown ship: ${input.ship}`);
     if (!this.repos.some((r) => r.name === input.repoName)) throw new Error(`unknown repo: ${input.repoName}`);
     if (this.workspaces.some((w) => w.repoName === input.repoName && w.name === input.name)) {
@@ -559,6 +597,17 @@ export class MockFleetBridge implements FleetBridge {
       branch,
       active: false,
       agent: null,
+      ephemeral:
+        input.ephemeral && "issueNumber" in source
+          ? {
+              issueNumber: source.issueNumber,
+              branch,
+              cleanup: "watching",
+              blockedReason: null,
+              blockedAt: null,
+              pullRequest: null,
+            }
+          : null,
     };
     this.workspaces.push(ws);
     this.emit({ type: "workspace.created", at: new Date().toISOString(), workspace: { ...ws } });
@@ -568,7 +617,14 @@ export class MockFleetBridge implements FleetBridge {
   async getWorkspace(repo: string, name: string): Promise<WorkspaceDetail> {
     const w = this.find(repo, name);
     if (!w.active) {
-      return { state: "inactive", repoName: w.repoName, name: w.name, branch: w.branch, ship: w.ship };
+      return {
+        state: "inactive",
+        repoName: w.repoName,
+        name: w.name,
+        branch: w.branch,
+        ship: w.ship,
+        ephemeral: w.ephemeral,
+      };
     }
     return {
       state: "active",
@@ -580,6 +636,7 @@ export class MockFleetBridge implements FleetBridge {
       issue: null,
       mergeRequest: null,
       ship: w.ship,
+      ephemeral: w.ephemeral,
     };
   }
 
