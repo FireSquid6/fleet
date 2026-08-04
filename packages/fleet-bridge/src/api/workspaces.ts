@@ -93,6 +93,7 @@ export function workspacesPlugin(manager: FleetManager) {
         }),
       },
     )
+    .post("/workspaces/sweep", () => manager.sweepEphemeral())
     .post(
       "/workspaces/:repo/:name/branch",
       async ({ params, body }) => {

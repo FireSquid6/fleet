@@ -13,9 +13,13 @@ export const BridgeConfigSchema = z.object({
    * `resolveBridgeConfig` may omit it; `defaultPublicUrl` fills the gap.
    */
   publicUrl: z.string().min(1).optional(),
+  /** How often to check ephemeral workspaces for a closed pull request. `0` never checks. */
+  sweepIntervalMs: z.number().int().nonnegative().optional(),
 });
 
 export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
+
+export const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 export function defaultPublicUrl(port: number): string {
   return `http://localhost:${port}`;

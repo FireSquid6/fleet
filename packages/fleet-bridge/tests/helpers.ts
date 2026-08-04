@@ -17,6 +17,10 @@ export interface FakeShip {
   armorySyncs?: { bridgeUrl: string; revision: string }[];
   /** What `GET /armory` reports; defaults to a ship that has never synced. */
   armoryState?: ArmorySyncState;
+  /** When set, a `force=false` delete is refused with this 409 message. */
+  heldWork?: string;
+  /** Every workspace delete this ship received, in order. */
+  deletes?: { repo: string; name: string; force?: boolean }[];
   /** All Eden calls resolve to this error `{status, value:{error}}`. */
   errorResponse?: { status: number; message: string };
   /** All Eden calls throw (simulated network failure). */
@@ -140,12 +144,18 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
             return { ok: true };
           }),
       },
-      delete: () =>
-        wrap(() => {
-          const s = ship();
+      delete: (_body?: unknown, options?: { query?: { force?: boolean } }) => {
+        const force = options?.query?.force;
+        const s = ship();
+        if (s) (s.deletes ??= []).push({ repo: params.repo, name: params2.name, force });
+        if (force === false && s?.heldWork) {
+          return Promise.resolve({ data: null, error: { status: 409, value: { error: s.heldWork } } });
+        }
+        return wrap(() => {
           if (s) s.workspaces = s.workspaces.filter((w) => w.repoName !== params.repo || w.name !== params2.name);
           return { ok: true };
-        }),
+        });
+      },
       diff: {
         get: () => wrap(() => `diff for ${params.repo}/${params2.name}`),
       },
