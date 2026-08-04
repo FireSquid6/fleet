@@ -62,7 +62,7 @@ body {
 }
 
 .page > .header {
-  padding-inline: var(--fleet-gutter);
+  padding-inline-start: var(--fleet-gutter);
 }
 
 .site-title {
@@ -167,6 +167,10 @@ starlight-theme-select select {
 
 .sidebar-content summary {
   padding: 0 0 4px;
+}
+
+.sidebar-content .caret {
+  transition: none;
 }
 
 .sidebar-content .large {
@@ -337,6 +341,11 @@ h1#_top {
   transition: none;
 }
 
+.expressive-code .frame,
+.expressive-code .frame pre {
+  border-radius: 0;
+}
+
 footer .meta {
   order: 2;
   margin-top: 20px;
@@ -362,6 +371,8 @@ footer .meta a:hover {
   order: 1;
   grid-template-columns: 1fr;
   gap: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
 }
 
 .pagination-links a {
@@ -403,6 +414,10 @@ footer .meta a:hover {
 }
 
 @media (min-width: 50rem) {
+  .page > .header {
+    padding-inline-end: var(--fleet-gutter);
+  }
+
   .sidebar-pane {
     inset-inline-start: var(--fleet-gutter);
     width: var(--sl-sidebar-width);
