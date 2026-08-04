@@ -7,13 +7,13 @@ const plainCodeThemes = [
 	{
 		name: 'fleet-plain-dark',
 		type: 'dark',
-		colors: { 'editor.background': '#12151a', 'editor.foreground': '#ced5de' },
+		colors: { 'editor.foreground': '#e7ecf1' },
 		settings: [],
 	},
 	{
 		name: 'fleet-plain-light',
 		type: 'light',
-		colors: { 'editor.background': '#f3f3f1', 'editor.foreground': '#31373d' },
+		colors: { 'editor.foreground': '#0f1215' },
 		settings: [],
 	},
 ];
@@ -29,10 +29,6 @@ export default defineConfig({
 			description:
 				'Fleet runs coding agents in isolated git workspaces, spread across one machine or many.',
 			customCss: ['./src/styles/fleet.css'],
-			// The web client is dark-first; seed Starlight's theme storage to dark
-			// on a visitor's very first load so the docs open dark too. A one-shot
-			// flag means we never override a returning visitor's own choice
-			// (including "Auto"). The toggle still works normally afterwards.
 			head: [
 				{
 					tag: 'script',
@@ -40,6 +36,7 @@ export default defineConfig({
 				},
 			],
 			tableOfContents: false,
+			lastUpdated: true,
 			expressiveCode: {
 				themes: plainCodeThemes,
 				styleOverrides: {
@@ -61,6 +58,9 @@ export default defineConfig({
 			},
 			components: {
 				SocialIcons: './src/components/SocialLinks.astro',
+				PageTitle: './src/components/PageTitle.astro',
+				EditLink: './src/components/PageLinks.astro',
+				LastUpdated: './src/components/Empty.astro',
 			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/firesquid6/fleet' },

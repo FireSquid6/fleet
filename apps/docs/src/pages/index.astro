@@ -2,7 +2,7 @@
 import '../styles/tokens.css';
 import { themeSeedScript, themeApplyScript } from '../theme-boot.js';
 
-const glyph: Record<number, string> = { 1: '●', 0.5: '◐', 0: '○' };
+const glyph: Record<number, string> = { 1: '●', 0: '○' };
 
 const capabilities = [
 	{
@@ -275,7 +275,7 @@ $ ./apps/cli/local-install.sh</pre>
 
 			<h2>05 · Integrations</h2>
 			<p>
-				Forges for the code, git and tmux for the machine, providers for the model. The bridge
+				A forge for the code, git and tmux for the machine, providers for the model. The bridge
 				holds the repo registry and talks to GitHub on the agent's behalf, so an agent reads
 				issues, pull requests, reviews, and CI with <code>fagent repo</code> without ever holding
 				a token.
@@ -294,7 +294,7 @@ $ ./apps/cli/local-install.sh</pre>
 			<h2>06 · Install</h2>
 			<p>
 				One binary, built from the checkout and dropped in <code>~/.local/bin</code>. No account, no
-				telemetry, nothing hosted: a fleet is your machines and nothing else.
+				telemetry, nothing hosted.
 			</p>
 			<pre class="code">$ ./apps/cli/local-install.sh
 $ fleet launch init

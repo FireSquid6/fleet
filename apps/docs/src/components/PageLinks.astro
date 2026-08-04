@@ -1,0 +1,9 @@
+---
+const { editUrl } = Astro.locals.starlightRoute;
+---
+
+<p>
+	{editUrl && <a href={editUrl.href}>Edit this page</a>}{editUrl && ' · '}<a
+		href="https://github.com/firesquid6/fleet/issues">Report an issue</a
+	>
+</p>
