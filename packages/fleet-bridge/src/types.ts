@@ -1,4 +1,10 @@
-import type { ArmorySyncState, SystemResources, WorkspaceStatus, WorkspaceSummary } from "fleet-protocol";
+import type {
+  ArmorySyncState,
+  EphemeralWorkspace,
+  SystemResources,
+  WorkspaceStatus,
+  WorkspaceSummary,
+} from "fleet-protocol";
 
 /** Whether the bridge currently has a live `/events` connection to a ship. */
 export type ShipStatus = "online" | "offline";
@@ -10,9 +16,16 @@ export interface ShipInfo {
   readonly status: ShipStatus;
 }
 
-export type BridgeWorkspaceSummary = WorkspaceSummary & { ship: string };
+export type BridgeWorkspaceSummary = WorkspaceSummary & {
+  ship: string;
+  /** Null for an ordinary workspace; the bridge, not the ship, knows this. */
+  ephemeral: EphemeralWorkspace | null;
+};
 
-export type BridgeWorkspaceStatus = WorkspaceStatus & { ship: string };
+export type BridgeWorkspaceStatus = WorkspaceStatus & {
+  ship: string;
+  ephemeral: EphemeralWorkspace | null;
+};
 
 export type BridgeWorkspaceEvent =
   | {

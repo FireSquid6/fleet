@@ -12,6 +12,7 @@ import {
   type ArmoryManifest,
   type ArmorySyncState,
   type CreateRepoInput,
+  type EphemeralWorkspace,
   type FleetEvent,
   type Repo,
   type SystemResources,
@@ -33,7 +34,7 @@ import {
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
-import { RepoAlreadyExistsError, Store } from "./store/store";
+import { RepoAlreadyExistsError, Store, type EphemeralWorkspaceRecord } from "./store/store";
 import {
   ArmoryMapError,
   ArmoryNotFoundError,
@@ -181,6 +182,8 @@ export interface CreateWorkspaceInput {
   readonly name: string;
   readonly branch?: string;
   readonly issueNumber?: number;
+  /** Delete this workspace once the issue's pull request closes. Needs `issueNumber`. */
+  readonly ephemeral?: boolean;
 }
 
 /** Which of the two mutually exclusive branch sources a create request chose. */
@@ -198,6 +201,8 @@ export class FleetManager {
   private readonly connections = new Map<string, ShipConnection>();
   /** Fleet-wide ownership: `<repo>/<name>` → owning ship name. */
   private readonly index = new Map<string, string>();
+  /** Mirror of the store's ephemeral records, so annotating a summary stays synchronous. */
+  private readonly ephemeral = new Map<string, EphemeralWorkspaceRecord>();
   /** In-flight and transport-ambiguous creates stay separate from confirmed routing ownership. */
   private readonly createReservations = new Map<string, CreateReservation>();
   private readonly eventListeners = new Set<(event: BridgeWorkspaceEvent) => void>();
@@ -235,6 +240,9 @@ export class FleetManager {
   /** Throws when two reachable ships hold the same `<repo>/<name>`, so the CLI can exit. */
   async init(): Promise<void> {
     await this.store.load();
+    for (const record of await this.store.getAllEphemeral()) {
+      this.ephemeral.set(workspaceKey(record.repoName, record.name), record);
+    }
     const records = await this.store.getAllShips();
     for (const record of records) {
       const conn = this.createConnection(record.url, record.name);
@@ -278,9 +286,47 @@ export class FleetManager {
     const workspaces: BridgeWorkspaceSummary[] = [];
     for (const [key, ship] of this.index) {
       const workspace = this.connections.get(ship)?.workspaces.get(key);
-      if (workspace) workspaces.push({ ...workspace, ship });
+      if (workspace) workspaces.push(this.annotate(workspace, ship));
     }
     return workspaces;
+  }
+
+  private annotate<T extends { repoName: string; name: string }>(
+    workspace: T,
+    ship: string,
+  ): T & { ship: string; ephemeral: EphemeralWorkspace | null } {
+    const record = this.ephemeral.get(workspaceKey(workspace.repoName, workspace.name));
+    const ephemeral: EphemeralWorkspace | null = record
+      ? {
+          issueNumber: record.issueNumber,
+          branch: record.branch,
+          cleanup: record.cleanup,
+          blockedReason: record.blockedReason,
+          blockedAt: record.blockedAt,
+          pullRequest: record.pullRequest,
+        }
+      : null;
+    return { ...workspace, ship, ephemeral };
+  }
+
+  private async watchEphemeral(record: EphemeralWorkspaceRecord): Promise<void> {
+    const stored = await this.store.createEphemeral(record);
+    this.ephemeral.set(workspaceKey(stored.repoName, stored.name), stored);
+    this.publishSnapshot();
+  }
+
+  private async forgetEphemeral(repoName: string, name: string): Promise<void> {
+    if (!this.ephemeral.has(workspaceKey(repoName, name))) return;
+    await this.store.deleteEphemeral(repoName, name);
+    this.ephemeral.delete(workspaceKey(repoName, name));
+  }
+
+  private async forgetEphemeralWhere(
+    predicate: (record: EphemeralWorkspaceRecord) => boolean,
+  ): Promise<void> {
+    for (const record of [...this.ephemeral.values()]) {
+      if (predicate(record)) await this.forgetEphemeral(record.repoName, record.name);
+    }
   }
 
   private publish(event: BridgeWorkspaceEvent): void {
@@ -358,6 +404,7 @@ export class FleetManager {
     for (const [key, reservation] of this.createReservations) {
       if (reservation.shipName === name) this.createReservations.delete(key);
     }
+    await this.forgetEphemeralWhere((record) => record.ship === name);
     await this.persist();
     this.publishSnapshot();
   }
@@ -428,6 +475,10 @@ export class FleetManager {
     this.identifier(name, "repo");
     const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
+    // Their provider is gone, so they can never resolve; the workspaces stay as
+    // ordinary ones.
+    await this.forgetEphemeralWhere((record) => record.repoName === name);
+    this.publishSnapshot();
   }
 
   /**
@@ -675,7 +726,7 @@ export class FleetManager {
       if (!summary) continue;
       if (filter === "active" && !summary.active) continue;
       if (filter === "inactive" && summary.active) continue;
-      rows.push({ ...summary, ship: shipName });
+      rows.push(this.annotate(summary, shipName));
     }
     return rows;
   }
@@ -692,7 +743,7 @@ export class FleetManager {
     if (status.repoName !== repo || status.name !== name) {
       throw new BridgeError(`ship "${conn.name}" returned a workspace identity that was not requested`, 502);
     }
-    return { ...status, ship: conn.name };
+    return this.annotate(status, conn.name);
   }
 
   /** `GET /workspaces/:repo/:name/diff` — raw `git diff` text from the owning ship. */
@@ -723,6 +774,9 @@ export class FleetManager {
     this.identifier(input.repoName, "repo");
     this.identifier(input.name, "workspace");
     const source = this.branchSource(input);
+    if (input.ephemeral && !("issueNumber" in source)) {
+      throw new BridgeError("an ephemeral workspace is created from an issue", 400);
+    }
     const conn = this.connections.get(input.ship);
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
 
@@ -802,7 +856,21 @@ export class FleetManager {
         );
       }
 
-      return { ...summary, ship: conn.name };
+      if (input.ephemeral && "issueNumber" in source) {
+        await this.watchEphemeral({
+          repoName: input.repoName,
+          name: input.name,
+          ship: conn.name,
+          issueNumber: source.issueNumber,
+          branch,
+          cleanup: "watching",
+          blockedReason: null,
+          blockedAt: null,
+          pullRequest: null,
+        });
+      }
+
+      return this.annotate(summary, conn.name);
     } catch (err) {
       if (
         err instanceof BridgeError &&
@@ -900,6 +968,7 @@ export class FleetManager {
     await this.call(conn, () =>
       conn.client.workspaces({ repo })({ name }).delete() as Promise<EdenResult<unknown>>,
     );
+    await this.forgetEphemeral(repo, name);
   }
 
   /**
@@ -946,7 +1015,7 @@ export class FleetManager {
     this.publish({
       type: event.type,
       at: event.at,
-      workspace: { ...event.workspace, ship: conn.name },
+      workspace: this.annotate(event.workspace, conn.name),
     });
   }
 
