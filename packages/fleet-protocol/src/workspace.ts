@@ -89,6 +89,32 @@ export const WorkspaceStatusSchema = z.discriminatedUnion("state", [
 
 export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>;
 
+export const EPHEMERAL_CLEANUP_STATES = ["watching", "blocked"] as const;
+
+export type EphemeralCleanupState = (typeof EPHEMERAL_CLEANUP_STATES)[number];
+
+/** How long a blocked cleanup's reason may be before the bridge truncates it. */
+export const MAX_BLOCKED_REASON_LENGTH = 200;
+
+/**
+ * A workspace the bridge deletes once its issue's pull request closes.
+ * `pullRequest` is what the last sweep saw — for display, not decisions.
+ */
+export const EphemeralWorkspaceSchema = z.object({
+  issueNumber: z.number().int().positive(),
+  /** The branch linked to the issue when the workspace was created. */
+  branch: z.string(),
+  cleanup: z.enum(EPHEMERAL_CLEANUP_STATES),
+  blockedReason: z.string().max(MAX_BLOCKED_REASON_LENGTH).nullable().default(null),
+  blockedAt: z.string().nullable().default(null),
+  pullRequest: z
+    .object({ number: z.number().int().positive(), state: z.string(), url: z.string() })
+    .nullable()
+    .default(null),
+});
+
+export type EphemeralWorkspace = z.infer<typeof EphemeralWorkspaceSchema>;
+
 /** Body of `POST /workspaces/:repo/:name/agent/status` — update the live status. */
 export interface UpdateAgentStatusRequest {
   readonly state: AgentState;

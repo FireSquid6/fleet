@@ -1,10 +1,27 @@
 import { lstat, open, rename, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { FleetIdentifierSchema, RepoSchema, ShipSchema, type Repo, type Ship } from "fleet-protocol";
+import {
+  EphemeralWorkspaceSchema,
+  FleetIdentifierSchema,
+  RepoSchema,
+  ShipSchema,
+  type Repo,
+  type Ship,
+} from "fleet-protocol";
 import type { z } from "zod";
 import { SerialQueue } from "../serial-queue";
+import { workspaceKey } from "../types";
 
 type Persist = (target: string, contents: string) => Promise<void>;
+
+/** An ephemeral workspace as persisted: its public block plus where it lives. */
+export const EphemeralWorkspaceRecordSchema = EphemeralWorkspaceSchema.extend({
+  repoName: FleetIdentifierSchema,
+  name: FleetIdentifierSchema,
+  ship: FleetIdentifierSchema,
+});
+
+export type EphemeralWorkspaceRecord = z.infer<typeof EphemeralWorkspaceRecordSchema>;
 
 export class RepoAlreadyExistsError extends Error {
   constructor(readonly repoName: string) {
@@ -13,7 +30,35 @@ export class RepoAlreadyExistsError extends Error {
   }
 }
 
-class JsonCollection<T extends { name: string }> {
+interface Keying<T> {
+  /** The map key an item is stored under. */
+  readonly of: (item: T) => string;
+  /** The fields `of` reads, reapplied after an update so a merge cannot move a record. */
+  readonly identity: (item: T) => Partial<T>;
+  readonly validate: (key: string) => void;
+}
+
+function namedKeying<T extends { name: string }>(): Keying<T> {
+  return {
+    of: (item) => item.name,
+    identity: (item) => ({ name: item.name }) as Partial<T>,
+    validate: (key) => {
+      FleetIdentifierSchema.parse(key);
+    },
+  };
+}
+
+const ephemeralKeying: Keying<EphemeralWorkspaceRecord> = {
+  of: (record) => workspaceKey(record.repoName, record.name),
+  identity: (record) => ({ repoName: record.repoName, name: record.name }),
+  validate: (key) => {
+    const parts = key.split("/");
+    if (parts.length !== 2) throw new Error(`not a workspace key: ${key}`);
+    for (const part of parts) FleetIdentifierSchema.parse(part);
+  },
+};
+
+class JsonCollection<T> {
   private map = new Map<string, T>();
 
   constructor(
@@ -21,11 +66,12 @@ class JsonCollection<T extends { name: string }> {
     private readonly schema: z.ZodType<T>,
     private readonly target: string,
     private readonly persist: Persist,
+    private readonly key: Keying<T>,
   ) {}
 
   async read(): Promise<Map<string, T>> {
     const items = this.schema.array().parse(await readJsonArray(this.target));
-    return new Map(items.map((item) => [item.name, item]));
+    return new Map(items.map((item) => [this.key.of(item), item]));
   }
 
   adopt(map: Map<string, T>): void {
@@ -36,41 +82,41 @@ class JsonCollection<T extends { name: string }> {
     return this.queue.run(() => [...this.map.values()]);
   }
 
-  get(name: string): Promise<T | undefined> {
-    return this.queue.run(() => this.map.get(name));
+  get(key: string): Promise<T | undefined> {
+    return this.queue.run(() => this.map.get(key));
   }
 
   put(item: T, guard?: (current: ReadonlyMap<string, T>) => void): Promise<T> {
     const parsed = this.schema.parse(item);
     return this.queue.run(async () => {
       guard?.(this.map);
-      const next = new Map(this.map).set(parsed.name, parsed);
+      const next = new Map(this.map).set(this.key.of(parsed), parsed);
       await this.write(next);
       this.map = next;
       return parsed;
     });
   }
 
-  update(name: string, values: Partial<Omit<T, "name">>): Promise<T | undefined> {
-    FleetIdentifierSchema.parse(name);
+  update(key: string, values: Partial<T>): Promise<T | undefined> {
+    this.key.validate(key);
     return this.queue.run(async () => {
-      const existing = this.map.get(name);
+      const existing = this.map.get(key);
       if (!existing) return undefined;
-      const updated = this.schema.parse({ ...existing, ...values, name });
-      const next = new Map(this.map).set(name, updated);
+      const updated = this.schema.parse({ ...existing, ...values, ...this.key.identity(existing) });
+      const next = new Map(this.map).set(key, updated);
       await this.write(next);
       this.map = next;
       return updated;
     });
   }
 
-  delete(name: string): Promise<T | undefined> {
-    FleetIdentifierSchema.parse(name);
+  delete(key: string): Promise<T | undefined> {
+    this.key.validate(key);
     return this.queue.run(async () => {
-      const existing = this.map.get(name);
+      const existing = this.map.get(key);
       if (!existing) return undefined;
       const next = new Map(this.map);
-      next.delete(name);
+      next.delete(key);
       await this.write(next);
       this.map = next;
       return existing;
@@ -80,7 +126,7 @@ class JsonCollection<T extends { name: string }> {
   replaceAll(items: T[]): Promise<void> {
     const parsed = this.schema.array().parse(items);
     return this.queue.run(async () => {
-      const next = new Map(parsed.map((item) => [item.name, item]));
+      const next = new Map(parsed.map((item) => [this.key.of(item), item]));
       await this.write(next);
       this.map = next;
     });
@@ -96,6 +142,7 @@ export class Store {
   private readonly queue = new SerialQueue();
   private readonly shipCollection: JsonCollection<Ship>;
   private readonly repoCollection: JsonCollection<Repo>;
+  private readonly ephemeralCollection: JsonCollection<EphemeralWorkspaceRecord>;
 
   constructor(
     dataDirectory: string,
@@ -107,12 +154,21 @@ export class Store {
       ShipSchema,
       join(dataDirectory, "ships.json"),
       persist,
+      namedKeying(),
     );
     this.repoCollection = new JsonCollection(
       this.queue,
       RepoSchema,
       join(dataDirectory, "repos.json"),
       persist,
+      namedKeying(),
+    );
+    this.ephemeralCollection = new JsonCollection(
+      this.queue,
+      EphemeralWorkspaceRecordSchema,
+      join(dataDirectory, "ephemeral.json"),
+      persist,
+      ephemeralKeying,
     );
   }
 
@@ -121,8 +177,10 @@ export class Store {
       if (this.loaded) return;
       const ships = await this.shipCollection.read();
       const repos = await this.repoCollection.read();
+      const ephemeral = await this.ephemeralCollection.read();
       this.shipCollection.adopt(ships);
       this.repoCollection.adopt(repos);
+      this.ephemeralCollection.adopt(ephemeral);
       this.loaded = true;
     });
   }
@@ -168,6 +226,34 @@ export class Store {
   async deleteRepo(name: string): Promise<Repo | undefined> {
     return this.repoCollection.delete(name);
   }
+
+  async getAllEphemeral(): Promise<EphemeralWorkspaceRecord[]> {
+    return this.ephemeralCollection.getAll();
+  }
+
+  async getEphemeral(repoName: string, name: string): Promise<EphemeralWorkspaceRecord | undefined> {
+    return this.ephemeralCollection.get(ephemeralKey(repoName, name));
+  }
+
+  async createEphemeral(record: EphemeralWorkspaceRecord): Promise<EphemeralWorkspaceRecord> {
+    return this.ephemeralCollection.put(record);
+  }
+
+  async updateEphemeral(
+    repoName: string,
+    name: string,
+    values: Partial<EphemeralWorkspaceRecord>,
+  ): Promise<EphemeralWorkspaceRecord | undefined> {
+    return this.ephemeralCollection.update(ephemeralKey(repoName, name), values);
+  }
+
+  async deleteEphemeral(repoName: string, name: string): Promise<EphemeralWorkspaceRecord | undefined> {
+    return this.ephemeralCollection.delete(ephemeralKey(repoName, name));
+  }
+}
+
+function ephemeralKey(repoName: string, name: string): string {
+  return workspaceKey(FleetIdentifierSchema.parse(repoName), FleetIdentifierSchema.parse(name));
 }
 
 async function readJsonArray(target: string): Promise<unknown[]> {
