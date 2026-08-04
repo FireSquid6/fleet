@@ -14,7 +14,7 @@ import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
 import { ProviderError, type Issue, type RepoProvider } from "../src/providers";
-import { FakeSocket, makeDeps, makeTestAuth, type FakeShip } from "./helpers";
+import { FakeSocket, makeAuthedApp, makeDeps, type FakeShip } from "./helpers";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -47,6 +47,7 @@ describe("POST /workspaces from an issue", () => {
   let dir: string;
   let manager: FleetManager;
   let app: ReturnType<typeof createApp>;
+  let authorization: string;
   let ships: Map<string, FakeShip>;
   let recorder: Recorder;
   /** When set, `linkBranchToIssue` throws this instead of succeeding. */
@@ -86,10 +87,12 @@ describe("POST /workspaces from an issue", () => {
   }
 
   async function call(method: string, path: string, body?: unknown) {
+    const headers: Record<string, string> = { authorization };
+    if (body !== undefined) headers["content-type"] = "application/json";
     const res = await app.handle(
       new Request(`http://bridge${path}`, {
         method,
-        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );
@@ -120,7 +123,7 @@ describe("POST /workspaces from an issue", () => {
       providerFor: makeProvider,
     });
     await manager.init();
-    app = createApp(manager, makeTestAuth());
+    ({ app, authorization } = await makeAuthedApp(manager));
     expect(
       (await call("POST", "/repos", { name: "repo1", url: "https://github.com/acme/repo1", provider: "github" }))
         .status,

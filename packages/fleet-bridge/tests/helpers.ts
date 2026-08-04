@@ -1,6 +1,8 @@
 import type { ArmorySyncState, FleetEvent, Role, SystemResources, User, WorkspaceSummary } from "fleet-protocol";
+import { createApp } from "../src/api";
 import { AuthDatabase } from "../src/auth/auth-database";
 import { AuthService } from "../src/auth/auth-service";
+import type { FleetManager } from "../src/fleet-manager";
 import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
 
 export const TEST_PASSWORD = "test-password";
@@ -9,6 +11,15 @@ export function makeTestAuth(): AuthService {
   const db = new AuthDatabase(":memory:");
   db.migrate();
   return new AuthService(db);
+}
+
+export async function makeAuthedApp(
+  manager: FleetManager,
+  options: { insecureNoAuth?: boolean } = {},
+): Promise<{ app: ReturnType<typeof createApp>; auth: AuthService; authorization: string }> {
+  const auth = makeTestAuth();
+  const { authorization } = await seedUser(auth, { username: "test-admin", role: "admin" });
+  return { app: createApp(manager, auth, options), auth, authorization };
 }
 
 export async function seedUser(

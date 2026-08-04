@@ -48,9 +48,13 @@ describe("auth + users routes", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  test("existing routes still answer without credentials", async () => {
-    expect((await call("GET", "/ships")).status).toBe(200);
-    expect((await call("GET", "/workspaces")).status).toBe(200);
+  test("existing routes now require credentials", async () => {
+    expect((await call("GET", "/ships")).status).toBe(401);
+    expect((await call("GET", "/workspaces")).status).toBe(401);
+
+    const { token } = await seedUser(auth, { username: "ada" });
+    expect((await call("GET", "/ships", { token })).status).toBe(200);
+    expect((await call("GET", "/workspaces", { token })).status).toBe(200);
   });
 
   test("GET /auth/mode reports whether credentials are wanted, without needing any", async () => {
@@ -87,12 +91,13 @@ describe("auth + users routes", () => {
     expect(me.body).toEqual(user);
   });
 
-  test("POST /auth/logout revokes the calling token", async () => {
+  test("POST /auth/logout revokes the calling token, and is a no-op without one", async () => {
     const { token } = await seedUser(auth, { username: "ada" });
 
-    expect((await call("POST", "/auth/logout")).status).toBe(401);
+    expect(await call("POST", "/auth/logout")).toEqual({ status: 200, body: { ok: true } });
     expect((await call("POST", "/auth/logout", { token })).body).toEqual({ ok: true });
     expect((await call("GET", "/auth/me", { token })).status).toBe(401);
+    expect((await call("POST", "/auth/logout", { token })).body).toEqual({ ok: true });
   });
 
   test("POST /auth/ws-ticket issues a redeemable single-use ticket", async () => {

@@ -12,7 +12,7 @@ import { GitError, type RemoteRef } from "git-bun";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { makeDeps, makeTestAuth } from "./helpers";
+import { makeAuthedApp, makeDeps } from "./helpers";
 
 /** What the fake `lsRemote` was asked, and what it answers with. */
 interface LsRemoteStub {
@@ -24,13 +24,16 @@ describe("GET /repos/:name/branches", () => {
   let dir: string;
   let manager: FleetManager;
   let app: ReturnType<typeof createApp>;
+  let authorization: string;
   let lsRemote: LsRemoteStub;
 
   async function call(method: string, path: string, body?: unknown) {
+    const headers: Record<string, string> = { authorization };
+    if (body !== undefined) headers["content-type"] = "application/json";
     const res = await app.handle(
       new Request(`http://bridge${path}`, {
         method,
-        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );
@@ -61,7 +64,7 @@ describe("GET /repos/:name/branches", () => {
       },
     });
     await manager.init();
-    app = createApp(manager, makeTestAuth());
+    ({ app, authorization } = await makeAuthedApp(manager));
     expect((await call("POST", "/repos", { name: "repo1", url: "git@fake/repo1.git" })).status).toBe(201);
   });
   afterEach(async () => {

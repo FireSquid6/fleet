@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { ForbiddenError, type AuthService } from "../auth/auth-service";
-import { requireAdmin, requireUser, type AuthHeaders, type UserPrincipal } from "./auth";
+import { requireAdmin, requireUser, type UserPrincipal } from "./auth";
 import { mapErrorHook } from "./http";
 
 const roleSchema = t.Union([t.Literal("admin"), t.Literal("member")]);
@@ -9,8 +9,8 @@ const roleSchema = t.Union([t.Literal("admin"), t.Literal("member")]);
  * 403 rather than 404 for an unknown target: a member is not entitled to learn
  * who exists by probing.
  */
-function requireSelfOrAdmin(auth: AuthService, headers: AuthHeaders, username: string): UserPrincipal {
-  const principal = requireUser(auth, headers);
+function requireSelfOrAdmin(auth: AuthService, request: Request, username: string): UserPrincipal {
+  const principal = requireUser(request);
   if (principal.role === "admin") return principal;
   const target = auth.getUser(username);
   if (!target || target.id !== principal.id) throw new ForbiddenError("you may only change your own account");
@@ -20,14 +20,14 @@ function requireSelfOrAdmin(auth: AuthService, headers: AuthHeaders, username: s
 export function usersPlugin(auth: AuthService) {
   return new Elysia({ name: "bridge-users" })
     .onError(mapErrorHook)
-    .get("/users", ({ headers }) => {
-      requireAdmin(auth, headers);
+    .get("/users", ({ request }) => {
+      requireAdmin(request);
       return auth.listUsers();
     })
     .post(
       "/users",
-      async ({ headers, body, set }) => {
-        requireAdmin(auth, headers);
+      async ({ request, body, set }) => {
+        requireAdmin(request);
         set.status = 201;
         return await auth.createUser(body);
       },
@@ -40,15 +40,15 @@ export function usersPlugin(auth: AuthService) {
         }),
       },
     )
-    .delete("/users/:name", ({ headers, params }) => {
-      requireAdmin(auth, headers);
+    .delete("/users/:name", ({ request, params }) => {
+      requireAdmin(request);
       auth.deleteUser(params.name);
       return { ok: true as const };
     })
     .post(
       "/users/:name/password",
-      async ({ headers, params, body }) => {
-        requireSelfOrAdmin(auth, headers, params.name);
+      async ({ request, params, body }) => {
+        requireSelfOrAdmin(auth, request, params.name);
         await auth.setPassword(params.name, body.password);
         return { ok: true as const };
       },
@@ -56,16 +56,16 @@ export function usersPlugin(auth: AuthService) {
     )
     .post(
       "/users/:name/role",
-      ({ headers, params, body }) => {
-        requireAdmin(auth, headers);
+      ({ request, params, body }) => {
+        requireAdmin(request);
         return auth.setRole(params.name, body.role);
       },
       { body: t.Object({ role: roleSchema }) },
     )
     .post(
       "/users/:name/email",
-      ({ headers, params, body }) => {
-        requireSelfOrAdmin(auth, headers, params.name);
+      ({ request, params, body }) => {
+        requireSelfOrAdmin(auth, request, params.name);
         return auth.setEmail(params.name, body.email);
       },
       { body: t.Object({ email: t.String() }) },

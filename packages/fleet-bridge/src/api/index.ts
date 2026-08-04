@@ -3,6 +3,7 @@ import { MAX_CLIENT_FRAME_BYTES } from "webterm/protocol";
 import type { AuthService } from "../auth/auth-service";
 import type { FleetManager } from "../fleet-manager";
 import { authPlugin } from "./auth";
+import { guardPlugin } from "./guard";
 import { usersPlugin } from "./users";
 import { workspacesPlugin } from "./workspaces";
 import { shipsPlugin } from "./ships";
@@ -21,6 +22,7 @@ export function createApp(
   // order of magnitude on them, and Bun's client WebSocket already offers the
   // extension, so accepting it here compresses the fleet-client→bridge hop.
   return new Elysia({ websocket: { maxPayloadLength: MAX_CLIENT_FRAME_BYTES, perMessageDeflate: true } })
+    .use(guardPlugin(auth, options))
     .use(Logestic.preset("commontz"))
     .use(workspacesPlugin(manager))
     .use(shipsPlugin(manager))

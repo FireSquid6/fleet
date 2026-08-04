@@ -3,10 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArmorySyncState } from "fleet-protocol";
-import { createApp } from "../src/api";
 import { FleetManager } from "../src/fleet-manager";
 import { Store } from "../src/store/store";
-import { FakeSocket, makeDeps, makeTestAuth, type FakeShip } from "./helpers";
+import { FakeSocket, makeAuthedApp, makeDeps, type FakeShip } from "./helpers";
 
 const SYNCED: ArmorySyncState = {
   revision: "a".repeat(64),
@@ -108,9 +107,9 @@ describe("FleetManager armoryShipStates", () => {
       ["http://ship-a", { name: "ship-a", workspaces: [], armoryState: SYNCED }],
     ]);
     const mgr = await boot(ships);
-    const app = createApp(mgr, makeTestAuth());
+    const { app, authorization } = await makeAuthedApp(mgr);
 
-    const response = await app.handle(new Request("http://bridge/armory/ships"));
+    const response = await app.handle(new Request("http://bridge/armory/ships", { headers: { authorization } }));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([{ ship: "ship-a", status: "online", state: SYNCED }]);
