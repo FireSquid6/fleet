@@ -27,7 +27,18 @@ export async function startBridge(
   await mkdir(config.dataDirectory, { recursive: true });
 
   const manager = new FleetManager(config);
-  await manager.init();
+
+  const app = createApp(manager);
+  app.listen(config.port);
+  console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
+
+  try {
+    await manager.init();
+  } catch (error) {
+    app.stop();
+    manager.shutdown();
+    throw error;
+  }
 
   // Started after `init` — the ships that come online during it push themselves
   // through the connection's status handler.
@@ -36,9 +47,6 @@ export async function startBridge(
     void manager.pushArmory();
   });
 
-  const app = createApp(manager);
-  app.listen(config.port);
-  console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
   return { manager, watcher };
 }
 
