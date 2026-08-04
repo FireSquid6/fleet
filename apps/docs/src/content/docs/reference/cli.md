@@ -446,7 +446,7 @@ loads the persisted ship roster, connects to every ship, and serves the API.
 | --- | --- | --- | --- |
 | `-p, --port` | `<port>` | `4800` | Port the HTTP + WebSocket API listens on. Must parse as an integer. |
 | `-n, --name` | `<name>` | `bridge` | Human-facing name of this bridge. Any non-empty string. |
-| `-d, --data-directory` | `<dir>` | `./.fleet-bridge` | Directory the bridge persists `ships.json` and `repos.json` to, and holds the `armory/` it distributes. Resolved to an absolute path. |
+| `-d, --data-directory` | `<dir>` | `./.fleet-bridge` | Directory the bridge persists `ships.json`, `repos.json` and `ephemeral.json` to, and holds the `armory/` it distributes. Resolved to an absolute path. |
 | `--public-url` | `<url>` | `http://localhost:<port>` | URL ships should use to reach this bridge. Handed to each ship so it can pull the [armory](/guides/the-armory/), so it must resolve from the ships' hosts. |
 
 If two reachable ships hold the same `<repo>/<name>` at startup, the bridge

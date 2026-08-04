@@ -93,6 +93,41 @@ before the delete, so consumers can identify what went away.
 
 Each of those emits an event on `/events` — see [Events](/concepts/events/).
 
+## Ephemeral workspaces
+
+A workspace created from an issue can be marked **ephemeral**, which asks the
+bridge to delete it once the work it was opened for is finished. Nothing about
+the workspace on the ship is different; the bridge keeps a record of it in
+`ephemeral.json` next to `ships.json`, and acts on that record.
+
+The bridge re-reads every ephemeral record on a timer — five minutes by default,
+set with `sweepIntervalMs`. A pass asks the repo's provider for the pull
+requests whose head is the branch that was linked to the issue at create time,
+and cleans the workspace up when either:
+
+- the branch has at least one pull request and **none of them are open** —
+  merged and closed-without-merging both count; or
+- the branch has **no pull requests at all** and the **issue itself is closed**.
+
+The branch is pinned when the workspace is created. Switching the workspace to
+another branch afterwards does not re-point the watch, and does not cancel it.
+
+Cleanup goes through the ship's non-forcing delete, so it destroys nothing that
+cannot be fetched again from the remote. If the workspace holds uncommitted
+changes, commits no remote has, or a stash, the ship refuses and the record
+turns `blocked`, carrying the ship's own explanation. A blocked workspace stays
+where it is, shows the reason wherever the workspace is listed, and is retried
+on the next pass — push the work, or delete it by hand, and it goes away.
+
+Nothing is written to the forge: the branch, the pull request, and the issue are
+left exactly as they are. Deleting the head branch after a merge is a repo
+setting on the forge itself, not something the bridge does for you.
+
+A record is dropped — leaving the workspace as an ordinary one — when the repo
+is unregistered, when the ship is removed from the fleet, or when the workspace
+is deleted by hand. A workspace that has vanished is only forgotten once its
+ship is online to say so, so a rebooting ship never quietly disarms the watch.
+
 ## What a workspace reports
 
 The list view (`GET /workspaces`) returns a summary per workspace: `repoName`,

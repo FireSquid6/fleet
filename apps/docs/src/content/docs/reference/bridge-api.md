@@ -20,11 +20,11 @@ adds ship management, a repo registry, and an aggregate system-resources view.
 | `GET /workspaces` | Same path. Merged across ships, deduped, each row gains `ship`. |
 | `GET /workspaces/:repo/:name` | Same path. Proxied live to the owning ship; response gains `ship` on **both** the `active` and `inactive` variants. |
 | `GET /workspaces/:repo/:name/diff` | Same path and query. Proxied verbatim. |
-| `POST /workspaces` | Same path, **different body**: `{ship, repoName, name, branch \| issueNumber}` instead of `{url, repoName, name, branch}`. The clone URL comes from the bridge's repo registry, and the branch may be named outright or derived from an issue. Response gains `ship`. |
+| `POST /workspaces` | Same path, **different body**: `{ship, repoName, name, branch \| issueNumber, ephemeral?}` instead of `{url, repoName, name, branch}`. The clone URL comes from the bridge's repo registry, and the branch may be named outright or derived from an issue. Response gains `ship` and `ephemeral`. |
 | `POST /workspaces/:repo/:name/branch` | Same. |
 | `POST /workspaces/:repo/:name/activate` | Same. |
 | `POST /workspaces/:repo/:name/deactivate` | Same. |
-| `DELETE /workspaces/:repo/:name` | Same. |
+| `DELETE /workspaces/:repo/:name` | Same, minus the ship's `force` query — the bridge always deletes unconditionally here. Its own ephemeral cleanup uses `force=false` against the ship. |
 | `WS /workspaces/:repo/:name/terminal` | Same path; a bidirectional pipe to the owning ship's terminal. |
 | `WS /events` | Same path, **different frames**: no top-level `ship`, and every workspace carries `ship`. |
 | `GET /system-resources` | Same path, **different shape**: an array with one entry per ship. The single-host snapshot moves to `GET /ships/:ship/system-resources`. |
@@ -371,9 +371,28 @@ than only the event stream.
   branch: string;
   active: boolean;
   agent: AgentStatus | null;
-  ship: string;      // the extra field
+  ship: string;            // the extra fields
+  ephemeral: EphemeralWorkspace | null;
 }[]
 ```
+
+`ephemeral` is the bridge's own record — a ship knows nothing about it — and is
+`null` for every ordinary workspace:
+
+```ts
+// EphemeralWorkspace
+{
+  issueNumber: number;
+  branch: string;          // the branch linked to the issue at create time
+  cleanup: "watching" | "blocked";
+  blockedReason: string | null;   // the ship's refusal, truncated to 200 chars
+  blockedAt: string | null;       // ISO-8601
+  pullRequest: { number: number; state: string; url: string } | null;
+}
+```
+
+`pullRequest` is what the last sweep saw, so it lags the forge by up to one
+sweep interval. Render it; do not branch on it.
 
 ### `GET /workspaces/:repo/:name`
 
@@ -383,10 +402,15 @@ returned — meaning `inactive` responses carry `ship` here even though they do
 not on a ship.
 
 ```ts
-{ state: "inactive"; repoName; name; branch; ship: string }
+{ state: "inactive"; repoName; name; branch; ship: string;
+  ephemeral: EphemeralWorkspace | null }
 { state: "active"; repoName; name; branch; diff; agent; issue: null;
-  mergeRequest: null; ship: string }
+  mergeRequest: null; ship: string; ephemeral: EphemeralWorkspace | null }
 ```
+
+`issue` and `mergeRequest` are the ship's own fields and are always `null`;
+`ephemeral` is the bridge's, and is where an issue-linked workspace's state
+actually lives.
 
 The bridge re-validates the ship's response: an unparseable status, or one whose
 `repoName`/`name` differ from the request, is a `502`.
@@ -403,7 +427,7 @@ text.
 // request body — ship, repoName and name are required;
 // exactly one of branch / issueNumber must be present
 { ship: string; repoName: string; name: string;
-  branch?: string; issueNumber?: number }
+  branch?: string; issueNumber?: number; ephemeral?: boolean }
 ```
 
 `ship` names the target host and `repoName` must be a **registered repo**; the
@@ -439,7 +463,7 @@ the clone then fails, so a retry reuses it.
 | Status | Cause |
 | --- | --- |
 | `422` | `ship`, `repoName` or `name` is missing. |
-| `400` | Invalid repo/workspace identifier; `unknown ship: <ship>`; `unknown repo: <repoName>`; both `branch` and `issueNumber`, or neither; a blank `branch`; an `issueNumber` that is not a positive integer. |
+| `400` | Invalid repo/workspace identifier; `unknown ship: <ship>`; `unknown repo: <repoName>`; both `branch` and `issueNumber`, or neither; a blank `branch`; an `issueNumber` that is not a positive integer; `ephemeral` without `issueNumber`. |
 | provider's status | Any error resolving or linking the issue is passed through with the provider's own status — e.g. `401` with no token, `403` for a token without repo write scope, `404` for an unknown issue, `409` when the branch could be neither created nor found under the requested name. |
 | `503` | `ship "<ship>" is offline`. |
 | `409` | `workspace already exists: <repo>/<name>`; a create for that key is already in progress; the key's create outcome is indeterminate; the target ship was removed mid-request. |
@@ -454,6 +478,32 @@ confirmation or remove that ship to clear the reservation`. The reservation
 clears itself when the ship reports the workspace, or when that ship is
 deregistered.
 :::
+
+`ephemeral: true` additionally records the workspace for automatic cleanup, and
+is only accepted alongside `issueNumber`. The record is written after the ship
+confirms the clone, so a failed create leaves nothing behind. See
+[`POST /workspaces/sweep`](#post-workspacessweep) and
+[Workspaces](/concepts/workspaces/#ephemeral-workspaces).
+
+### `POST /workspaces/sweep`
+
+Runs one ephemeral-cleanup pass immediately instead of waiting for the timer
+(`sweepIntervalMs`, five minutes by default). No request body.
+
+```json
+{ "checked": 3, "destroyed": 1, "blocked": 1, "skipped": 0, "forgotten": 0 }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `checked` | records whose pull requests were read this pass |
+| `destroyed` | workspaces deleted |
+| `blocked` | cleanups the ship refused because the clone holds work no remote has |
+| `skipped` | left for a later pass — an offline ship, or a provider that could not answer |
+| `forgotten` | records dropped because the workspace is gone and its ship was online to say so |
+
+Passes never overlap: calling this while one is running returns that pass's
+result rather than starting a second.
 
 ### `POST /workspaces/:repo/:name/branch`
 
