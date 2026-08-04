@@ -1,6 +1,11 @@
 import { Command, InvalidArgumentError } from "commander";
 import { DEFAULT_PORT, type FleetShipConfig } from "fleet-protocol";
-import { canonicalizeFleetDirectory, resolveFleetShipConfig } from "./config";
+import {
+  BRIDGE_TOKEN_ENV_VAR,
+  canonicalizeFleetDirectory,
+  resolveBridgeToken,
+  resolveFleetShipConfig,
+} from "./config";
 import { writeAtlas } from "./atlas";
 import { installFleetSkill } from "./skill-installer";
 import { installFleetPlugin } from "./plugin-installer";
@@ -133,6 +138,12 @@ export async function startShip(config: FleetShipConfig): Promise<void> {
   await writeAtlas(canonical.fleetDirectory, { port: app.server?.port ?? canonical.port });
 
   console.log(`fleet-ship "${canonical.name}" listening on http://localhost:${canonical.port}`);
+  if (resolveBridgeToken(canonical.bridgeToken) === undefined) {
+    console.warn(
+      `fleet-ship "${canonical.name}" is serving without authentication: every route answers anyone who ` +
+        `can reach the port. Set ${BRIDGE_TOKEN_ENV_VAR} to the token the bridge presents to require it.`,
+    );
+  }
 }
 
 export const ship = new Command()

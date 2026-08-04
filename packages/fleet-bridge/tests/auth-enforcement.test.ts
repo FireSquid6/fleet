@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../src/api";
-import { TEMPORARILY_PUBLIC_UNTIL_SHIP_TOKENS } from "../src/api/guard";
 import { AuthDatabase } from "../src/auth/auth-database";
 import { AuthService, type Principal } from "../src/auth/auth-service";
 import { FleetManager } from "../src/fleet-manager";
@@ -60,12 +59,11 @@ describe("bridge default-deny enforcement", () => {
 
   test("every route rejects an anonymous caller", async () => {
     const { app } = await makeAuthedApp(manager);
-    const exempt = [...PUBLIC, ...TEMPORARILY_PUBLIC_UNTIL_SHIP_TOKENS];
 
     const answered: string[] = [];
     for (const route of app.routes) {
       const name = `${route.method} ${route.path}`;
-      if (exempt.includes(name)) continue;
+      if (PUBLIC.has(name)) continue;
       const method = route.method === "WS" ? "GET" : route.method;
       if ((await status(app, method, concretePath(route.path))) !== 401) answered.push(name);
     }
@@ -87,12 +85,19 @@ describe("bridge default-deny enforcement", () => {
     ).toBe(401);
   });
 
-  test("the armory routes are temporarily public until ships have tokens", async () => {
-    const { app } = await makeAuthedApp(manager);
+  test("the armory routes answer a ship or a user credential and nothing else", async () => {
+    const { app, auth, authorization } = await makeAuthedApp(manager);
+    const { shipToken } = auth.createShipCredentials("ship-a");
+    const asShip = { headers: { authorization: `Bearer ${shipToken}` } };
+    const asUser = { headers: { authorization } };
 
-    expect([...TEMPORARILY_PUBLIC_UNTIL_SHIP_TOKENS]).toEqual(["GET /armory", "GET /armory/file"]);
-    expect(await status(app, "GET", "/armory")).toBe(200);
-    expect(await status(app, "GET", "/armory/file?path=nope")).toBe(404);
+    expect(await status(app, "GET", "/armory")).toBe(401);
+    expect(await status(app, "GET", "/armory/file?path=nope")).toBe(401);
+
+    expect(await status(app, "GET", "/armory", asShip)).toBe(200);
+    expect(await status(app, "GET", "/armory/file?path=nope", asShip)).toBe(404);
+    expect(await status(app, "GET", "/armory", asUser)).toBe(200);
+    expect(await status(app, "GET", "/armory/file?path=nope", asUser)).toBe(404);
   });
 
   test("insecureNoAuth serves every route without credentials", async () => {

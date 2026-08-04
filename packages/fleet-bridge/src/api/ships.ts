@@ -10,9 +10,15 @@ export function shipsPlugin(manager: FleetManager) {
       "/ships",
       async ({ body, set }) => {
         set.status = 201;
-        return await manager.addShip(body.url);
+        return await manager.addShip(body.url, { shipToken: body.shipToken, bridgeToken: body.bridgeToken });
       },
-      { body: t.Object({ url: t.String() }) },
+      {
+        body: t.Object({
+          url: t.String(),
+          shipToken: t.Optional(t.String()),
+          bridgeToken: t.Optional(t.String()),
+        }),
+      },
     )
     .delete("/ships/:name", async ({ params }) => {
       await manager.removeShip(params.name);

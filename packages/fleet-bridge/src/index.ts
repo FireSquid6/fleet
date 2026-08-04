@@ -55,7 +55,7 @@ export async function startBridge(
   // otherwise scroll away behind ship-connection logs.
   if (!config.insecureNoAuth) await ensureFirstUser(auth);
 
-  const manager = new FleetManager(config);
+  const manager = new FleetManager(config, undefined, { credentials: auth });
   await manager.init();
 
   // Started after `init` — the ships that come online during it push themselves

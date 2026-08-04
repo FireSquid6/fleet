@@ -21,7 +21,7 @@ import {
 } from "fleet-protocol";
 import { Git, GitError, type DiffOptions, type RemoteRef } from "git-bun";
 import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
-import { ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
+import { bearer, ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
 import { defaultPublicUrl, type BridgeConfig } from "./config";
 import {
   workspaceKey,
@@ -188,6 +188,22 @@ type BranchSource = { readonly branch: string } | { readonly issueNumber: number
 
 type EdenResult<T> = { data: T | null; error: unknown };
 
+export interface ShipCredentials {
+  readonly shipToken: string;
+  readonly bridgeToken: string;
+}
+
+export interface ShipCredentialStore {
+  bridgeTokenFor(shipName: string): string | undefined;
+  setShipCredentials(shipName: string, credentials: ShipCredentials): void;
+  deleteShipCredentials(shipName: string): void;
+}
+
+export interface TerminalTarget {
+  readonly url: string;
+  readonly headers?: Record<string, string>;
+}
+
 interface CreateReservation {
   readonly shipName: string;
   state: "pending" | "indeterminate";
@@ -210,6 +226,7 @@ export class FleetManager {
   /** Deadline for one `lsRemote` probe (overridable in tests). */
   private readonly lsRemoteTimeoutMs: number;
   private readonly armory: ArmoryService;
+  private readonly credentials?: ShipCredentialStore;
 
   constructor(
     private readonly config: BridgeConfig,
@@ -221,9 +238,11 @@ export class FleetManager {
       lsRemote?: typeof Git.lsRemote;
       lsRemoteTimeoutMs?: number;
       armory?: ArmoryService;
+      credentials?: ShipCredentialStore;
     },
   ) {
     this.deps = deps;
+    this.credentials = opts?.credentials;
     this.syncTimeoutMs = opts?.syncTimeoutMs ?? SYNC_TIMEOUT_MS;
     this.store = opts?.store ?? new Store(config.dataDirectory);
     this.makeProvider = opts?.providerFor ?? providerFor;
@@ -237,7 +256,7 @@ export class FleetManager {
     await this.store.load();
     const records = await this.store.getAllShips();
     for (const record of records) {
-      const conn = this.createConnection(record.url, record.name);
+      const conn = this.createConnection(record.url, record.name, this.credentials?.bridgeTokenFor(record.name));
       conn.member = true;
       this.connections.set(record.name, conn);
       conn.connect();
@@ -301,8 +320,9 @@ export class FleetManager {
   }
 
   /** `POST /ships`. */
-  async addShip(url: string): Promise<ShipInfo> {
-    const probe = this.createConnection(url);
+  async addShip(url: string, credentials?: Partial<ShipCredentials>): Promise<ShipInfo> {
+    const pair = this.credentialPair(credentials);
+    const probe = this.createConnection(url, undefined, pair?.bridgeToken);
     probe.connect();
 
     let name: string;
@@ -334,6 +354,7 @@ export class FleetManager {
 
     probe.member = true;
     this.connections.set(name, probe);
+    if (pair) this.credentials?.setShipCredentials(name, pair);
     for (const key of probe.workspaces.keys()) this.claim(key, name);
     await this.persist();
     this.publishSnapshot();
@@ -352,6 +373,7 @@ export class FleetManager {
 
     conn.close();
     this.connections.delete(name);
+    this.credentials?.deleteShipCredentials(name);
     for (const [key, owner] of this.index) {
       if (owner === name) this.releaseOwnership(key, name);
     }
@@ -907,7 +929,7 @@ export class FleetManager {
    * With `takeover`, ask the ship to evict whichever connection currently owns
    * the workspace's tmux session.
    */
-  terminalTarget(repo: string, name: string, options: { takeover?: boolean } = {}): string {
+  terminalTarget(repo: string, name: string, options: { takeover?: boolean } = {}): TerminalTarget {
     const conn = this.routeFor(repo, name);
     const url = new URL(
       toWsUrl(conn.url, `/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`),
@@ -917,11 +939,23 @@ export class FleetManager {
     // fragment it carries (`/events` gets them too, so a ship registered with a
     // token keeps it here).
     if (options.takeover) url.searchParams.set(TERMINAL_TAKEOVER_QUERY, "true");
-    return url.toString();
+    return {
+      url: url.toString(),
+      headers: conn.bridgeToken === undefined ? undefined : bearer(conn.bridgeToken),
+    };
   }
 
-  private createConnection(url: string, name?: string): ShipConnection {
-    const conn = new ShipConnection({ url, name, deps: this.deps });
+  private credentialPair(credentials?: Partial<ShipCredentials>): ShipCredentials | undefined {
+    const { shipToken, bridgeToken } = credentials ?? {};
+    if (shipToken === undefined && bridgeToken === undefined) return undefined;
+    if (shipToken === undefined || bridgeToken === undefined) {
+      throw new BridgeError("a ship is registered with both a shipToken and a bridgeToken, or neither", 400);
+    }
+    return { shipToken, bridgeToken };
+  }
+
+  private createConnection(url: string, name?: string, bridgeToken?: string): ShipConnection {
+    const conn = new ShipConnection({ url, name, bridgeToken, deps: this.deps });
     conn.setHandlers({
       onEvent: (c, event) => this.onEvent(c, event),
       // A ship that restarts or reconnects may have missed pushes, so every

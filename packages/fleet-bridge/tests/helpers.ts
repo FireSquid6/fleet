@@ -53,6 +53,8 @@ export interface FakeShip {
   armorySyncs?: { bridgeUrl: string; revision: string }[];
   /** What `GET /armory` reports; defaults to a ship that has never synced. */
   armoryState?: ArmorySyncState;
+  authorizations?: (string | null)[];
+  socketAuthorizations?: (string | null)[];
   /** All Eden calls resolve to this error `{status, value:{error}}`. */
   errorResponse?: { status: number; message: string };
   /** All Eden calls throw (simulated network failure). */
@@ -76,10 +78,11 @@ export class FakeSocket implements SocketLike {
   onerror: ((ev: unknown) => void) | null = null;
   private done = false;
 
-  constructor(wsUrl: string, ships: Map<string, FakeShip>) {
+  constructor(wsUrl: string, ships: Map<string, FakeShip>, bridgeToken?: string) {
     const base = httpBase(wsUrl);
     FakeSocket.byBase.set(base, this);
     const ship = ships.get(base);
+    if (ship) (ship.socketAuthorizations ??= []).push(authorizationHeader(bridgeToken));
     setTimeout(() => {
       if (this.done) return;
       if (!ship) {
@@ -126,12 +129,17 @@ export function fakeResources(hostname: string): SystemResources {
   };
 }
 
-export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
+export function authorizationHeader(token?: string): string | null {
+  return token === undefined ? null : `Bearer ${token}`;
+}
+
+export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>, bridgeToken?: string) {
   const ship = () => ships.get(httpUrl);
 
   // Every call routes through here so a ship's error/throw config applies uniformly.
   const wrap = async (dataFactory: () => unknown) => {
     const s = ship();
+    if (s) (s.authorizations ??= []).push(authorizationHeader(bridgeToken));
     if (s?.throws) throw new Error("ECONNREFUSED");
     if (s?.errorResponse) {
       return { data: null, error: { status: s.errorResponse.status, value: { error: s.errorResponse.message } } };
@@ -254,8 +262,9 @@ export function makeDeps(
   overrides?: Partial<ShipConnectionDeps>,
 ): Partial<ShipConnectionDeps> {
   return {
-    createSocket: (url) => new FakeSocket(url, ships),
-    createClient: (url) => makeFakeClient(url, ships) as unknown as ReturnType<ShipConnectionDeps["createClient"]>,
+    createSocket: (url, bridgeToken) => new FakeSocket(url, ships, bridgeToken),
+    createClient: (url, bridgeToken) =>
+      makeFakeClient(url, ships, bridgeToken) as unknown as ReturnType<ShipConnectionDeps["createClient"]>,
     ...overrides,
   };
 }

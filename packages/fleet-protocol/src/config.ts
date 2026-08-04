@@ -14,6 +14,8 @@ export const FleetShipConfigSchema = z.object({
    * on, so a hand-started ship needs no extra flag.
    */
   bridgeUrl: z.url().optional(),
+  shipToken: z.string().min(1).optional(),
+  bridgeToken: z.string().min(1).optional(),
 });
 
 export type FleetShipConfig = z.infer<typeof FleetShipConfigSchema>;

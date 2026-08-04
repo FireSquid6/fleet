@@ -225,7 +225,7 @@ clientCommand
   .argument("<name>", "workspace name")
   .action(async (repo: string, name: string) => {
     const { url } = clientCommand.opts<{ url: string }>();
-    const code = await attachToWorkspace(normalizeUrl(url), repo, name);
+    const code = await attachToWorkspace(normalizeUrl(url), repo, name, process.env[SHIP_TOKEN_ENV_VAR]);
     process.exit(code);
   });
 

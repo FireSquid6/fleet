@@ -13,8 +13,6 @@ const PUBLIC_ROUTES = new Set([
   "POST /auth/logout",
 ]);
 
-export const TEMPORARILY_PUBLIC_UNTIL_SHIP_TOKENS = new Set(["GET /armory", "GET /armory/file"]);
-
 const INSECURE_ADMIN: Principal = {
   kind: "user",
   id: "insecure-no-auth",
@@ -31,7 +29,7 @@ export function guardPlugin(auth: AuthService, options: GuardOptions = {}) {
     const url = new URL(request.url);
     const path = normalize(url.pathname);
     const route = `${request.method} ${path}`;
-    if (PUBLIC_ROUTES.has(route) || TEMPORARILY_PUBLIC_UNTIL_SHIP_TOKENS.has(route)) return;
+    if (PUBLIC_ROUTES.has(route)) return;
 
     const principal = resolve(auth, request, url, options);
     if (!principal) return deny(401, "authentication required");

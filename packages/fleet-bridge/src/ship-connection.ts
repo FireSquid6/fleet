@@ -15,8 +15,8 @@ export interface SocketLike {
 }
 
 export interface ShipConnectionDeps {
-  createSocket: (url: string) => SocketLike;
-  createClient: (url: string) => ShipClient;
+  createSocket: (url: string, bridgeToken?: string) => SocketLike;
+  createClient: (url: string, bridgeToken?: string) => ShipClient;
 }
 
 export interface ShipConnectionHandlers {
@@ -25,9 +25,23 @@ export interface ShipConnectionHandlers {
 }
 
 const defaultDeps: ShipConnectionDeps = {
-  createSocket: (url) => new WebSocket(url) as unknown as SocketLike,
-  createClient: (url) => treaty<ShipApp>(url),
+  createSocket: (url, bridgeToken) =>
+    openSocket(url, bridgeToken ? bearer(bridgeToken) : undefined) as unknown as SocketLike,
+  createClient: (url, bridgeToken) =>
+    treaty<ShipApp>(url, bridgeToken ? { headers: bearer(bridgeToken) } : undefined),
 };
+
+export function bearer(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
+}
+
+// Bun's client WebSocket takes headers; the DOM's does not, and fleet-client
+// typechecks this file under the DOM lib. Server-to-server only.
+type WebSocketWithHeaders = new (url: string, options?: { headers?: Record<string, string> }) => WebSocket;
+
+export function openSocket(url: string, headers?: Record<string, string>): WebSocket {
+  return new (WebSocket as unknown as WebSocketWithHeaders)(url, headers ? { headers } : undefined);
+}
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -49,6 +63,7 @@ export class ShipConnection {
   readonly workspaces = new Map<string, WorkspaceSummary>();
   /** True once the manager has adopted this connection into the fleet. */
   member = false;
+  readonly bridgeToken?: string;
 
   private readonly deps: ShipConnectionDeps;
   private handlers?: ShipConnectionHandlers;
@@ -59,12 +74,18 @@ export class ShipConnection {
   private syncWaiters: Array<(event: SyncEvent) => void> = [];
   private identity?: string;
 
-  constructor(opts: { url: string; name?: string; deps?: Partial<ShipConnectionDeps> }) {
+  constructor(opts: {
+    url: string;
+    name?: string;
+    bridgeToken?: string;
+    deps?: Partial<ShipConnectionDeps>;
+  }) {
     this.url = opts.url;
     this.name = opts.name ?? opts.url;
     this.identity = opts.name;
+    this.bridgeToken = opts.bridgeToken;
     this.deps = { ...defaultDeps, ...opts.deps };
-    this.client = this.deps.createClient(opts.url);
+    this.client = this.deps.createClient(opts.url, opts.bridgeToken);
   }
 
   setHandlers(handlers: ShipConnectionHandlers): void {
@@ -112,7 +133,7 @@ export class ShipConnection {
 
   private openSocket(): void {
     if (this.closed) return;
-    const socket = this.deps.createSocket(toWsUrl(this.url, "/events"));
+    const socket = this.deps.createSocket(toWsUrl(this.url, "/events"), this.bridgeToken);
     this.socket = socket;
     socket.onopen = () => {
       this.reconnectAttempts = 0;

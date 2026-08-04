@@ -11,7 +11,8 @@ import {
   utf8ByteLength,
 } from "webterm/protocol";
 import type { ServerMsg } from "webterm/protocol";
-import type { FleetManager } from "../fleet-manager";
+import type { FleetManager, TerminalTarget } from "../fleet-manager";
+import { openSocket } from "../ship-connection";
 import { mapErrorHook } from "./http";
 
 type TerminalProxyData = { upstream?: WebSocket; buffer?: string[]; pendingBytes?: number };
@@ -119,7 +120,7 @@ export function workspacesPlugin(manager: FleetManager) {
       open(ws) {
         const { repo, name } = ws.data.params;
 
-        let target: string;
+        let target: TerminalTarget;
         try {
           target = manager.terminalTarget(repo, name, { takeover: ws.data.query.takeover });
         } catch {
@@ -131,7 +132,7 @@ export function workspacesPlugin(manager: FleetManager) {
 
         // Dumb bidirectional pipe to the owning ship. Buffer client frames until
         // the upstream socket is open so the browser's first `init` isn't lost.
-        const upstream = new WebSocket(target);
+        const upstream = openSocket(target.url, target.headers);
         const buffer: string[] = [];
         const data = ws.data as TerminalProxyData;
         data.upstream = upstream;

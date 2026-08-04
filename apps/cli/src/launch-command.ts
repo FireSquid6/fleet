@@ -16,8 +16,9 @@ async function runLaunch(configPath: string): Promise<void> {
   }
 
   let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
+  let auth: Awaited<ReturnType<typeof startBridge>>["auth"] | undefined;
   if (config.bridge) {
-    ({ manager } = await startBridge(config.bridge));
+    ({ manager, auth } = await startBridge(config.bridge));
   }
 
   // A launch knows both sides, so it can pin each ship it spawns to the bridge
@@ -39,12 +40,15 @@ async function runLaunch(configPath: string): Promise<void> {
   const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
 
   for (const ship of config.ships) {
+    const credentials = ship.source === "local" ? auth?.createShipCredentials(ship.name) : undefined;
     if (ship.source === "local") {
       await startShip({
         fleetDirectory: ship.fleetDirectory,
         port: ship.port,
         name: ship.name,
         bridgeUrl: shipBridgeUrl,
+        shipToken: credentials?.shipToken,
+        bridgeToken: credentials?.bridgeToken,
       });
     }
 
@@ -54,7 +58,7 @@ async function runLaunch(configPath: string): Promise<void> {
       continue;
     }
     try {
-      await manager.addShip(normalizeUrl(url));
+      await manager.addShip(normalizeUrl(url), credentials);
       console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
     } catch (err) {
       console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);

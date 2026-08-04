@@ -924,8 +924,8 @@ describe("FleetManager", () => {
       ]);
       const mgr = await boot(ships);
 
-      expect(mgr.terminalTarget("repo1", "one")).toBe("ws://ship-a:3001/workspaces/repo1/one/terminal");
-      expect(mgr.terminalTarget("repo1", "one", { takeover: true })).toBe(
+      expect(mgr.terminalTarget("repo1", "one").url).toBe("ws://ship-a:3001/workspaces/repo1/one/terminal");
+      expect(mgr.terminalTarget("repo1", "one", { takeover: true }).url).toBe(
         "ws://ship-a:3001/workspaces/repo1/one/terminal?takeover=true",
       );
     });
@@ -941,10 +941,10 @@ describe("FleetManager", () => {
       const mgr = build(ships);
       await mgr.init();
 
-      expect(mgr.terminalTarget("repo1", "one")).toBe(
+      expect(mgr.terminalTarget("repo1", "one").url).toBe(
         "ws://ship-a:3001/workspaces/repo1/one/terminal?token=abc#frag",
       );
-      const target = mgr.terminalTarget("repo1", "one", { takeover: true });
+      const target = mgr.terminalTarget("repo1", "one", { takeover: true }).url;
       expect(target).toBe("ws://ship-a:3001/workspaces/repo1/one/terminal?token=abc&takeover=true#frag");
       expect(new URL(target).searchParams.get("takeover")).toBe("true");
     });
