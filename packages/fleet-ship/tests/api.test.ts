@@ -151,6 +151,23 @@ describe("ship API", () => {
     });
     expect(await call("DELETE", "/workspaces/r/n")).toEqual({ status: 200, body: { ok: true } });
 
+    const removals: unknown[] = [];
+    const removing = makeApp({
+      remove: async (_r: string, _n: string, options: unknown) => {
+        removals.push(options);
+      },
+    });
+    await removing("DELETE", "/workspaces/r/n");
+    await removing("DELETE", "/workspaces/r/n?force=false");
+    expect(removals).toEqual([{ force: undefined }, { force: false }]);
+
+    const held = makeApp({
+      remove: async () => {
+        throw new WorkspaceError("workspace r/n holds work that is not on a remote: a stash", 409);
+      },
+    });
+    expect((await held("DELETE", "/workspaces/r/n?force=false")).status).toBe(409);
+
     const badActivate = makeApp({
       activate: async () => {
         throw new WorkspaceError("workspace already active: r/n", 400);
