@@ -1,6 +1,22 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import { themeSeedScript } from './src/theme-boot.js';
+
+const plainCodeThemes = [
+	{
+		name: 'fleet-plain-dark',
+		type: 'dark',
+		colors: { 'editor.background': '#12151a', 'editor.foreground': '#ced5de' },
+		settings: [],
+	},
+	{
+		name: 'fleet-plain-light',
+		type: 'light',
+		colors: { 'editor.background': '#f3f3f1', 'editor.foreground': '#31373d' },
+		settings: [],
+	},
+];
 
 // https://astro.build/config
 export default defineConfig({
@@ -9,10 +25,9 @@ export default defineConfig({
 	// site: 'https://example.com',
 	integrations: [
 		starlight({
-			title: 'Fleet',
+			title: 'fleet',
 			description:
 				'Fleet runs coding agents in isolated git workspaces, spread across one machine or many.',
-			// Map the shared fleet-design tokens onto Starlight's theme.
 			customCss: ['./src/styles/fleet.css'],
 			// The web client is dark-first; seed Starlight's theme storage to dark
 			// on a visitor's very first load so the docs open dark too. A one-shot
@@ -21,10 +36,32 @@ export default defineConfig({
 			head: [
 				{
 					tag: 'script',
-					content:
-						"try{if(localStorage.getItem('fleet-theme-seeded')===null){localStorage.setItem('fleet-theme-seeded','1');if(!localStorage.getItem('starlight-theme'))localStorage.setItem('starlight-theme','dark');}}catch(e){}",
+					content: themeSeedScript,
 				},
 			],
+			tableOfContents: false,
+			expressiveCode: {
+				themes: plainCodeThemes,
+				styleOverrides: {
+					borderRadius: '0',
+					borderWidth: '1px',
+					borderColor: 'var(--line)',
+					codeBackground: 'var(--panel)',
+					codeFontFamily: 'var(--font-mono)',
+					codeFontSize: '13.5px',
+					codeLineHeight: '1.55',
+					codePaddingBlock: '12px',
+					codePaddingInline: '14px',
+					uiFontFamily: 'var(--font-mono)',
+					uiFontSize: '13px',
+					frames: { shadowColor: 'transparent' },
+				},
+				defaultProps: { frame: 'none' },
+				frames: { showCopyToClipboardButton: false },
+			},
+			components: {
+				SocialIcons: './src/components/SocialLinks.astro',
+			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/firesquid6/fleet' },
 			],

@@ -1,0 +1,532 @@
+---
+import '../styles/tokens.css';
+import { themeSeedScript, themeApplyScript } from '../theme-boot.js';
+
+const glyph: Record<number, string> = { 1: '●', 0.5: '◐', 0: '○' };
+
+const capabilities = [
+	{
+		label: 'skills',
+		note: 'markdown + tools, installed into every provider present on the ship',
+		rows: [
+			{
+				name: 'fleet-agent',
+				desc: 'status reporting from inside a workspace',
+				support: [1, 1, 1, 1],
+				source: 'ship startup',
+			},
+			{
+				name: 'armory skills/',
+				desc: 'your own skill directories, synced from the bridge',
+				support: [1, 1, 1, 1],
+				source: 'armory sync',
+			},
+		],
+	},
+	{
+		label: 'plugins',
+		note: 'hooks and drop-in files the ship installs under a provider config root',
+		rows: [
+			{
+				name: 'fleet-agent-bootstrap',
+				desc: 'activates the skill when a session opens in a workspace',
+				support: [1, 1, 1, 0],
+				source: 'ship startup',
+			},
+			{
+				name: 'armory plugins/',
+				desc: 'provider files written at the path you name, verbatim',
+				support: [1, 1, 1, 1],
+				source: 'armory sync',
+			},
+		],
+	},
+	{
+		label: 'dotfiles',
+		note: 'symlinked into the ship user’s home from the armory cache',
+		rows: [
+			{
+				name: 'dotfiles/',
+				desc: 'files, or whole directories, one symlink each',
+				support: [1, 1, 1, 1],
+				source: 'armory sync',
+			},
+			{
+				name: 'dotfile-map.json',
+				desc: 'source under dotfiles/ → destination in ~',
+				support: [1, 1, 1, 1],
+				source: 'armory sync',
+			},
+		],
+	},
+];
+
+const providers = ['claude-code', 'opencode', 'copilot', 'codex'];
+
+const bridgeBoard = `  fleet                                      3 of 6 sessions live
+  ┌────────────┬──────────────────────────┬─────────────────────┐
+  │            │ ship-a                   │ ship-b              │
+  ├────────────┼──────────────────────────┼─────────────────────┤
+  │ fleet      │ ● first-task   building  │ ○ docs-site         │
+  │            │ ● shannon      verifying │                     │
+  ├────────────┼──────────────────────────┼─────────────────────┤
+  │ webterm    │ ● vt-parser    planning  │ ○ tmux-bun          │
+  └────────────┴──────────────────────────┴─────────────────────┘
+  ● active   ○ inactive`;
+
+const topology = `  clients          bridge            ships          workspaces
+  ───────          ──────            ─────          ──────────
+  browser ─┐                     ┌─ ship-a ──────── fleet/first-task    claude-code  ●
+  cli     ─┼─────── bridge ──────┼─ ship-b ──────── fleet/docs-site     opencode     ○
+  fagent  ─┘     (one process)   └─ ship-c ──────── webterm/vt-parser   copilot      ●
+                                                    webterm/tmux-bun    codex        ○
+
+  ● active   ○ inactive`;
+
+const desktopView = `  fleet / first-task            quickstart   ship-a   ● building
+  ──────────────────────────────────────────────────────────────
+  terminal │ diff                    stop   switch branch   rm
+  ──────────────────────────────────────────────────────────────
+  $ bun test
+   142 pass, 0 fail
+  $ fagent agent status verifying -d "running the suite"
+  status updated to verifying on fleet/first-task
+  $ █`;
+
+const mobileView = `  ┌────────────────┐
+  │ fleet          │
+  │ 3 sessions     │
+  ├────────────────┤
+  │ fleet          │
+  │  ● first-task  │
+  │  ● shannon     │
+  │  ○ docs-site   │
+  ├────────────────┤
+  │ webterm        │
+  │  ● vt-parser   │
+  │  ○ tmux-bun    │
+  └────────────────┘`;
+
+const cliTranscript = `$ fleet client ls --wide
+SHIP    REPO     NAME        BRANCH      ACTIVE
+ship-a  fleet    first-task  quickstart  yes
+ship-b  fleet    docs-site   docs        no
+$ fleet client activate fleet docs-site
+$ fleet client status fleet docs-site
+repo:   fleet
+name:   docs-site
+branch: docs
+state:  active
+ship:   ship-b`;
+
+const integrations = `  github ──┐                          ┌── claude-code
+  git    ──┼──────── fleet bridge ────┼── opencode
+  tmux   ──┘      one repo registry   ├── copilot
+                  one ship roster     └── codex`;
+---
+
+<html lang="en" data-theme="dark">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<title>fleet</title>
+		<meta
+			name="description"
+			content="Fleet runs coding agents in isolated git workspaces, spread across one machine or many."
+		/>
+		<script is:inline set:html={themeSeedScript} />
+		<script is:inline set:html={themeApplyScript} />
+	</head>
+	<body>
+		<div class="topbar">
+			<a href="/" class="wordmark">fleet</a>
+			<span class="spacer"></span>
+			<a href="/start/introduction/">docs</a>
+			<a href="https://github.com/firesquid6/fleet">github</a>
+			<button type="button" class="theme-toggle" data-theme-toggle>
+				<span class="when-dark">light</span>
+				<span class="when-light">dark</span>
+			</button>
+		</div>
+
+		<main>
+			<h1>fleet — run coding agents in isolated git workspaces</h1>
+			<p>
+				Every agent gets its own clone, on its own branch, in a headless tmux session you can
+				attach to from a browser. One bridge fronts every machine you own, so a fleet can span
+				hosts and still answer as one API.
+			</p>
+
+			<pre class="code">$ git clone https://github.com/firesquid6/fleet.git
+$ cd fleet &amp;&amp; bun install
+$ ./apps/cli/local-install.sh</pre>
+			<p class="note">
+				no published package yet — the fleet binary is built from a checkout. bun everywhere; git
+				and tmux on any machine that hosts workspaces.
+			</p>
+
+			<hr />
+
+			<h2>01 · Command center</h2>
+			<p>
+				Every workspace, branch, and running agent on one board. <code>fleet client serve</code> puts
+				the fleet in a browser: repos down the side, ships across the top, live sessions counted in
+				the header, and a terminal one click away.
+			</p>
+			<pre
+				class="panel"
+				role="img"
+				aria-label="The web GUI's overview: a grid of repos against ships, each cell listing that repo's workspaces on that ship with an active or inactive marker and the agent's current state."
+			>{bridgeBoard}</pre>
+
+			<hr />
+
+			<h2>02 · Topology</h2>
+			<p>
+				One bridge fans out to every ship — laptop, home box, rented server. Each ship owns the
+				workspaces on its own machine: a full clone at <code>&lt;fleetDirectory&gt;/&lt;repo&gt;/&lt;name&gt;</code>,
+				on its own branch, in its own tmux session. Commands travel down over HTTP; state comes
+				back up over WebSockets.
+			</p>
+			<pre
+				class="panel"
+				role="img"
+				aria-label="Browsers, the fleet CLI, and fagent all talk to a single bridge process. The bridge fans out to any number of ships, and each ship holds the workspaces on its machine, one per repo and branch, each running an agent provider."
+			>{topology}</pre>
+
+			<hr />
+
+			<h2>03 · Capabilities</h2>
+			<p>
+				Declare your environment once, in a directory on the bridge. Every ship pulls the armory,
+				installs it for whichever agent providers exist on that host, and re-installs it whenever
+				it changes.
+			</p>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr>
+							<th>name</th>
+							{providers.map((p) => <th class="center">{p}</th>)}
+							<th class="end">installed by</th>
+						</tr>
+					</thead>
+					{
+						capabilities.map((group) => (
+							<tbody>
+								<tr>
+									<td colspan={providers.length + 2} class="group">
+										{group.label} — {group.note}
+									</td>
+								</tr>
+								{group.rows.map((row) => (
+									<tr>
+										<td>
+											<span class="strong">{row.name}</span> <span class="dim">{row.desc}</span>
+										</td>
+										{row.support.map((s) => (
+											<td class="center">{glyph[s]}</td>
+										))}
+										<td class="end dim">{row.source}</td>
+									</tr>
+								))}
+							</tbody>
+						))
+					}
+				</table>
+			</div>
+			<p class="note">
+				● installed · ○ not available · codex has no drop-in plugin directory, so nothing
+				auto-activates its skill — the skill is still there to run.
+			</p>
+
+			<hr />
+
+			<h2>04 · Reach</h2>
+			<p>
+				The bridge keeps running whether or not you are watching. Attach from the browser, from a
+				phone, or from a bare shell — the tmux session lives on the ship, not in the client.
+			</p>
+			<div class="reach">
+				<div>
+					<div class="caption">desktop</div>
+					<pre
+						class="panel"
+						role="img"
+						aria-label="A workspace page: its branch, ship, and live agent state across the top, tabs for the terminal and the diff, and a terminal running the test suite and a fagent status update."
+					>{desktopView}</pre>
+				</div>
+				<div>
+					<div class="caption">mobile</div>
+					<pre
+						class="panel"
+						role="img"
+						aria-label="The same fleet on a phone: one column per repo, each workspace listed with an active or inactive marker."
+					>{mobileView}</pre>
+				</div>
+			</div>
+			<div class="cli">
+				<div class="caption">cli</div>
+				<pre class="panel">{cliTranscript}</pre>
+			</div>
+
+			<hr />
+
+			<h2>05 · Integrations</h2>
+			<p>
+				Forges for the code, git and tmux for the machine, providers for the model. The bridge
+				holds the repo registry and talks to GitHub on the agent's behalf, so an agent reads
+				issues, pull requests, reviews, and CI with <code>fagent repo</code> without ever holding
+				a token.
+			</p>
+			<pre
+				class="panel"
+				role="img"
+				aria-label="GitHub, git, and tmux on one side of the fleet bridge; the four agent providers — claude-code, opencode, copilot, and codex — on the other. The bridge keeps one repo registry and one ship roster."
+			>{integrations}</pre>
+			<p class="note">
+				github is the only forge implemented — any other provider answers 501.
+			</p>
+
+			<hr />
+
+			<h2>06 · Install</h2>
+			<p>
+				One binary, built from the checkout and dropped in <code>~/.local/bin</code>. No account, no
+				telemetry, nothing hosted: a fleet is your machines and nothing else.
+			</p>
+			<pre class="code">$ ./apps/cli/local-install.sh
+$ fleet launch init
+$ fleet launch</pre>
+			<p><a href="/start/quickstart/">Read the quickstart →</a></p>
+		</main>
+
+		<footer>
+			<div class="footer-inner">
+				<div>
+					docs: <a href="/start/introduction/">introduction</a> · <a href="/start/installation/">installation</a> · <a href="/start/quickstart/">quickstart</a> · <a href="/reference/cli/">cli</a> · <a href="/reference/protocol/">agent protocol</a>
+				</div>
+				<div>
+					source: <a href="https://github.com/firesquid6/fleet">github</a> · <a href="https://github.com/firesquid6/fleet/issues">issues</a>
+				</div>
+				<div>© 2026 fleet contributors</div>
+			</div>
+		</footer>
+
+		<script>
+			const toggle = document.querySelector('[data-theme-toggle]');
+			toggle?.addEventListener('click', () => {
+				const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+				document.documentElement.dataset.theme = next;
+				try {
+					localStorage.setItem('starlight-theme', next);
+				} catch {}
+			});
+		</script>
+
+		<style>
+			html {
+				color-scheme: dark;
+			}
+			html[data-theme='light'] {
+				color-scheme: light;
+			}
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+				font: 400 15px/1.65 var(--font-mono);
+			}
+			* {
+				box-sizing: border-box;
+			}
+			a {
+				color: var(--accent);
+				text-decoration: none;
+				border-bottom: 1px solid transparent;
+			}
+			a:hover {
+				border-bottom-color: var(--accent);
+			}
+			code {
+				font: inherit;
+				padding: 0.05rem 0.3rem;
+				background: var(--panel);
+				color: var(--strong);
+			}
+			pre code {
+				padding: 0;
+				background: none;
+			}
+			h1,
+			h2 {
+				color: var(--strong);
+				font-weight: 700;
+			}
+			h1 {
+				margin: 40px 0 0;
+				font-size: 26px;
+				line-height: 1.35;
+			}
+			h2 {
+				margin: 32px 0 0;
+				font-size: 18px;
+			}
+			p {
+				margin: 10px 0 0;
+				max-width: 68ch;
+			}
+			hr {
+				margin: 40px 0 0;
+				border: 0;
+				border-top: 1px solid var(--line);
+			}
+			pre {
+				margin: 16px 0 0;
+				border: 1px solid var(--line);
+				background: var(--panel);
+				overflow-x: auto;
+				font: inherit;
+			}
+			pre.code {
+				margin-top: 20px;
+				padding: 12px 14px;
+				color: var(--strong);
+			}
+			pre.panel {
+				padding: 16px;
+				font-size: 13px;
+				line-height: 1.55;
+			}
+			.note {
+				margin-top: 8px;
+				font-size: 13px;
+				color: var(--dim);
+			}
+			.caption {
+				margin-bottom: 6px;
+				font-size: 13px;
+				color: var(--dim);
+			}
+			.topbar {
+				display: flex;
+				align-items: baseline;
+				gap: 16px;
+				max-width: 900px;
+				margin: 0 auto;
+				padding: 28px 24px 12px;
+				border-bottom: 1px solid var(--line);
+			}
+			.topbar a {
+				font-size: 13px;
+			}
+			.topbar .wordmark {
+				font-size: 15px;
+				font-weight: 700;
+				color: var(--strong);
+			}
+			.spacer {
+				flex: 1;
+			}
+			.theme-toggle {
+				padding: 0;
+				border: 0;
+				border-bottom: 1px solid transparent;
+				background: none;
+				color: var(--accent);
+				font: inherit;
+				font-size: 13px;
+				cursor: pointer;
+			}
+			.theme-toggle:hover {
+				border-bottom-color: var(--accent);
+			}
+			.when-light {
+				display: none;
+			}
+			html[data-theme='light'] .when-dark {
+				display: none;
+			}
+			html[data-theme='light'] .when-light {
+				display: inline;
+			}
+			main {
+				max-width: 900px;
+				margin: 0 auto;
+				padding: 0 24px 120px;
+			}
+			.table-scroll {
+				margin-top: 16px;
+				overflow-x: auto;
+			}
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 13.5px;
+			}
+			th,
+			td {
+				padding: 7px 10px;
+				border: 1px solid var(--line);
+				text-align: start;
+			}
+			th {
+				background: var(--panel);
+				color: var(--strong);
+				font-weight: 700;
+				white-space: nowrap;
+			}
+			.center {
+				text-align: center;
+			}
+			.end {
+				text-align: end;
+				white-space: nowrap;
+			}
+			.group {
+				color: var(--dim);
+			}
+			.strong {
+				color: var(--strong);
+			}
+			.dim {
+				color: var(--dim);
+			}
+			.reach {
+				display: grid;
+				grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+				gap: 16px;
+				align-items: start;
+				margin-top: 16px;
+			}
+			.reach pre {
+				margin: 0;
+			}
+			.cli {
+				margin-top: 16px;
+			}
+			.cli pre {
+				margin: 0;
+			}
+			footer {
+				border-top: 1px solid var(--line);
+			}
+			.footer-inner {
+				display: flex;
+				flex-direction: column;
+				gap: 4px;
+				max-width: 900px;
+				margin: 0 auto;
+				padding: 24px;
+				font-size: 13px;
+				color: var(--dim);
+			}
+			@media (max-width: 760px) {
+				.reach {
+					grid-template-columns: minmax(0, 1fr);
+				}
+			}
+		</style>
+	</body>
+</html>
