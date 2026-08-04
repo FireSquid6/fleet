@@ -14,7 +14,6 @@ import { workspaceKey } from "../types";
 
 type Persist = (target: string, contents: string) => Promise<void>;
 
-/** An ephemeral workspace as persisted: its public block plus where it lives. */
 export const EphemeralWorkspaceRecordSchema = EphemeralWorkspaceSchema.extend({
   repoName: FleetIdentifierSchema,
   name: FleetIdentifierSchema,
@@ -31,7 +30,6 @@ export class RepoAlreadyExistsError extends Error {
 }
 
 interface Keying<T> {
-  /** The map key an item is stored under. */
   readonly of: (item: T) => string;
   /** The fields `of` reads, reapplied after an update so a merge cannot move a record. */
   readonly identity: (item: T) => Partial<T>;
