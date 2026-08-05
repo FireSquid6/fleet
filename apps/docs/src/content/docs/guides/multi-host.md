@@ -29,6 +29,23 @@ Defaults are port `4700`, name `ship`, and `./fleet`. Two things matter here:
 Ships on different hosts can all use port `4700` — the port collision rule only
 applies to ships sharing a machine.
 
+A ship on another host is a shell on that host exposed on a port, so give it a
+credential pair — one token per direction, neither of which has a flag:
+
+```bash
+FLEET_BRIDGE_TOKEN='…' FLEET_SHIP_TOKEN='…' \
+  fleet ship --port 4700 --name build-box --fleet-directory /srv/fleet
+```
+
+`FLEET_BRIDGE_TOKEN` is what inbound callers must present, so only your bridge is
+answered. `FLEET_SHIP_TOKEN` is what this ship presents back when it pulls the
+[armory](/guides/the-armory/) — without it, that pull gets a `401` from a bridge
+that requires authentication while everything else keeps working.
+
+Register the ship with the *same* two values (below), or the bridge cannot reach
+it at all. See [authentication](/guides/authentication/) for how to generate the
+pair.
+
 ## Point the bridge at them
 
 Two equivalent ways. From the CLI, against a running bridge:
@@ -37,6 +54,10 @@ Two equivalent ways. From the CLI, against a running bridge:
 fleet client --bridge-url http://control:4800 ships add http://build-box.internal:4700
 fleet client --bridge-url http://control:4800 ships add http://gpu-box.internal:4700
 ```
+
+At a terminal each of these asks for that ship's token pair — the same two values
+you started it with. Press enter at the first prompt to register a ship that has
+none.
 
 Or declare them in `fleet-config.yaml` as remote ships, so `fleet launch`
 registers them for you at startup:
@@ -55,11 +76,20 @@ ships:
   build-box:
     source: remote
     url: http://build-box.internal:4700
+    shipToken: ${BUILD_BOX_SHIP_TOKEN}
+    bridgeToken: ${BUILD_BOX_BRIDGE_TOKEN}
 
   gpu-box:
     source: remote
     url: http://gpu-box.internal:4700
+    shipToken: ${GPU_BOX_SHIP_TOKEN}
+    bridgeToken: ${GPU_BOX_BRIDGE_TOKEN}
 ```
+
+`${VAR}` reads the value from the launching shell's environment, so the secrets
+stay out of the file. Each pair must match what that host's `FLEET_SHIP_TOKEN`
+and `FLEET_BRIDGE_TOKEN` were set to. Drop both keys from a ship to register it
+without credentials.
 
 `source: remote` means "already running elsewhere, just register it" — the launch
 does not try to start it. You can mix: a `source: local` ship on the control host
@@ -203,10 +233,14 @@ A terminal in the browser is piped browser → GUI → bridge → ship's tmux se
 so the WebSocket path must be open at every hop, not just HTTP.
 
 :::caution
-None of these hops is authenticated or encrypted. Anyone who can reach the bridge
-can drive every registered ship, and anyone who can reach a ship can drive its
-workspaces directly. Run a fleet on a trusted private network, and do not expose
-a bridge or a ship to the internet.
+The bridge authenticates every request, and a ship does too once it is given a
+`FLEET_BRIDGE_TOKEN` — but **none of these hops is encrypted**. Credentials are
+bearer tokens in a plain header, so anyone who can read the traffic can replay
+them, and a ship started without a token can be driven by anyone who can reach
+its port.
+
+Run a fleet on a trusted private network or behind TLS, and do not expose a
+bridge or a ship to the internet. See [authentication](/guides/authentication/).
 :::
 
 ## Agents stay local to their ship

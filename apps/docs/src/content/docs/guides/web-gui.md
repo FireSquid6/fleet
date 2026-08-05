@@ -61,10 +61,21 @@ Every other path serves the app bundle, so deep links like
 If the bridge is unreachable, the proxy answers with a `502` and a JSON body
 explaining which URL failed, and the app shows the message in a banner.
 
+The GUI server itself authenticates nothing — it is a static file server plus a
+reverse proxy that forwards your `Authorization` header untouched. The bridge
+behind it does the checking, and the app shows a sign-in gate whenever the bridge
+reports that a session is required. The session token is kept in the browser's
+`localStorage` under `fleet.bridge.token`; any `401` clears it and returns you to
+the gate. See [authentication](/guides/authentication/).
+
 :::caution
-The GUI server does no authentication and neither does the bridge. Anyone who can
-reach the GUI can create, activate, and delete workspaces, and can type into any
-workspace's terminal. Bind it somewhere private.
+Bearer tokens travel in a plain header. Serve the GUI over TLS or on a trusted
+network, or anyone who can read the traffic can replay your session — and a
+session can create, activate and delete workspaces, and type into any workspace's
+terminal.
+
+A bridge started with `--insecure-no-auth` has no gate at all: anyone who can
+reach the GUI has full control.
 :::
 
 ## What it shows

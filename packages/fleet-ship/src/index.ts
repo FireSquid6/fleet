@@ -5,6 +5,7 @@ import {
   canonicalizeFleetDirectory,
   resolveBridgeToken,
   resolveFleetShipConfig,
+  resolveShipToken,
 } from "./config";
 import { writeAtlas } from "./atlas";
 import { generateAgentToken } from "./agent-credentials";
@@ -168,6 +169,7 @@ export const ship = new Command()
         port: options.port,
         name: options.name,
         bridgeUrl: options.bridgeUrl,
+        shipToken: resolveShipToken(undefined),
       });
       await startShip(config);
     } catch (err) {

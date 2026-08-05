@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-The `fleet` binary is a Commander.js CLI that mounts five top-level command
+The `fleet` binary is a Commander.js CLI that mounts eight top-level command
 groups:
 
 | Command | Purpose |
@@ -14,6 +14,14 @@ groups:
 | `fleet ship` | Run a Fleet Ship host, and manage agent integrations. |
 | `fleet bridge` | Run a Fleet Bridge. |
 | `fleet launch` | Bring a whole fleet up from a `fleet-config.yaml`. |
+| `fleet login` | Log in to a bridge and store the session. |
+| `fleet logout` | Revoke the stored session and delete it. |
+| `fleet whoami` | Show who the stored session belongs to. |
+| `fleet users` | Manage the bridge's users (admin only). |
+
+Every command that talks to a bridge needs a session; see
+[`fleet login`](#fleet-login) and the
+[authentication guide](/guides/authentication/).
 
 Agent self-reporting and the repo/PR/CI commands agents run from inside a
 workspace live in a separate, agent-facing binary, `fagent` — documented on its
@@ -184,6 +192,32 @@ fleet client ships add <url>
 The bridge connects and learns the ship's name from its first `sync` event; the
 name is not supplied by the caller. Prints
 `registered ship <name> (<url>)`.
+
+A ship may be registered with a credential pair. There is deliberately **no flag**
+for either token — a flag would land in `ps` output and shell history — so they
+come from a prompt or from the environment:
+
+| Variable | Meaning |
+| --- | --- |
+| `FLEET_REGISTER_SHIP_TOKEN` | The `shipToken` to register. |
+| `FLEET_REGISTER_BRIDGE_TOKEN` | The `bridgeToken` to register. |
+
+Resolution order:
+
+1. If either variable is set, both are taken from the environment and nothing is
+   prompted for.
+2. Otherwise, if stdin is a terminal, the command asks for the ship token without
+   echoing it. An empty answer registers the ship with no credentials and asks
+   nothing further; a non-empty one is followed by a prompt for the bridge token.
+3. Otherwise (a script, with neither variable set) the ship is registered with no
+   credentials.
+
+The two tokens are sent together or not at all. Sending one without the other is
+a `400` from the bridge:
+`fleet: request failed (400): a ship is registered with both a shipToken and a bridgeToken, or neither`.
+
+See [authentication](/guides/authentication/) for what each token is for and how
+to generate a pair.
 
 #### `fleet client ships rm`
 
@@ -380,12 +414,29 @@ slash or a difference in case does not matter. Left unset, the ship pins whichev
 bridge pushes to it first. `fleet launch` sets this for every ship it spawns. See
 [the Armory](/guides/the-armory/).
 
+A ship's two credentials have no flags — they would land in `ps` output and shell
+history — so they are read from the environment:
+
+| Variable | Direction | Meaning |
+| --- | --- | --- |
+| `FLEET_BRIDGE_TOKEN` | inbound | The token a caller must present to reach this ship. Unset, **every route answers anyone who can reach the port**, and the ship warns about it on startup. |
+| `FLEET_SHIP_TOKEN` | outbound | The token this ship presents to the bridge when it pulls the [armory](/guides/the-armory/). Unset, that pull gets a `401` from a bridge that requires authentication; nothing else is affected. |
+
+An empty value counts as unset for both. `fleet launch` supplies both to every
+`source: local` ship it spawns, so they are only needed for a ship you start
+yourself — see [authentication](/guides/authentication/).
+
 A non-integer `--port` is rejected by Commander with `must be an integer`. Any
 other startup failure prints `fleet-ship: <message>` and exits 1, which includes
 a `--bridge-url` that is not a URL.
 
 On success it prints
-`fleet-ship "<name>" listening on http://localhost:<port>`.
+`fleet-ship "<name>" listening on http://localhost:<port>`, followed by a warning
+when no `FLEET_BRIDGE_TOKEN` is set:
+
+```
+fleet-ship "<name>" is serving without authentication: every route answers anyone who can reach the port. Set FLEET_BRIDGE_TOKEN to the token the bridge presents to require it.
+```
 
 ### `fleet ship plugin doctor`
 
@@ -446,8 +497,23 @@ loads the persisted ship roster, connects to every ship, and serves the API.
 | --- | --- | --- | --- |
 | `-p, --port` | `<port>` | `4800` | Port the HTTP + WebSocket API listens on. Must parse as an integer. |
 | `-n, --name` | `<name>` | `bridge` | Human-facing name of this bridge. Any non-empty string. |
-| `-d, --data-directory` | `<dir>` | `./.fleet-bridge` | Directory the bridge persists `ships.json` and `repos.json` to, and holds the `armory/` it distributes. Resolved to an absolute path. |
+| `-d, --data-directory` | `<dir>` | `./.fleet-bridge` | Directory the bridge persists `ships.json`, `repos.json` and `auth.db` to, and holds the `armory/` it distributes. Resolved to an absolute path. |
 | `--public-url` | `<url>` | `http://localhost:<port>` | URL ships should use to reach this bridge. Handed to each ship so it can pull the [armory](/guides/the-armory/), so it must resolve from the ships' hosts. |
+| `--insecure-no-auth` | — | off | Development only: serve every route without authentication, and skip creating the first admin. Also settable with `FLEET_INSECURE_NO_AUTH=1`. |
+
+Before it serves anything, a bridge whose `auth.db` holds no users creates the
+first admin: from `FLEET_BRIDGE_ADMIN_USER`, `FLEET_BRIDGE_ADMIN_EMAIL` and
+`FLEET_BRIDGE_ADMIN_PASSWORD` if all three are set, otherwise by prompting on
+stdin. Setting only some of the three is an error, and so is having none of them
+set with stdin not a terminal:
+
+```
+fleet-bridge: fleet-bridge has no users and stdin is not a terminal — set FLEET_BRIDGE_ADMIN_USER, FLEET_BRIDGE_ADMIN_EMAIL, FLEET_BRIDGE_ADMIN_PASSWORD to create the first admin, or start with --insecure-no-auth
+```
+
+With `--insecure-no-auth` the bridge writes a banner to stderr for as long as it
+runs, and every request is treated as an admin user. See
+[authentication](/guides/authentication/).
 
 If two reachable ships hold the same `<repo>/<name>` at startup, the bridge
 prints the conflicting keys and exits 1. Any other startup failure prints
@@ -476,6 +542,12 @@ that fails logs a warning
 (`could not register ship "<key>" (<url>): <message>`) and the launch continues.
 Any configuration or startup error prints `fleet launch: <message>` and exits 1.
 
+There is no flag for a ship's credentials or for disabling authentication; both
+live in the config file (`shipToken`/`bridgeToken` and `bridge.insecureNoAuth`).
+A launched bridge bootstraps its first admin exactly like `fleet bridge` does,
+which is why a headless launch needs either the `FLEET_BRIDGE_ADMIN_*` variables
+or `bridge.insecureNoAuth`. `FLEET_INSECURE_NO_AUTH` is not read on this path.
+
 ### `fleet launch init`
 
 ```bash
@@ -492,6 +564,151 @@ Writes the standard commented scaffold.
 Without `--force`, an existing file causes
 `fleet launch init: refusing to overwrite existing <path> (pass --force to replace it)`
 and exit 1. On success it prints `wrote <path>`.
+
+## `fleet login`
+
+```bash
+fleet login [--bridge-url <url>] [-u <username>]
+```
+
+Logs in to a bridge and stores the session.
+
+| Option | Argument | Default | Meaning |
+| --- | --- | --- | --- |
+| `--bridge-url` | `<url>` | `http://localhost:4800` | Bridge to log in to. Normalized like every other URL option. |
+| `-u, --username` | `<username>` | prompted for | Username to log in as. |
+
+The password is always prompted for, never an option. Both prompts need a
+terminal; with stdin redirected the command refuses rather than blocking:
+
+```
+fleet: credentials for http://localhost:4800 have to be typed at a terminal, and stdin is not one — set FLEET_TOKEN instead
+```
+
+On success it prints `logged in to <url> as <username>` and writes the token to
+`$XDG_STATE_HOME/fleet-client-cli/<slug of the bridge url>/session.json` — file
+mode `0600`, directory `0700`, one file per bridge. `XDG_STATE_HOME` defaults to
+`~/.local/state`.
+
+Any bridge-facing command reuses that session automatically. When there is none
+and the bridge reports `authRequired: true`, an interactive run logs you in on
+the spot; a non-interactive one fails:
+
+```
+fleet: not logged in to <url> and stdin is not a terminal — run `fleet login --bridge-url <url>` first, or set FLEET_TOKEN
+```
+
+`FLEET_TOKEN` overrides the stored session entirely, which is how scripts and CI
+authenticate. A stored token that has expired or been revoked produces a `401`;
+the CLI then discards it and retries the call exactly once with fresh
+credentials.
+
+Sessions expire 30 days after they are issued and are never extended.
+
+## `fleet logout`
+
+```bash
+fleet logout [--bridge-url <url>]
+```
+
+Revokes the stored session on the bridge and deletes the local file. Prints
+`logged out of <url>`. If the bridge cannot be reached, the local file is deleted
+anyway and a warning goes to stderr:
+
+```
+fleet: could not revoke the session on <url> (<message>); clearing it locally anyway
+```
+
+Running it with no stored session is a no-op.
+
+## `fleet whoami`
+
+```bash
+fleet whoami [--bridge-url <url>]
+```
+
+Prints `<username> (<role>) on <url>`, or `not logged in to <url>` when there is
+no stored session or the bridge has rejected it. Unlike other bridge commands it
+never prompts for a login.
+
+## `fleet users`
+
+```bash
+fleet users <subcommand> [--bridge-url <url>]
+```
+
+Manages the bridge's users. Every subcommand requires an **admin** session; a
+member gets `fleet: request failed (403): this endpoint requires an admin`,
+except for `passwd` on your own account, which any user may do.
+
+`--bridge-url` belongs to `fleet users` itself, so it goes before the
+subcommand: `fleet users --bridge-url 4801 ls`.
+
+### `fleet users ls`
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--json` | off | Print the raw JSON array instead of a table. |
+
+With no rows and no `--json`, prints `no users`.
+
+### `fleet users add`
+
+```bash
+fleet users add <username> <email> [--role <role>]
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<username>` | Username. |
+| `<email>` | Email address. |
+
+| Option | Argument | Default | Meaning |
+| --- | --- | --- | --- |
+| `--role` | `<role>` | `member` | `admin` or `member`. |
+
+The password is prompted for twice and never taken as an argument. A mismatch
+prints `passwords did not match, try again` and asks again. With stdin not a
+terminal the command refuses:
+`fleet: a password has to be typed at a terminal, and stdin is not one`.
+
+An unrecognized role prints
+`fleet: unknown role "<role>"; expected admin or member` and exits 1. On success
+it prints `created user <username> (<role>)`.
+
+### `fleet users rm`
+
+```bash
+fleet users rm <username>
+```
+
+Prints `removed user <username>`. Deleting the last admin is refused by the
+bridge with a `409`.
+
+### `fleet users passwd`
+
+```bash
+fleet users passwd <username>
+```
+
+Prompts for the new password twice, exactly like `users add`. Setting a password
+revokes every session that user holds. Prints
+`changed the password for <username>`.
+
+### `fleet users role`
+
+```bash
+fleet users role <username> <role>
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<username>` | Username. |
+| `<role>` | `admin` or `member`. |
+
+Prints `<username> is now <role>`. Demoting the last admin is refused by the
+bridge with a `409`. Changing a role does not revoke that user's sessions; the
+new role takes effect on their next request.
 
 The agent-facing `fagent agent` and `fagent repo` commands are not part of
 `fleet`; they ship as a separate binary with its own page — see the

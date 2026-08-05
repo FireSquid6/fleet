@@ -52,7 +52,7 @@ interface FleetValue {
   /** Remove a repo, then refresh the repo list. Rejects on failure. */
   deleteRepo: (name: string) => Promise<void>;
   /** Register a ship by URL, then refresh the ship list. Rejects on failure. */
-  createShip: (url: string) => Promise<void>;
+  createShip: (url: string, credentials?: { shipToken?: string; bridgeToken?: string }) => Promise<void>;
   /** Deregister a ship, then refresh the ship list. Rejects on failure. */
   deleteShip: (name: string) => Promise<void>;
   getArmory: () => Promise<ArmoryManifest>;
@@ -171,8 +171,8 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   );
 
   const createShip = useCallback(
-    async (url: string) => {
-      await bridge.createShip(url);
+    async (url: string, credentials?: { shipToken?: string; bridgeToken?: string }) => {
+      await bridge.createShip(url, credentials);
       await refreshShips();
     },
     [refreshShips],

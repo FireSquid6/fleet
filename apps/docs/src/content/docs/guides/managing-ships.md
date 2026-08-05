@@ -48,11 +48,17 @@ fleet client ships add http://gpu-box.internal:4700
 registered ship gpu-box (http://gpu-box.internal:4700)
 ```
 
-You supply only the URL. The bridge opens the ship's `/events` socket, waits for
-the first sync — which carries the ship's own configured name and its current
+The URL is the only argument. The bridge opens the ship's `/events` socket, waits
+for the first sync — which carries the ship's own configured name and its current
 workspace list — and adopts it under that name. That's why the printed name may
 differ from anything in your command: it comes from the ship's `--name`, not from
 you.
+
+At a terminal the command also asks for the ship's credential pair before it
+calls the bridge; press enter at the first prompt to register a ship with none,
+as above. Tokens are never flags — in a script, set `FLEET_REGISTER_SHIP_TOKEN`
+and `FLEET_REGISTER_BRIDGE_TOKEN` instead. See
+[authentication](/guides/authentication/).
 
 Registration is rejected in three cases:
 
@@ -117,13 +123,16 @@ that ship — workspaces created or deleted while it was unreachable are picked 
 in one shot.
 
 :::caution
-Nothing in the ship or bridge API is authenticated. A registered ship URL is
-fully controllable by anyone who can reach the bridge, and the bridge can drive
-any ship it can reach. Keep both on a trusted network.
+A ship started without `FLEET_BRIDGE_TOKEN` answers every route to anyone who can
+reach its port, including its terminal WebSocket. And bearer tokens travel in a
+plain header, so a ship *with* a token is still only as private as the network it
+is on. Keep ships behind TLS or on a trusted network either way — see
+[authentication](/guides/authentication/).
 :::
 
 ## Related
 
+- [Authentication](/guides/authentication/) — the token pair a ship is registered with.
 - [Managing repos](/guides/managing-repos/) — the other bridge-owned registry.
 - [The bridge](/concepts/bridge/) — how routing and the ownership index work.
 - [Bridge API reference](/reference/bridge-api/) — the `/ships` endpoints.

@@ -40,7 +40,12 @@ async function runLaunch(configPath: string): Promise<void> {
   const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
 
   for (const ship of config.ships) {
-    const credentials = ship.source === "local" ? auth?.createShipCredentials(ship.name) : undefined;
+    const configured =
+      ship.shipToken && ship.bridgeToken
+        ? { shipToken: ship.shipToken, bridgeToken: ship.bridgeToken }
+        : undefined;
+    const credentials =
+      configured ?? (ship.source === "local" ? auth?.createShipCredentials(ship.name) : undefined);
     if (ship.source === "local") {
       await startShip({
         fleetDirectory: ship.fleetDirectory,

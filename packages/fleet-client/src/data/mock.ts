@@ -500,7 +500,11 @@ export class MockFleetBridge implements FleetBridge {
     return MOCK_ISSUES.map((i) => ({ ...i }));
   }
 
-  async createShip(url: string): Promise<Ship> {
+  async createShip(url: string, credentials?: { shipToken?: string; bridgeToken?: string }): Promise<Ship> {
+    const { shipToken, bridgeToken } = credentials ?? {};
+    if ((shipToken === undefined) !== (bridgeToken === undefined)) {
+      throw new Error("a ship is registered with both a shipToken and a bridgeToken, or neither");
+    }
     // The real bridge learns the ship's name from its first sync; approximate
     // that here by deriving a name from the URL host.
     const name = ((): string => {

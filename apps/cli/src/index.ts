@@ -38,6 +38,11 @@ import { bridge } from "fleet-bridge";
 import { startClientServer } from "fleet-client";
 import { launchCommand } from "./launch-command";
 import { attachToWorkspace } from "./attach";
+import {
+  REGISTER_BRIDGE_TOKEN_ENV_VAR,
+  REGISTER_SHIP_TOKEN_ENV_VAR,
+  resolveShipRegistrationTokens,
+} from "./ship-tokens";
 
 
 const DEFAULT_BRIDGE_URL = "http://localhost:4800";
@@ -261,10 +266,15 @@ shipsCommand
 
 shipsCommand
   .command("add")
-  .description("register a ship by its URL (the bridge discovers its name)")
+  .description(
+    `register a ship by its URL (the bridge discovers its name; tokens are prompted for, or read from ${REGISTER_SHIP_TOKEN_ENV_VAR}/${REGISTER_BRIDGE_TOKEN_ENV_VAR}, never passed as flags)`,
+  )
   .argument("<url>", "base URL of the ship host")
   .action(async (url: string) => {
-    const result = await bridgeCall(clientBridgeUrl(), (api) => api.ships.post({ url: normalizeUrl(url) }));
+    const tokens = await resolveShipRegistrationTokens();
+    const result = await bridgeCall(clientBridgeUrl(), (api) =>
+      api.ships.post({ url: normalizeUrl(url), ...tokens }),
+    );
     const created = unwrap(result, "fleet") as ShipInfo;
     console.log(`registered ship ${created.name} (${created.url})`);
   });

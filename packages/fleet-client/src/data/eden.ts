@@ -118,8 +118,8 @@ export class EdenFleetBridge implements FleetBridge {
     return data;
   }
 
-  async createShip(url: string): Promise<Ship> {
-    const { data, error } = await this.client.ships.post({ url });
+  async createShip(url: string, credentials?: { shipToken?: string; bridgeToken?: string }): Promise<Ship> {
+    const { data, error } = await this.client.ships.post({ url, ...credentials });
     if (error) throw edenError(error);
     if (!data || "error" in data) throw edenError({ value: data });
     // The bridge returns { name, url, status }; the ship's spec is only known

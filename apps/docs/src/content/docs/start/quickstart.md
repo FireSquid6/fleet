@@ -74,8 +74,27 @@ The full schema is in the [fleet-config reference](/reference/fleet-config/).
 fleet launch
 ```
 
-One process starts every configured section, in order: bridge, then each ship,
-each registered with the bridge as it comes up, then the GUI.
+The bridge has no users on a fresh data directory, so before anything starts it
+asks you to create the first admin:
+
+```
+fleet-bridge has no users yet. Create the first admin.
+username: ada
+email: ada@example.com
+password:
+confirm password:
+created admin "ada"
+```
+
+That happens once. Set `FLEET_BRIDGE_ADMIN_USER`, `FLEET_BRIDGE_ADMIN_EMAIL` and
+`FLEET_BRIDGE_ADMIN_PASSWORD` to skip the questions, which is also what you need
+on a machine with no terminal — there, the prompt cannot be answered and the
+launch fails instead. For a throwaway local fleet you can add
+`insecureNoAuth: true` under `bridge:` and skip authentication entirely; see
+[authentication](/guides/authentication/).
+
+Then one process starts every configured section, in order: bridge, then each
+ship, each registered with the bridge as it comes up, then the GUI.
 
 ```
 fleet-bridge "my-fleet-bridge" listening on http://localhost:4800
@@ -102,6 +121,10 @@ registry — the set of repos the fleet can clone from:
 fleet client repos add fleet https://github.com/firesquid6/fleet.git
 fleet client repos ls
 ```
+
+The first of these prompts for the admin you just created, and stores the session
+under `~/.local/state/fleet-client-cli/` so later commands do not ask again. Run
+`fleet login` up front if you would rather do it explicitly.
 
 ```
 NAME   URL                                      PROVIDER

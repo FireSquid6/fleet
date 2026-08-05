@@ -6,7 +6,15 @@ sidebar:
 ---
 
 A bridge serves an Elysia app on the port given by `fleet bridge --port`
-(default `4800`). Like a ship it has no authentication and no route prefix.
+(default `4800`). There is no route prefix: paths are absolute from the origin.
+
+Every route below requires an `Authorization: Bearer <token>` header, except
+`POST /auth/login`, `GET /auth/mode` and `POST /auth/logout`. A missing or
+unknown credential is a `401`; a credential of the wrong kind — a ship token on a
+workspace route, say — is a `403`. WebSocket routes take a single-use
+`?ticket=<t>` from `POST /auth/ws-ticket` instead of a header. A bridge started
+with `--insecure-no-auth` skips all of it and treats every request as an admin.
+See [authentication](/guides/authentication/).
 
 The workspace surface is a **superset of the [ship API](/reference/ship-api/)**:
 the owning ship is abstracted away — routing is automatic — but kept visible,
