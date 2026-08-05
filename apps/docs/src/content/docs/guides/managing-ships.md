@@ -10,6 +10,9 @@ URL; the bridge connects, learns the ship's name from its event stream, and
 persists the entry. Everything here runs through `fleet client ships`, which
 talks to the bridge.
 
+Adding and removing ships requires an **admin** session — a `member` may list the
+roster but not change it. See [authentication](/guides/authentication/).
+
 ## Point the CLI at the bridge
 
 ```bash
@@ -60,10 +63,11 @@ as above. Tokens are never flags — in a script, set `FLEET_REGISTER_SHIP_TOKEN
 and `FLEET_REGISTER_BRIDGE_TOKEN` instead. See
 [authentication](/guides/authentication/).
 
-Registration is rejected in three cases:
+Registration is rejected in four cases:
 
 | Situation | Response |
 | --------- | -------- |
+| You are signed in as a `member` | `fleet: request failed (403): this endpoint requires an admin` |
 | No sync within 5 seconds | `ship at <url> did not respond: timed out waiting for sync` |
 | A ship with that name is already registered | `ship already registered: <name>` |
 | The ship holds a `<repo>/<name>` that another ship already owns | `ship "<name>" has workspaces already hosted elsewhere: <keys>` |
@@ -77,8 +81,10 @@ reconnects to every stored ship.
 
 `fleet launch` performs this same registration for every ship in your
 `fleet-config.yaml`, local or remote — see [Configuring a
-fleet](/guides/configuring-a-fleet/). You can also add a ship from the web GUI's
-**Ships** page.
+fleet](/guides/configuring-a-fleet/). It registers them inside the bridge process
+it just started, so no session or admin role is involved. You can also add a ship
+from the web GUI's **Ships** page, which shows the **New Ship** button only to
+admins.
 
 ## Deregister a ship
 
@@ -96,7 +102,9 @@ the persisted roster. Removing a ship from the bridge does not touch the ship
 process or any workspace on disk — the ship keeps running, it is just no longer
 part of this fleet.
 
-Removing a non-existent ship reports `ship not found: <name>`.
+Removing a non-existent ship reports `ship not found: <name>`. Removing one as a
+`member` reports `fleet: request failed (403): this endpoint requires an admin`,
+and the roster is untouched.
 
 ## When a ship goes offline
 

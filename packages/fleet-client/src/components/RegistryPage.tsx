@@ -23,13 +23,13 @@ export function RegistryPage<T>({
   title: string;
   blurb: string;
   newLabel: string;
-  onNew: () => void;
+  onNew?: () => void;
   columns: ReactNode;
   cols: string;
   empty: string;
   rows: readonly T[];
   rowKey: (row: T) => string;
-  onDelete: (row: T) => void;
+  onDelete?: (row: T) => void;
   renderRow: (row: T) => ReactNode;
   children?: ReactNode;
 }) {
@@ -44,13 +44,15 @@ export function RegistryPage<T>({
           <h1 className="font-mono text-[22px] font-bold text-text">{`${glyph} ${title}`}</h1>
           <p className="mt-2 font-prose text-[12.5px] text-dim">{blurb}</p>
         </div>
-        <button
-          type="button"
-          onClick={onNew}
-          className="rounded-md border border-line bg-panel px-[14px] py-[8px] font-mono text-[11px] font-semibold text-text transition-colors hover:bg-panel2"
-        >
-          {newLabel}
-        </button>
+        {onNew && (
+          <button
+            type="button"
+            onClick={onNew}
+            className="rounded-md border border-line bg-panel px-[14px] py-[8px] font-mono text-[11px] font-semibold text-text transition-colors hover:bg-panel2"
+          >
+            {newLabel}
+          </button>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-md border border-line bg-panel">
@@ -75,14 +77,16 @@ export function RegistryPage<T>({
               style={{ gridTemplateColumns: cols }}
             >
               {renderRow(row)}
-              <button
-                type="button"
-                onClick={() => onDelete(row)}
-                aria-label={`Delete ${key}`}
-                className="absolute right-2 top-2 flex items-center justify-center rounded p-2 text-dim2 transition-colors hover:bg-panel2 hover:text-red-400 md:static md:p-[5px]"
-              >
-                <Trash2 className="size-[15px]" />
-              </button>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(row)}
+                  aria-label={`Delete ${key}`}
+                  className="absolute right-2 top-2 flex items-center justify-center rounded p-2 text-dim2 transition-colors hover:bg-panel2 hover:text-red-400 md:static md:p-[5px]"
+                >
+                  <Trash2 className="size-[15px]" />
+                </button>
+              )}
             </div>
           );
         })}

@@ -74,9 +74,9 @@ Ship management:
 
 | Method | Path | Body | Notes |
 |---|---|---|---|
-| GET | `/ships` | — | `{name, url, status}[]`, status `online`/`offline` |
-| POST | `/ships` | `{url, shipToken?, bridgeToken?}` | connects, learns the ship name, rejects duplicates (409); the two tokens are supplied together or not at all (400) |
-| DELETE | `/ships/:name` | — | removes a ship from the fleet, and its stored credentials |
+| GET | `/ships` | — | `{name, url, status}[]`, status `online`/`offline`; any user |
+| POST | `/ships` | `{url, shipToken?, bridgeToken?}` | admin only; connects, learns the ship name, rejects duplicates (409); the two tokens are supplied together or not at all (400) |
+| DELETE | `/ships/:name` | — | admin only; removes a ship from the fleet, and its stored credentials |
 
 Auth:
 

@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { createApp } from "../src/api";
 import type { AuthService } from "../src/auth/auth-service";
 import { FleetManager } from "../src/fleet-manager";
-import { makeDeps, makeTestAuth, seedUser, TEST_PASSWORD, type FakeShip } from "./helpers";
+import { Store } from "../src/store/store";
+import { FakeSocket, makeDeps, makeTestAuth, seedUser, TEST_PASSWORD, type FakeShip } from "./helpers";
 
 describe("auth + users routes", () => {
   let dir: string;
@@ -33,11 +34,18 @@ describe("auth + users routes", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "fleet-bridge-auth-"));
-    manager = new FleetManager(
-      { dataDirectory: dir, port: 4800, name: "bridge" },
-      makeDeps(new Map<string, FakeShip>()),
-      { syncTimeoutMs: 50 },
-    );
+    FakeSocket.byBase.clear();
+    const ships = new Map<string, FakeShip>([
+      ["http://ship-a", { name: "ship-a", workspaces: [] }],
+      ["http://ship-b", { name: "ship-b", workspaces: [] }],
+    ]);
+    const store = new Store(dir);
+    await store.load();
+    await store.createShip({ name: "ship-a", url: "http://ship-a" });
+    manager = new FleetManager({ dataDirectory: dir, port: 4800, name: "bridge" }, makeDeps(ships), {
+      syncTimeoutMs: 50,
+      store,
+    });
     await manager.init();
     auth = makeTestAuth();
     app = createApp(manager, auth);
@@ -204,6 +212,32 @@ describe("auth + users routes", () => {
     ).toBe(403);
     expect(auth.getUser("ada")?.role).toBe("member");
     expect((await call("GET", "/users", { token: admin.token })).status).toBe(200);
+  });
+
+  test("a member may read the roster but not register or remove a ship", async () => {
+    const member = await seedUser(auth, { username: "ada" });
+
+    const list = await call("GET", "/ships", { token: member.token });
+    expect(list.status).toBe(200);
+    expect(list.body.map((s: { name: string }) => s.name)).toEqual(["ship-a"]);
+
+    expect(
+      (await call("POST", "/ships", { token: member.token, body: { url: "http://ship-b" } })).status,
+    ).toBe(403);
+    expect((await call("DELETE", "/ships/ship-a", { token: member.token })).status).toBe(403);
+
+    expect(manager.listShips().map((s) => s.name)).toEqual(["ship-a"]);
+  });
+
+  test("an admin registers and removes ships", async () => {
+    const admin = await seedUser(auth, { username: "root", role: "admin" });
+
+    const added = await call("POST", "/ships", { token: admin.token, body: { url: "http://ship-b" } });
+    expect(added.status).toBe(201);
+    expect(added.body).toMatchObject({ name: "ship-b" });
+
+    expect((await call("DELETE", "/ships/ship-a", { token: admin.token })).body).toEqual({ ok: true });
+    expect(manager.listShips().map((s) => s.name)).toEqual(["ship-b"]);
   });
 
   test("a member may change their own email and password, but nobody else's", async () => {

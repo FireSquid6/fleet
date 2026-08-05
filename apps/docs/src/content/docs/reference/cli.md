@@ -168,7 +168,9 @@ removed). Arguments `<repo>` and `<name>`; no options. Prints
 
 ### `fleet client ships`
 
-Ship-roster management, always via the bridge (`--bridge-url`).
+Ship-roster management, always via the bridge (`--bridge-url`). `ls` is open to
+any user; `add` and `rm` require an **admin** session, and a member gets
+`fleet: request failed (403): this endpoint requires an admin`.
 
 #### `fleet client ships ls`
 
@@ -189,8 +191,8 @@ fleet client ships add <url>
 | --- | --- |
 | `<url>` | Base URL of the ship host. Normalized with the same rules as `--url`. |
 
-The bridge connects and learns the ship's name from its first `sync` event; the
-name is not supplied by the caller. Prints
+Requires an admin session. The bridge connects and learns the ship's name from
+its first `sync` event; the name is not supplied by the caller. Prints
 `registered ship <name> (<url>)`.
 
 A ship may be registered with a credential pair. There is deliberately **no flag**
@@ -229,7 +231,7 @@ fleet client ships rm <name>
 | --- | --- |
 | `<name>` | Ship name as reported by `ships ls`. |
 
-Prints `removed ship <name>`.
+Requires an admin session. Prints `removed ship <name>`.
 
 ### `fleet client repos`
 

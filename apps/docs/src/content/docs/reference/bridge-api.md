@@ -52,8 +52,8 @@ Bridge-only routes: `GET`/`POST /ships`, `DELETE /ships/:name`,
 | Method | Path | Success | Body |
 | --- | --- | --- | --- |
 | GET | `/ships` | 200 | `ShipInfo[]` |
-| POST | `/ships` | 201 | `ShipInfo` |
-| DELETE | `/ships/:name` | 200 | `{ ok: true }` |
+| POST | `/ships` | 201 | `ShipInfo` (admin only) |
+| DELETE | `/ships/:name` | 200 | `{ ok: true }` (admin only) |
 | GET | `/ships/:ship/system-resources` | 200 | `SystemResources` |
 | GET | `/system-resources` | 200 | `ShipSystemResources[]` |
 | GET | `/repos` | 200 | `Repo[]` |
@@ -87,6 +87,7 @@ The status comes from the thrown `BridgeError`; anything else is a `500`.
 | Status | Raised when |
 | --- | --- |
 | `400` | Invalid repo/workspace/ship identifier; `unknown ship: <name>` (create, or per-ship resources); `unknown repo: <name>`; `invalid repo`; a create naming both a `branch` and an `issueNumber`, neither, a blank `branch`, or an `issueNumber` that is not a positive integer. |
+| `403` | A credential of the wrong kind for the route, or a `member` on an admin-only route (`this endpoint requires an admin`). |
 | `404` | `workspace not found: <repo>/<name>` — no ship in the ownership index holds it; `ship not found: <name>`; `repo not found: <name>`. |
 | `409` | `ship already registered: <name>`; a registering ship holds workspaces already hosted elsewhere; `workspace already exists: <repo>/<name>`; a create already in progress or of indeterminate outcome for that key; a ship removed mid-request. |
 | `422` | Elysia schema validation on the request body. |
@@ -126,9 +127,12 @@ No query parameters.
 ```
 
 `status` is `online` exactly while the bridge holds an open `/events` socket to
-that ship.
+that ship. Reading the roster is open to any user; the two routes below are not.
 
 ### `POST /ships`
+
+**Admin only.** A `member` gets `403 {"error": "this endpoint requires an admin"}`
+— the call makes the bridge dial a URL the caller chose.
 
 ```ts
 { url: string }   // request
@@ -141,11 +145,14 @@ persists the roster to `ships.json`. Returns `201` with the `ShipInfo`.
 
 | Status | Cause |
 | --- | --- |
+| `403` | The caller is a `member`, not an `admin`. |
 | `422` | `url` missing. |
 | `502` | `ship at <url> did not respond: <message>` — no `sync` within the timeout, or an invalid ship identity. |
 | `409` | `ship already registered: <name>`, or `ship "<name>" has workspaces already hosted elsewhere: <keys>`. |
 
 ### `DELETE /ships/:name`
+
+**Admin only**, for the same reason: it takes a host out of the fleet.
 
 Closes the connection, releases every workspace it owned, drops any pending
 create reservations for it, and re-persists the roster. Responds `{ ok: true }`.
@@ -153,6 +160,7 @@ create reservations for it, and re-persists the roster. Responds `{ ok: true }`.
 | Status | Cause |
 | --- | --- |
 | `400` | Invalid ship identifier. |
+| `403` | The caller is a `member`, not an `admin`. |
 | `404` | `ship not found: <name>`. |
 
 A released workspace key is handed to another ship that also reports it, if any

@@ -59,6 +59,9 @@ At a terminal each of these asks for that ship's token pair — the same two val
 you started it with. Press enter at the first prompt to register a ship that has
 none.
 
+Both commands need an **admin** session on the control bridge; signed in as a
+`member` you get `403: this endpoint requires an admin`.
+
 Or declare them in `fleet-config.yaml` as remote ships, so `fleet launch`
 registers them for you at startup:
 

@@ -100,7 +100,9 @@ A table of the bridge's registered repos — name, clone URL, provider — with 
 A table of registered ships with a status dot (`online` / `offline`) and a
 hardware blurb — core count, memory, architecture — pulled from the ship's system
 resources. Offline ships show `offline` in place of the blurb. **New Ship** takes
-just a URL; the bridge discovers the ship's name itself. See [Managing
+just a URL; the bridge discovers the ship's name itself. Registering and removing
+ships is admin-only, so signed in as a `member` you see the table but neither the
+**New Ship** button nor the per-row delete. See [Managing
 ships](/guides/managing-ships/).
 
 ### Armory

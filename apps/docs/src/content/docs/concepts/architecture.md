@@ -137,9 +137,10 @@ See the [protocol reference](/reference/protocol/).
 The bridge authenticates every request. Callers are one of three principals — a
 logged-in **user**, a **ship** presenting its `shipToken`, or a **ship-agent**
 running inside a workspace — and each is confined to the routes it needs: a user
-reaches everything (with a `member`/`admin` split on user management), a ship
-reaches only the armory, an agent only the repo routes. Credentials are bearer
-tokens; the GUI proxy forwards the header unchanged.
+reaches everything (with a `member`/`admin` split on user management and on
+registering or removing ships), a ship reaches only the armory, an agent only the
+repo routes. Credentials are bearer tokens; the GUI proxy forwards the header
+unchanged.
 
 A ship authenticates its callers only when it is given a `bridgeToken` (its
 `FLEET_BRIDGE_TOKEN`). Without one, every ship route answers anyone who can

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/data/AuthContext";
 import { useFleet } from "@/data/FleetContext";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
@@ -10,8 +11,10 @@ import { ConfirmDeleteModal, Field, ModalActions, RowLabel } from "./ReposRoute"
 
 export function ShipsRoute() {
   const { ships, createShip, deleteShip } = useFleet();
+  const { authRequired, user } = useAuth();
   const [creating, setCreating] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const mayManage = !authRequired || user?.role === "admin";
 
   return (
     <RegistryPage
@@ -19,7 +22,7 @@ export function ShipsRoute() {
       title="Ships"
       blurb="Hosts the bridge connects to for running workspaces."
       newLabel="+ New Ship"
-      onNew={() => setCreating(true)}
+      onNew={mayManage ? () => setCreating(true) : undefined}
       cols={COLS}
       columns={
         <>
@@ -31,7 +34,7 @@ export function ShipsRoute() {
       empty="No ships registered yet."
       rows={ships}
       rowKey={(s) => s.name}
-      onDelete={(s) => setPendingDelete(s.name)}
+      onDelete={mayManage ? (s) => setPendingDelete(s.name) : undefined}
       renderRow={(s) => (
         <>
           <span className="text-[12px] font-semibold text-text">▦ {s.name}</span>

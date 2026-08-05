@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import type { FleetManager } from "../fleet-manager";
+import { requireAdmin } from "./auth";
 import { mapErrorHook } from "./http";
 
 export function shipsPlugin(manager: FleetManager) {
@@ -8,7 +9,8 @@ export function shipsPlugin(manager: FleetManager) {
     .onError(mapErrorHook)
     .post(
       "/ships",
-      async ({ body, set }) => {
+      async ({ request, body, set }) => {
+        requireAdmin(request);
         set.status = 201;
         return await manager.addShip(body.url, { shipToken: body.shipToken, bridgeToken: body.bridgeToken });
       },
@@ -20,7 +22,8 @@ export function shipsPlugin(manager: FleetManager) {
         }),
       },
     )
-    .delete("/ships/:name", async ({ params }) => {
+    .delete("/ships/:name", async ({ request, params }) => {
+      requireAdmin(request);
       await manager.removeShip(params.name);
       return { ok: true as const };
     });

@@ -32,12 +32,17 @@ Users come in two roles:
 
 | Role | Additional powers |
 | --- | --- |
-| `member` | Create, activate and delete workspaces; register and remove ships and repos; read the armory. |
-| `admin` | Everything a member can do, plus `fleet users` — list, create, delete users and change their roles. |
+| `member` | Create, activate and delete workspaces; register and remove repos; read the ship roster and the armory. |
+| `admin` | Everything a member can do, plus registering and removing ships, and `fleet users` — list, create, delete users and change their roles. |
+
+Registering a ship is admin-only because it tells the bridge to open a connection to
+a URL the caller chose, and removing one takes a host out of the fleet. Reading the
+roster is not privileged: `GET /ships` and `fleet client ships ls` are open to any
+user.
 
 Changing a password or an email address is allowed for the user themselves or for an
-admin; everything else under `/users` is admin-only. There is no per-workspace or
-per-ship ownership: any member can act on any workspace on any ship.
+admin; everything else under `/users` is admin-only. There is no per-workspace
+ownership: any member can act on any workspace on any ship in the fleet.
 
 Three routes answer without any credential, because a client needs them before it has
 one: `POST /auth/login`, `GET /auth/mode` (which reports whether this bridge requires
@@ -191,6 +196,10 @@ fleet-ship "gpu-box" is serving without authentication: every route answers anyo
 ```
 
 ### Registering a ship with credentials
+
+Registration is admin-only whether or not credentials are involved, except through
+`fleet launch`, which registers ships inside the bridge process it starts and so
+never presents a session at all.
 
 Whichever route you take, generate a pair first. Any 32 bytes of CSPRNG output in
 base64url will do — that is the shape the bridge mints:
