@@ -1,0 +1,23 @@
+---
+import config from 'virtual:starlight/user-config';
+---
+
+{
+	config.social?.map(({ href, label }) => (
+		<a href={href} rel="me">
+			{label.toLowerCase()}
+		</a>
+	))
+}
+
+<style>
+	a {
+		font-size: 13px;
+		color: var(--accent);
+		text-decoration: none;
+		border-bottom: 1px solid transparent;
+	}
+	a:hover {
+		border-bottom-color: var(--accent);
+	}
+</style>

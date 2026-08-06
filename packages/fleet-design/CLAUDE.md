@@ -13,5 +13,10 @@ fonts used by both `fleet-client` and `apps/docs`. Change a value in
 - `fonts.css` — Fontsource `@import`s only. Add font weights/families here, not
   in a consumer.
 
+One deliberate exception: `apps/docs/src/styles/tokens.css` shadows seven of the
+light Bridge-palette values (`--bg`, `--panel`, `--line`, `--text`, `--dim`,
+`--accent`, and a docs-only `--strong`) with the docs site's own warmer
+off-white. Editing a light value here will not change the docs site.
+
 The terminal palette (`--term-*`) is intentionally not theme-aware — a session
 console stays dark in both themes.

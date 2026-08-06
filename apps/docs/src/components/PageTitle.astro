@@ -1,0 +1,27 @@
+---
+const { entry, lastUpdated } = Astro.locals.starlightRoute;
+---
+
+<h1 id="_top">{entry.data.title}</h1>
+{
+	lastUpdated && (
+		<p class="page-meta">
+			Updated <time datetime={lastUpdated.toISOString()}>{lastUpdated.toISOString().slice(0, 10)}</time>
+		</p>
+	)
+}
+
+<style>
+	h1 {
+		margin-top: 1rem;
+		font-size: var(--sl-text-h1);
+		line-height: var(--sl-line-height-headings);
+		font-weight: 700;
+		color: var(--strong);
+	}
+	.page-meta {
+		margin-top: 12px;
+		font-size: 13px;
+		color: var(--dim);
+	}
+</style>
