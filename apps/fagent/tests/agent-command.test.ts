@@ -21,6 +21,107 @@ async function runFagent(args: string[], cwd?: string) {
   return { exitCode, stdout, stderr };
 }
 
+const AGENT_TOKEN = "atlas-agent-token";
+
+function guardedShip() {
+  const authorizations: (string | null)[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const authorization = request.headers.get("authorization");
+      authorizations.push(authorization);
+      if (authorization !== `Bearer ${AGENT_TOKEN}`) {
+        return Response.json({ error: "authentication required" }, { status: 401 });
+      }
+      const body = (await request.json()) as { state?: string; description?: string };
+      return Response.json({
+        state: body.state ?? "idle",
+        description: body.description ?? "",
+        model: "m",
+        provider: "p",
+        harness: "h",
+      });
+    },
+  });
+  return { server, authorizations };
+}
+
+async function workspaceFor(port: number | undefined, agentToken?: string): Promise<{ workspace: string; root: string }> {
+  const root = await mkdtemp(join(tmpdir(), "fleet-agent-guarded-"));
+  const workspace = join(root, "repo", "worker");
+  await mkdir(workspace, { recursive: true });
+  await Bun.write(join(root, "atlas.json"), JSON.stringify({ port, ...(agentToken ? { agentToken } : {}) }));
+  return { workspace, root };
+}
+
+describe("fagent agent against a guarded ship", () => {
+  test("presents the atlas's agentToken as a bearer token", async () => {
+    const { server, authorizations } = guardedShip();
+    const { workspace, root } = await workspaceFor(server.port, AGENT_TOKEN);
+
+    try {
+      const { exitCode, stdout, stderr } = await runFagent(
+        ["agent", "status", "building", "-d", "wiring up the agent credential"],
+        workspace,
+      );
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe("status updated to building on repo/worker\n");
+      expect(authorizations).toEqual([`Bearer ${AGENT_TOKEN}`]);
+    } finally {
+      server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("init presents it too", async () => {
+    const { server, authorizations } = guardedShip();
+    const { workspace, root } = await workspaceFor(server.port, AGENT_TOKEN);
+
+    try {
+      const { exitCode, stderr } = await runFagent(
+        ["agent", "init", "--model", "m", "--provider", "p", "--harness", "h"],
+        workspace,
+      );
+      expect(stderr).toBe("");
+      expect(exitCode).toBe(0);
+      expect(authorizations).toEqual([`Bearer ${AGENT_TOKEN}`]);
+    } finally {
+      server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("says what to do when the atlas carries no agentToken", async () => {
+    const { server } = guardedShip();
+    const { workspace, root } = await workspaceFor(server.port);
+
+    try {
+      const { exitCode, stderr } = await runFagent(["agent", "status", "building", "-d", "no token here"], workspace);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("atlas.json carries no agentToken");
+      expect(stderr).toContain("restart the ship");
+    } finally {
+      server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("says what to do when the ship refuses the atlas's agentToken", async () => {
+    const { server } = guardedShip();
+    const { workspace, root } = await workspaceFor(server.port, "stale-token");
+
+    try {
+      const { exitCode, stderr } = await runFagent(["agent", "status", "building", "-d", "stale token"], workspace);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("refused this workspace's agent token (401)");
+    } finally {
+      server.stop(true);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("fagent agent", () => {
   test("encodes workspace identifiers in ship request path segments", async () => {
     const paths: string[] = [];

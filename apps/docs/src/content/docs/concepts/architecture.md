@@ -134,15 +134,28 @@ See the [protocol reference](/reference/protocol/).
 
 ## Trust model
 
-There is no authentication anywhere in Fleet. Ships trust the bridge, the bridge
-trusts whoever calls it, and the GUI proxy forwards anything it is given. Run a
-fleet on a private network or behind your own authenticating proxy — see
-[Multi-host fleets](/guides/multi-host/).
+The bridge authenticates every request. Callers are one of three principals — a
+logged-in **user**, a **ship** presenting its `shipToken`, or a **ship-agent**
+running inside a workspace — and each is confined to the routes it needs: a user
+reaches everything (with a `member`/`admin` split on user management and on
+registering or removing ships), a ship reaches only the armory, an agent only the
+repo routes. Credentials are bearer tokens; the GUI proxy forwards the header
+unchanged.
+
+A ship authenticates its callers only when it is given a `bridgeToken` (its
+`FLEET_BRIDGE_TOKEN`). Without one, every ship route answers anyone who can
+reach the port.
+
+Full detail — where each secret lives, how the first admin is created, and what
+`--insecure-no-auth` gives up — is in [authentication](/guides/authentication/).
 
 :::caution
+Bearer tokens travel in a plain header, so anyone who can read the traffic can
+replay them: run Fleet behind TLS or on a trusted network.
+
 A ship can run arbitrary code from any repo it is asked to clone, and its
-terminal endpoint is an unauthenticated shell on the host. Do not expose a ship
-port to an untrusted network.
+terminal endpoint is a shell on the host. Do not expose a ship port to an
+untrusted network, authenticated or not.
 :::
 
 ## One process or many

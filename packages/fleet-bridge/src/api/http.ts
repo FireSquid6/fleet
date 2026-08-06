@@ -1,12 +1,24 @@
 import { InvalidCookieSignature, InvalidFileType, NotFoundError, ParseError, ValidationError } from "elysia";
+import { ZodError } from "zod";
+import { AuthError } from "../auth/auth-service";
 import { BridgeError } from "../fleet-manager";
 import { ProviderError } from "../providers";
 
 export function mapError(err: unknown): { status: number; body: { error: string } } {
-  if (err instanceof BridgeError || err instanceof ProviderError) {
+  if (err instanceof BridgeError || err instanceof ProviderError || err instanceof AuthError) {
     return { status: err.status, body: { error: err.message } };
   }
+  if (err instanceof ZodError) {
+    return { status: 400, body: { error: describeZodError(err) } };
+  }
   return { status: 500, body: { error: err instanceof Error ? err.message : String(err) } };
+}
+
+function describeZodError(err: ZodError): string {
+  const issues = err.issues.map((issue) =>
+    issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message,
+  );
+  return `invalid request — ${issues.join("; ")}`;
 }
 
 type ErrorContext = { error: unknown; set: { status?: number | string } };

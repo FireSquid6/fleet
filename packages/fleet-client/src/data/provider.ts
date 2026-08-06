@@ -27,7 +27,7 @@ export interface FleetBridge {
   /** `GET /repos/:name/issues?state=open` — the repo's open issues. */
   listRepoIssues(name: string): Promise<RepoIssue[]>;
   /** `POST /ships` — register a ship by URL; the bridge discovers its name. */
-  createShip(url: string): Promise<Ship>;
+  createShip(url: string, credentials?: { shipToken?: string; bridgeToken?: string }): Promise<Ship>;
   /** `DELETE /ships/:name` — deregister a ship. */
   deleteShip(name: string): Promise<void>;
   /** `GET /workspaces` — every workspace across all ships. */

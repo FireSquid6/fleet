@@ -27,6 +27,13 @@ function terminalWsUrl(shipUrl: string, repo: string, name: string): string {
   return `${base}/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`;
 }
 
+export function openTerminalSocket(shipUrl: string, repo: string, name: string, token?: string): WebSocket {
+  return new WebSocket(
+    terminalWsUrl(shipUrl, repo, name),
+    token === undefined ? undefined : { headers: { authorization: `Bearer ${token}` } },
+  );
+}
+
 /**
  * How to report a terminal socket the ship closed on us. The single-terminal
  * guard is the only close the user can act on, so it is the only one that gets
@@ -48,8 +55,8 @@ export function attachCloseOutcome(
   return { exitCode: 0 };
 }
 
-async function ensureActive(shipUrl: string, repo: string, name: string): Promise<void> {
-  const client = makeClient(shipUrl);
+async function ensureActive(shipUrl: string, repo: string, name: string, token?: string): Promise<void> {
+  const client = makeClient(shipUrl, token);
   const status = unwrap(await client.workspaces({ repo })({ name }).get(), "fleet") as WorkspaceStatus;
   if (status.state === "inactive") {
     console.error(`fleet: activating ${repo}/${name}…`);
@@ -58,16 +65,21 @@ async function ensureActive(shipUrl: string, repo: string, name: string): Promis
 }
 
 /** Resolves with the exit code to hand to `process.exit`. */
-export async function attachToWorkspace(shipUrl: string, repo: string, name: string): Promise<number> {
+export async function attachToWorkspace(
+  shipUrl: string,
+  repo: string,
+  name: string,
+  token?: string,
+): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.error("fleet: attach requires an interactive terminal");
     return 1;
   }
 
-  await ensureActive(shipUrl, repo, name);
+  await ensureActive(shipUrl, repo, name, token);
 
   return await new Promise<number>((resolve) => {
-    const ws = new WebSocket(terminalWsUrl(shipUrl, repo, name));
+    const ws = openTerminalSocket(shipUrl, repo, name, token);
 
     let torn = false;
     const stream = new GridStream();

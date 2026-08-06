@@ -39,11 +39,15 @@ half-written roster.
 
 ## The ship roster
 
-A ship is registered by URL only:
+A ship is registered by URL only, and only by an admin:
 
 ```bash
 fleet client ships add http://ship-b.internal:4700
 ```
+
+Registering and removing ships are the two roster operations reserved for
+`admin` users — the first tells the bridge to dial a URL the caller picked, the
+second drops a host out of the fleet. Reading the roster is not restricted.
 
 The bridge connects to that URL's `/events` socket, waits up to five seconds for
 the first `sync` event, and takes the ship's name from it. If the ship doesn't

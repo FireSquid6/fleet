@@ -13,11 +13,13 @@ export const BridgeConfigSchema = z.object({
    * `resolveBridgeConfig` may omit it; `defaultPublicUrl` fills the gap.
    */
   publicUrl: z.string().min(1).optional(),
+  insecureNoAuth: z.boolean().default(false),
   /** How often to check ephemeral workspaces for a closed pull request. `0` never checks. */
   sweepIntervalMs: z.number().int().nonnegative().optional(),
 });
 
-export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
+/** The *input* shape: defaulted fields stay optional for configs assembled by hand. */
+export type BridgeConfig = z.input<typeof BridgeConfigSchema>;
 
 export const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -26,11 +28,16 @@ export function defaultPublicUrl(port: number): string {
 }
 
 /** Validate a raw (flag-assembled) config, resolving `dataDirectory` to an absolute path. */
-export function resolveBridgeConfig(raw: unknown): BridgeConfig {
+export function resolveBridgeConfig(
+  raw: unknown,
+  deps?: { env?: Record<string, string | undefined> },
+): BridgeConfig {
   const config = BridgeConfigSchema.parse(raw);
+  const env = deps?.env ?? process.env;
   return {
     ...config,
     dataDirectory: resolve(config.dataDirectory),
     publicUrl: config.publicUrl ?? defaultPublicUrl(config.port),
+    insecureNoAuth: config.insecureNoAuth || env.FLEET_INSECURE_NO_AUTH === "1",
   };
 }

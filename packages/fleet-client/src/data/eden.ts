@@ -1,6 +1,8 @@
 import { WorkspaceRefsSchema, WorkspaceSummarySchema, type SystemResources, type WorkspaceRefs } from "fleet-protocol";
 import type { DiffQuery } from "@/lib/diff/diff-target";
-import { makeBridgeClient, wsBridgeUrl, type BridgeClient } from "./client";
+import { ticketedWsUrl } from "./auth";
+import { makeBridgeClient, type BridgeClient } from "./client";
+import { reportUnauthorized } from "./token";
 import type { FleetBridge } from "./provider";
 import type {
   ArmoryFile,
@@ -48,6 +50,9 @@ function parseWorkspaceEvent(data: string): WorkspaceEvent | null {
 
 /** Turn an Eden `{ error }` value into a thrown Error. */
 function edenError(error: { status?: unknown; value?: unknown }): Error {
+  // A rejected token concerns the whole app: it has to reach the login gate
+  // rather than surface as one more failed request.
+  if (error.status === 401) reportUnauthorized();
   const detail = error.value === undefined ? error : error.value;
   return new Error(`fleet-bridge request failed: ${JSON.stringify(detail)}`);
 }
@@ -113,8 +118,8 @@ export class EdenFleetBridge implements FleetBridge {
     return data;
   }
 
-  async createShip(url: string): Promise<Ship> {
-    const { data, error } = await this.client.ships.post({ url });
+  async createShip(url: string, credentials?: { shipToken?: string; bridgeToken?: string }): Promise<Ship> {
+    const { data, error } = await this.client.ships.post({ url, ...credentials });
     if (error) throw edenError(error);
     if (!data || "error" in data) throw edenError({ value: data });
     // The bridge returns { name, url, status }; the ship's spec is only known
@@ -144,9 +149,13 @@ export class EdenFleetBridge implements FleetBridge {
     let socket: WebSocket | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const connect = () => {
+    const connect = async () => {
       if (stopped) return;
-      socket = this.createSocket(wsBridgeUrl("/events"));
+      const url = await ticketedWsUrl("/events", this.client);
+      // The caller may have unsubscribed while the ticket was in flight; opening
+      // a socket now would leave one nobody holds a handle to.
+      if (stopped) return;
+      socket = this.createSocket(url);
       socket.onopen = () => {
         attempts = 0;
       };
@@ -160,11 +169,11 @@ export class EdenFleetBridge implements FleetBridge {
         socket = undefined;
         if (stopped) return;
         const delay = Math.min(30_000, 1000 * 2 ** attempts++);
-        reconnectTimer = setTimeout(connect, delay);
+        reconnectTimer = setTimeout(() => void connect(), delay);
       };
     };
 
-    connect();
+    void connect();
     return () => {
       stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);

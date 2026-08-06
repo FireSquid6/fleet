@@ -38,6 +38,7 @@ interface FakeFile {
 /** A bridge serving `files` (path → contents) plus whatever extra entries a test injects. */
 function fakeBridge(files: Map<string, FakeFile>, extraEntries: ArmoryEntry[] = []) {
   const requests: string[] = [];
+  const authorizations: (string | null)[] = [];
 
   const entries = (): ArmoryEntry[] => [
     ...[...files.entries()]
@@ -68,6 +69,7 @@ function fakeBridge(files: Map<string, FakeFile>, extraEntries: ArmoryEntry[] = 
     fetch(request) {
       const url = new URL(request.url);
       requests.push(url.pathname + url.search);
+      authorizations.push(request.headers.get("authorization"));
       if (url.pathname === "/armory") return Response.json(manifest());
       if (url.pathname === "/armory/file") {
         const path = url.searchParams.get("path") ?? "";
@@ -91,6 +93,7 @@ function fakeBridge(files: Map<string, FakeFile>, extraEntries: ArmoryEntry[] = 
   return {
     url: `http://localhost:${server.port}`,
     requests,
+    authorizations,
     revision: () => manifest().revision,
     fileRequests: () => requests.filter((path) => path.startsWith("/armory/file")),
   };
@@ -144,6 +147,32 @@ describe("ArmoryCache", () => {
     expect((await lstat(join(filesRoot(home), "skills/one/run.sh"))).mode & 0o777).toBe(0o755);
     expect((await lstat(join(filesRoot(home), "skills/one/SKILL.md"))).mode & 0o777).toBe(0o644);
     expect(await cache.state()).toEqual(state);
+  });
+
+  test("a configured shipToken is presented on the manifest and every file", async () => {
+    const home = await makeHome();
+    const bridge = fakeBridge(
+      new Map([
+        ["skills/one/SKILL.md", { bytes: utf8("# one") }],
+        ["skills/two/SKILL.md", { bytes: utf8("# two") }],
+      ]),
+    );
+    const cache = new ArmoryCache({ homeDirectory: home, shipToken: "ship-secret" });
+
+    await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() });
+
+    expect(bridge.requests).toHaveLength(3);
+    expect(bridge.authorizations).toEqual(bridge.requests.map(() => "Bearer ship-secret"));
+  });
+
+  test("a ship with no shipToken pulls the armory unauthenticated", async () => {
+    const home = await makeHome();
+    const bridge = fakeBridge(new Map([["skills/one/SKILL.md", { bytes: utf8("# one") }]]));
+    const cache = new ArmoryCache({ homeDirectory: home });
+
+    await cache.sync({ bridgeUrl: bridge.url, revision: bridge.revision() });
+
+    expect(bridge.authorizations).toEqual([null, null]);
   });
 
   test("an unchanged revision downloads nothing", async () => {

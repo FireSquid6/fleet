@@ -21,7 +21,7 @@ import {
   type Review,
   type ReviewEvent,
 } from "../src/providers";
-import { makeDeps } from "./helpers";
+import { makeAuthedApp, makeDeps } from "./helpers";
 
 /** Records the args each provider method was called with, per repo. */
 interface Recorder {
@@ -107,6 +107,7 @@ describe("repo provider API", () => {
   let dir: string;
   let manager: FleetManager;
   let app: ReturnType<typeof createApp>;
+  let authorization: string;
   let recorder: Recorder;
   /** When set, the fake provider throws this on every call. */
   let failWith: ProviderError | undefined;
@@ -179,10 +180,12 @@ describe("repo provider API", () => {
   }
 
   async function call(method: string, path: string, body?: unknown) {
+    const headers: Record<string, string> = { authorization };
+    if (body !== undefined) headers["content-type"] = "application/json";
     const res = await app.handle(
       new Request(`http://bridge${path}`, {
         method,
-        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );
@@ -203,7 +206,7 @@ describe("repo provider API", () => {
       providerFor: makeProvider,
     });
     await manager.init();
-    app = createApp(manager);
+    ({ app, authorization } = await makeAuthedApp(manager));
     // Register the repo so the lookup in withProvider succeeds.
     expect((await call("POST", "/repos", { name: "repo1", url: "https://github.com/acme/repo1", provider: "github" })).status).toBe(201);
   });

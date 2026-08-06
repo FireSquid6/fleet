@@ -6,10 +6,21 @@ sidebar:
 ---
 
 A ship serves an [Elysia](https://elysiajs.com) app on the port given by
-`fleet ship --port` (default `4700`). There is no authentication and no route
-prefix: paths are absolute from the origin. The app is composed of four
-plugins — workspaces (including the terminal WebSocket), events, system
-resources, and the armory.
+`fleet ship --port` (default `4700`). There is no route prefix: paths are
+absolute from the origin. The app is composed of four plugins — workspaces
+(including the terminal WebSocket), events, system resources, and the armory.
+
+Authentication on these routes is opt-in and comes from one environment variable,
+`FLEET_BRIDGE_TOKEN`. With it set, every route requires an `Authorization: Bearer`
+header: that token reaches everything, and this run's agent token (published in
+`atlas.json`) reaches only `GET /agent/credentials` and a workspace's own
+`agent/init` and `agent/status`. Anything else is a `401`. **With it unset every
+route answers anyone who can reach the port**, and the ship warns about that at
+startup.
+
+A second variable, `FLEET_SHIP_TOKEN`, does not affect these routes at all: it is
+what the ship presents *outbound* when `POST /armory/sync` sends it to fetch the
+manifest from the bridge. See [authentication](/guides/authentication/).
 
 ## Routes at a glance
 

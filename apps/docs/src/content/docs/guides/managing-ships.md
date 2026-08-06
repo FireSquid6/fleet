@@ -10,6 +10,9 @@ URL; the bridge connects, learns the ship's name from its event stream, and
 persists the entry. Everything here runs through `fleet client ships`, which
 talks to the bridge.
 
+Adding and removing ships requires an **admin** session — a `member` may list the
+roster but not change it. See [authentication](/guides/authentication/).
+
 ## Point the CLI at the bridge
 
 ```bash
@@ -48,16 +51,23 @@ fleet client ships add http://gpu-box.internal:4700
 registered ship gpu-box (http://gpu-box.internal:4700)
 ```
 
-You supply only the URL. The bridge opens the ship's `/events` socket, waits for
-the first sync — which carries the ship's own configured name and its current
+The URL is the only argument. The bridge opens the ship's `/events` socket, waits
+for the first sync — which carries the ship's own configured name and its current
 workspace list — and adopts it under that name. That's why the printed name may
 differ from anything in your command: it comes from the ship's `--name`, not from
 you.
 
-Registration is rejected in three cases:
+At a terminal the command also asks for the ship's credential pair before it
+calls the bridge; press enter at the first prompt to register a ship with none,
+as above. Tokens are never flags — in a script, set `FLEET_REGISTER_SHIP_TOKEN`
+and `FLEET_REGISTER_BRIDGE_TOKEN` instead. See
+[authentication](/guides/authentication/).
+
+Registration is rejected in four cases:
 
 | Situation | Response |
 | --------- | -------- |
+| You are signed in as a `member` | `fleet: request failed (403): this endpoint requires an admin` |
 | No sync within 5 seconds | `ship at <url> did not respond: timed out waiting for sync` |
 | A ship with that name is already registered | `ship already registered: <name>` |
 | The ship holds a `<repo>/<name>` that another ship already owns | `ship "<name>" has workspaces already hosted elsewhere: <keys>` |
@@ -71,8 +81,10 @@ reconnects to every stored ship.
 
 `fleet launch` performs this same registration for every ship in your
 `fleet-config.yaml`, local or remote — see [Configuring a
-fleet](/guides/configuring-a-fleet/). You can also add a ship from the web GUI's
-**Ships** page.
+fleet](/guides/configuring-a-fleet/). It registers them inside the bridge process
+it just started, so no session or admin role is involved. You can also add a ship
+from the web GUI's **Ships** page, which shows the **New Ship** button only to
+admins.
 
 ## Deregister a ship
 
@@ -90,7 +102,9 @@ the persisted roster. Removing a ship from the bridge does not touch the ship
 process or any workspace on disk — the ship keeps running, it is just no longer
 part of this fleet.
 
-Removing a non-existent ship reports `ship not found: <name>`.
+Removing a non-existent ship reports `ship not found: <name>`. Removing one as a
+`member` reports `fleet: request failed (403): this endpoint requires an admin`,
+and the roster is untouched.
 
 ## When a ship goes offline
 
@@ -117,13 +131,16 @@ that ship — workspaces created or deleted while it was unreachable are picked 
 in one shot.
 
 :::caution
-Nothing in the ship or bridge API is authenticated. A registered ship URL is
-fully controllable by anyone who can reach the bridge, and the bridge can drive
-any ship it can reach. Keep both on a trusted network.
+A ship started without `FLEET_BRIDGE_TOKEN` answers every route to anyone who can
+reach its port, including its terminal WebSocket. And bearer tokens travel in a
+plain header, so a ship *with* a token is still only as private as the network it
+is on. Keep ships behind TLS or on a trusted network either way — see
+[authentication](/guides/authentication/).
 :::
 
 ## Related
 
+- [Authentication](/guides/authentication/) — the token pair a ship is registered with.
 - [Managing repos](/guides/managing-repos/) — the other bridge-owned registry.
 - [The bridge](/concepts/bridge/) — how routing and the ownership index work.
 - [Bridge API reference](/reference/bridge-api/) — the `/ships` endpoints.

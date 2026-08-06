@@ -57,7 +57,9 @@ edit it; the next sync overwrites it.
    revision.
 3. Each ship pulls the manifest from `GET /armory`, then fetches only the files
    whose hash it does not already hold, verifying every one against the
-   manifest's `sha256` before it lands.
+   manifest's `sha256` before it lands. This is the one hop that runs
+   ship-to-bridge, and the ship authenticates it with its own `shipToken` — see
+   [authentication](/guides/authentication/).
 4. It installs the cache into place and records what it did.
 
 The revision is a content address: it changes when and only when a file's
@@ -89,13 +91,14 @@ The URL is compared as an origin — scheme, host, port, and path — so
 and case are ignored; a different port or host is a different bridge.
 
 :::caution
-This is defence in depth, **not** authentication. A ship's API has no
-authentication at all: anyone who can reach its port can start workspaces and run
-commands on it. Pinning only removes the armory's own contribution to that — an
-unpinned ship would let any caller choose the server it installs skills, plugins,
-and dotfiles from. It does not stop a caller from making a ship re-pull from its
-real bridge, which changes nothing. **Do not expose a ship's port to a network you
-do not trust**; put ships on a private network or behind a tunnel.
+Pinning is defence in depth, **not** authentication — it is about *which* server a
+ship installs from, not *who* may ask it to. A ship started without
+`FLEET_BRIDGE_TOKEN` has no authentication at all: anyone who can reach its port
+can start workspaces and run commands on it, and pinning only removes the
+armory's own contribution to that. Even a fully credentialed ship is reachable by
+anyone holding its token, and tokens travel in a plain header. **Do not expose a
+ship's port to a network you do not trust**; put ships on a private network or
+behind a tunnel. See [authentication](/guides/authentication/).
 :::
 
 ## Skills fan out to every provider
@@ -265,6 +268,15 @@ ship where to pull from, using `bridge.publicUrl` (or
 `fleet bridge --public-url`). Unset, it defaults to `http://localhost:<port>` —
 which on another host means that host. Set it to a URL your ships can reach. See
 [multi-host](/guides/multi-host/).
+
+**One ship reports `bridge answered 401 for the armory manifest`.** That ship has
+no `shipToken`, so its pull reached the bridge with no credential. Restart it with
+`FLEET_SHIP_TOKEN` set to the `shipToken` the bridge was given for it, and check
+the two match. Nothing else about the ship is affected — its workspaces keep
+working, which is why this is easy to miss until you look at
+`fleet client armory ships`. `fleet launch` supplies the token to every
+`source: local` ship it spawns, so this only affects ships you start yourself.
+See [authentication](/guides/authentication/).
 
 **`fleet client armory ls` returns a 400 naming `dotfile-map.json`.** A malformed
 map fails the whole manifest, so nothing is served and nothing is pushed — ships

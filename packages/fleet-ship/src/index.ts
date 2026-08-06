@@ -1,7 +1,14 @@
 import { Command, InvalidArgumentError } from "commander";
 import { DEFAULT_PORT, type FleetShipConfig } from "fleet-protocol";
-import { canonicalizeFleetDirectory, resolveFleetShipConfig } from "./config";
+import {
+  BRIDGE_TOKEN_ENV_VAR,
+  canonicalizeFleetDirectory,
+  resolveBridgeToken,
+  resolveFleetShipConfig,
+  resolveShipToken,
+} from "./config";
 import { writeAtlas } from "./atlas";
+import { generateAgentToken } from "./agent-credentials";
 import { installFleetSkill } from "./skill-installer";
 import { installFleetPlugin } from "./plugin-installer";
 import { installArmory } from "./armory/armory-installer";
@@ -123,16 +130,25 @@ export async function startShip(config: FleetShipConfig): Promise<void> {
   const { WorkspaceManager } = await import("./workspace-manager");
   const { createApp } = await import("./api");
 
-  const canonical = await canonicalizeFleetDirectory(config);
+  const canonical = { ...(await canonicalizeFleetDirectory(config)), agentToken: generateAgentToken() };
   await installStartupIntegrations();
   const manager = new WorkspaceManager(canonical);
   const app = createApp(manager, canonical);
   app.listen(canonical.port);
 
   // Publish the discovery file so agents inside workspaces can reach us.
-  await writeAtlas(canonical.fleetDirectory, { port: app.server?.port ?? canonical.port });
+  await writeAtlas(canonical.fleetDirectory, {
+    port: app.server?.port ?? canonical.port,
+    agentToken: canonical.agentToken,
+  });
 
   console.log(`fleet-ship "${canonical.name}" listening on http://localhost:${canonical.port}`);
+  if (resolveBridgeToken(canonical.bridgeToken) === undefined) {
+    console.warn(
+      `fleet-ship "${canonical.name}" is serving without authentication: every route answers anyone who ` +
+        `can reach the port. Set ${BRIDGE_TOKEN_ENV_VAR} to the token the bridge presents to require it.`,
+    );
+  }
 }
 
 export const ship = new Command()
@@ -153,6 +169,7 @@ export const ship = new Command()
         port: options.port,
         name: options.name,
         bridgeUrl: options.bridgeUrl,
+        shipToken: resolveShipToken(undefined),
       });
       await startShip(config);
     } catch (err) {

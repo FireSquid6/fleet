@@ -1,5 +1,6 @@
 // Only the methods the routes call are implemented; override any of them per test.
 
+import "./preload";
 import type { WorkspaceManager } from "../src/workspace-manager";
 import { workspaceSessionName } from "../src/workspace-session";
 

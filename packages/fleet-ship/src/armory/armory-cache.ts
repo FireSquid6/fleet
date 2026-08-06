@@ -118,15 +118,22 @@ export class ArmoryCache {
   private readonly statePath: string;
   private readonly fetchImpl: typeof fetch;
   private readonly configuredBridgeUrl?: string;
+  private readonly shipToken?: string;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(options?: { homeDirectory?: string; fetch?: typeof fetch; bridgeUrl?: string }) {
+  constructor(options?: {
+    homeDirectory?: string;
+    fetch?: typeof fetch;
+    bridgeUrl?: string;
+    shipToken?: string;
+  }) {
     this.homeDirectory = resolve(options?.homeDirectory ?? homedir());
     this.cacheDirectory = armoryCacheDirectory(this.homeDirectory);
     this.filesRoot = join(this.cacheDirectory, "files");
     this.statePath = join(this.cacheDirectory, "state.json");
     this.fetchImpl = options?.fetch ?? fetch;
     this.configuredBridgeUrl = options?.bridgeUrl;
+    this.shipToken = options?.shipToken;
   }
 
   private serialized<T>(operation: () => Promise<T> | T): Promise<T> {
@@ -197,11 +204,11 @@ export class ArmoryCache {
    * whoever runs the ship. Letting the caller choose that server is gratuitous,
    * and pinning takes it away.
    *
-   * What it does not buy: the ship's API is unauthenticated, so anyone who can
-   * reach the port can still make the ship re-pull from its *real* bridge. That
-   * is harmless — it installs exactly what the operator already publishes. This
-   * is defence in depth, not authentication; a ship's API must still never be
-   * exposed to an untrusted network.
+   * What it does not buy: on a ship configured with no `bridgeToken`, which
+   * serves openly, anyone who can reach the port can still make it re-pull from
+   * its *real* bridge. That is harmless — it installs exactly what the operator
+   * already publishes. This is defence in depth, not authentication; a ship that
+   * serves openly must still never be exposed to an untrusted network.
    *
    * The pin is the configured `bridgeUrl` when there is one, and otherwise
    * trust-on-first-use: the first push's bridge is recorded in `state.json` and
@@ -334,7 +341,10 @@ export class ArmoryCache {
   private async getJson(url: string, what: string): Promise<unknown> {
     let response: Response;
     try {
-      response = await this.fetchImpl(url);
+      response = await this.fetchImpl(
+        url,
+        this.shipToken === undefined ? undefined : { headers: { authorization: `Bearer ${this.shipToken}` } },
+      );
     } catch (error) {
       throw new ArmorySyncError(`could not reach the bridge for the armory ${what}: ${message(error)}`);
     }

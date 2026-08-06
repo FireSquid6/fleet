@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
+import { FakeSocket, makeAuthedApp, makeDeps, ws, type FakeShip } from "./helpers";
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -20,12 +20,15 @@ describe("bridge API", () => {
   let manager: FleetManager;
   let app: ReturnType<typeof createApp>;
   let ships: Map<string, FakeShip>;
+  let authorization: string;
 
   async function call(method: string, path: string, body?: unknown) {
+    const headers: Record<string, string> = { authorization };
+    if (body !== undefined) headers["content-type"] = "application/json";
     const res = await app.handle(
       new Request(`http://bridge${path}`, {
         method,
-        headers: body === undefined ? undefined : { "content-type": "application/json" },
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );
@@ -35,7 +38,7 @@ describe("bridge API", () => {
 
   /** Read the raw response text — for the text/plain diff route. */
   async function callText(path: string) {
-    const res = await app.handle(new Request(`http://bridge${path}`));
+    const res = await app.handle(new Request(`http://bridge${path}`, { headers: { authorization } }));
     return { status: res.status, text: await res.text() };
   }
 
@@ -54,7 +57,7 @@ describe("bridge API", () => {
     await store.createShip({ name: "ship-b", url: "http://ship-b" });
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
-    app = createApp(manager);
+    ({ app, authorization } = await makeAuthedApp(manager));
   });
   afterEach(async () => {
     manager.shutdown();

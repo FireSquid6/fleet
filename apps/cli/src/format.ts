@@ -1,4 +1,4 @@
-import type { ArmoryEntry, ArmorySyncState, WorkspaceSummary } from "fleet-protocol";
+import type { ArmoryEntry, ArmorySyncState, User, WorkspaceSummary } from "fleet-protocol";
 import type { Repo } from "fleet-protocol";
 import type { ShipInfo, BridgeWorkspaceSummary, ShipArmoryState } from "fleet-bridge/types";
 import { renderTable } from "fleet-cli-kit";
@@ -28,6 +28,13 @@ export function formatRepoTable(rows: readonly Repo[]): string {
   return renderTable(
     ["NAME", "URL", "PROVIDER"],
     rows.map((row) => [row.name, row.url, row.provider]),
+  );
+}
+
+export function formatUserTable(rows: readonly User[]): string {
+  return renderTable(
+    ["USERNAME", "EMAIL", "ROLE", "CREATED"],
+    rows.map((row) => [row.username, row.email, row.role, formatTimestamp(new Date(row.createdAt))]),
   );
 }
 

@@ -107,7 +107,13 @@ describe("startBridge", () => {
     const publicUrl = `http://localhost:${port}`;
     ship.expectBridgeAt(publicUrl);
 
-    const { manager, watcher } = await startBridge({ dataDirectory: dir, port, name: "bridge", publicUrl });
+    const { manager, watcher } = await startBridge({
+      dataDirectory: dir,
+      port,
+      name: "bridge",
+      publicUrl,
+      insecureNoAuth: true,
+    });
     stopBridge = () => {
       watcher.close();
       manager.shutdown();
@@ -128,7 +134,7 @@ describe("startBridge", () => {
     const publicUrl = `http://localhost:${port}`;
 
     await expect(
-      startBridge({ dataDirectory: dir, port, name: "bridge", publicUrl }),
+      startBridge({ dataDirectory: dir, port, name: "bridge", publicUrl, insecureNoAuth: true }),
     ).rejects.toThrow(/duplicate workspaces/);
 
     await expect(fetch(`${publicUrl}/ships`)).rejects.toThrow();

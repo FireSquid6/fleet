@@ -8,6 +8,6 @@ import type { FleetBridge } from "./provider";
  * in-memory fixtures. `process` is undefined in the browser bundle, so the
  * `typeof` guard keeps this from throwing there — the browser always gets Eden.
  */
-const useMock = typeof process !== "undefined" && process.env.BUN_PUBLIC_USE_MOCK === "true";
+export const useMock = typeof process !== "undefined" && process.env.BUN_PUBLIC_USE_MOCK === "true";
 
 export const bridge: FleetBridge = useMock ? new MockFleetBridge() : new EdenFleetBridge();

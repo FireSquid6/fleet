@@ -1,5 +1,41 @@
-import type { ArmorySyncState, FleetEvent, SystemResources, WorkspaceSummary } from "fleet-protocol";
+import type { ArmorySyncState, FleetEvent, Role, SystemResources, User, WorkspaceSummary } from "fleet-protocol";
+import { createApp } from "../src/api";
+import { AuthDatabase } from "../src/auth/auth-database";
+import { AuthService } from "../src/auth/auth-service";
+import type { FleetManager } from "../src/fleet-manager";
 import type { ShipConnectionDeps, SocketLike } from "../src/ship-connection";
+
+export const TEST_PASSWORD = "test-password";
+
+export function makeTestAuth(): AuthService {
+  const db = new AuthDatabase(":memory:");
+  db.migrate();
+  return new AuthService(db);
+}
+
+export async function makeAuthedApp(
+  manager: FleetManager,
+  options: { insecureNoAuth?: boolean } = {},
+): Promise<{ app: ReturnType<typeof createApp>; auth: AuthService; authorization: string }> {
+  const auth = makeTestAuth();
+  const { authorization } = await seedUser(auth, { username: "test-admin", role: "admin" });
+  return { app: createApp(manager, auth, options), auth, authorization };
+}
+
+export async function seedUser(
+  auth: AuthService,
+  input: { username: string; email?: string; password?: string; role?: Role },
+): Promise<{ user: User; token: string; authorization: string }> {
+  const password = input.password ?? TEST_PASSWORD;
+  const user = await auth.createUser({
+    username: input.username,
+    email: input.email ?? `${input.username}@fleet.test`,
+    password,
+    role: input.role ?? "member",
+  });
+  const { token } = await auth.login(input.username, password);
+  return { user, token, authorization: `Bearer ${token}` };
+}
 
 /** A ship the fakes pretend exists at a given base URL. */
 export interface FakeShip {
@@ -15,8 +51,12 @@ export interface FakeShip {
   neverSync?: boolean;
   /** Every `POST /armory/sync` this ship received, in order. */
   armorySyncs?: { bridgeUrl: string; revision: string }[];
+  /** Every `POST /agent/credentials` this ship received, in order. */
+  agentCredentials?: { bridgeUrl: string; token: string }[];
   /** What `GET /armory` reports; defaults to a ship that has never synced. */
   armoryState?: ArmorySyncState;
+  authorizations?: (string | null)[];
+  socketAuthorizations?: (string | null)[];
   /** When set, a `force=false` delete is refused with this 409 message. */
   heldWork?: string;
   /** Every workspace delete this ship received, in order. */
@@ -44,10 +84,11 @@ export class FakeSocket implements SocketLike {
   onerror: ((ev: unknown) => void) | null = null;
   private done = false;
 
-  constructor(wsUrl: string, ships: Map<string, FakeShip>) {
+  constructor(wsUrl: string, ships: Map<string, FakeShip>, bridgeToken?: string) {
     const base = httpBase(wsUrl);
     FakeSocket.byBase.set(base, this);
     const ship = ships.get(base);
+    if (ship) (ship.socketAuthorizations ??= []).push(authorizationHeader(bridgeToken));
     setTimeout(() => {
       if (this.done) return;
       if (!ship) {
@@ -94,12 +135,17 @@ export function fakeResources(hostname: string): SystemResources {
   };
 }
 
-export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
+export function authorizationHeader(token?: string): string | null {
+  return token === undefined ? null : `Bearer ${token}`;
+}
+
+export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>, bridgeToken?: string) {
   const ship = () => ships.get(httpUrl);
 
   // Every call routes through here so a ship's error/throw config applies uniformly.
   const wrap = async (dataFactory: () => unknown) => {
     const s = ship();
+    if (s) (s.authorizations ??= []).push(authorizationHeader(bridgeToken));
     if (s?.throws) throw new Error("ECONNREFUSED");
     if (s?.errorResponse) {
       return { data: null, error: { status: s.errorResponse.status, value: { error: s.errorResponse.message } } };
@@ -191,6 +237,15 @@ export function makeFakeClient(httpUrl: string, ships: Map<string, FakeShip>) {
   return {
     workspaces: workspacesFn,
     "system-resources": { get: () => wrap(() => fakeResources(ship()?.name ?? "unknown")) },
+    agent: {
+      credentials: {
+        post: (body: { bridgeUrl: string; token: string }) => {
+          const s = ship();
+          if (s) (s.agentCredentials ??= []).push(body);
+          return wrap(() => ({ ok: true }));
+        },
+      },
+    },
     armory: {
       get: () =>
         wrap(
@@ -228,8 +283,9 @@ export function makeDeps(
   overrides?: Partial<ShipConnectionDeps>,
 ): Partial<ShipConnectionDeps> {
   return {
-    createSocket: (url) => new FakeSocket(url, ships),
-    createClient: (url) => makeFakeClient(url, ships) as unknown as ReturnType<ShipConnectionDeps["createClient"]>,
+    createSocket: (url, bridgeToken) => new FakeSocket(url, ships, bridgeToken),
+    createClient: (url, bridgeToken) =>
+      makeFakeClient(url, ships, bridgeToken) as unknown as ReturnType<ShipConnectionDeps["createClient"]>,
     ...overrides,
   };
 }

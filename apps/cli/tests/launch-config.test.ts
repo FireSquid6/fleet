@@ -115,6 +115,104 @@ describe("parseLaunchConfig", () => {
   });
 });
 
+describe("bridge.insecureNoAuth", () => {
+  test("carries through when set", () => {
+    const config = parseLaunchConfig({ bridge: { insecureNoAuth: true } });
+    expect(config.bridge?.insecureNoAuth).toBe(true);
+  });
+
+  test("is absent rather than false when omitted", () => {
+    const config = parseLaunchConfig({ bridge: {} });
+    expect(config.bridge?.insecureNoAuth).toBeUndefined();
+  });
+
+  test("rejects a non-boolean", () => {
+    expect(() => parseLaunchConfig({ bridge: { insecureNoAuth: "yes" } })).toThrow();
+  });
+});
+
+describe("ship tokens", () => {
+  const env = { SHIP_A_SHIP: "s-from-env", SHIP_A_BRIDGE: "b-from-env", BLANK: "   " };
+
+  test("literal tokens are carried through on local and remote ships", () => {
+    const config = parseLaunchConfig(
+      {
+        ships: {
+          "ship-a": { shipToken: "s-a", bridgeToken: "b-a" },
+          "ship-b": { source: "remote", url: "http://host:4700", shipToken: "s-b", bridgeToken: "b-b" },
+        },
+      },
+      { env: {} },
+    );
+
+    expect(config.ships[0]).toMatchObject({ key: "ship-a", shipToken: "s-a", bridgeToken: "b-a" });
+    expect(config.ships[1]).toMatchObject({ key: "ship-b", shipToken: "s-b", bridgeToken: "b-b" });
+  });
+
+  test("${VAR} resolves from the injected environment", () => {
+    const config = parseLaunchConfig(
+      { ships: { "ship-a": { shipToken: "${SHIP_A_SHIP}", bridgeToken: "${SHIP_A_BRIDGE}" } } },
+      { env },
+    );
+
+    expect(config.ships[0]).toMatchObject({ shipToken: "s-from-env", bridgeToken: "b-from-env" });
+  });
+
+  test("surrounding whitespace in the reference and in the value is ignored", () => {
+    const config = parseLaunchConfig(
+      { ships: { "ship-a": { shipToken: " ${SHIP_A_SHIP} ", bridgeToken: "${SHIP_A_BRIDGE}" } } },
+      { env: { SHIP_A_SHIP: " s-from-env\n", SHIP_A_BRIDGE: "b-from-env" } },
+    );
+
+    expect(config.ships[0]).toMatchObject({ shipToken: "s-from-env", bridgeToken: "b-from-env" });
+  });
+
+  test("an unset variable fails the launch rather than registering an unauthenticated ship", () => {
+    expect(() =>
+      parseLaunchConfig(
+        { ships: { "ship-a": { shipToken: "${MISSING}", bridgeToken: "${SHIP_A_BRIDGE}" } } },
+        { env },
+      ),
+    ).toThrow(/ships\."ship-a"\.shipToken is \$\{MISSING\}, which is unset or empty/);
+  });
+
+  test("a variable set to whitespace counts as unset", () => {
+    expect(() =>
+      parseLaunchConfig({ ships: { "ship-a": { shipToken: "${BLANK}", bridgeToken: "b" } } }, { env }),
+    ).toThrow(/unset or empty/);
+  });
+
+  test("a partial interpolation is rejected rather than taken literally", () => {
+    expect(() =>
+      parseLaunchConfig({ ships: { "ship-a": { shipToken: "tok-${SHIP_A_SHIP}", bridgeToken: "b" } } }, { env }),
+    ).toThrow(/is not exactly one \$\{VAR\} reference/);
+  });
+
+  test("rejects one token without the other", () => {
+    expect(() => parseLaunchConfig({ ships: { "ship-a": { shipToken: "s" } } }, { env: {} })).toThrow(
+      /ship "ship-a" sets shipToken but not bridgeToken/,
+    );
+    expect(() =>
+      parseLaunchConfig({ ships: { "ship-b": { source: "remote", url: "http://h:4700", bridgeToken: "b" } } }, { env: {} }),
+    ).toThrow(/ship "ship-b" sets bridgeToken but not shipToken/);
+  });
+
+  test("rejects an empty token string", () => {
+    expect(() => parseLaunchConfig({ ships: { "ship-a": { shipToken: "", bridgeToken: "b" } } }, { env: {} })).toThrow();
+  });
+
+  test("ships without tokens are unchanged", () => {
+    const config = parseLaunchConfig({ ships: { "ship-a": {} } }, { env });
+    expect(config.ships[0]).toEqual({
+      key: "ship-a",
+      source: "local",
+      name: "ship-a",
+      fleetDirectory: resolve("./fleet/ship-a"),
+      port: 4700,
+    });
+  });
+});
+
 describe("publicUrlWarning", () => {
   const remoteConfig = (bridge: Record<string, unknown>) =>
     parseLaunchConfig({

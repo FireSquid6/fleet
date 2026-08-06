@@ -59,6 +59,16 @@ async function runLaunch(configPath: string): Promise<void> {
     console.warn(`fleet launch: ${warning}`);
   }
 
+  let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
+  let auth: Awaited<ReturnType<typeof startBridge>>["auth"] | undefined;
+  if (config.bridge) {
+    ({ manager, auth } = await startBridge(config.bridge));
+  }
+
+  // A launch knows both sides, so it can pin each ship it spawns to the bridge
+  // it just started rather than leaving it to trust whoever pushes first. The
+  // value must be the one the bridge pushes with, not the one this process would
+  // dial, hence `publicUrl` and the same fallback the bridge uses.
   const launchedBridgeUrl = config.bridge
     ? (config.bridge.publicUrl ?? `http://localhost:${config.bridge.port}`)
     : undefined;
@@ -73,19 +83,31 @@ async function runLaunch(configPath: string): Promise<void> {
   }
   const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
 
+  const registrations = planRegistrations(config.ships, manager?.listShips() ?? []);
+
+  const credentials = new Map<string, { shipToken: string; bridgeToken: string }>();
+  for (const { ship, skip } of registrations) {
+    const configured =
+      ship.shipToken && ship.bridgeToken
+        ? { shipToken: ship.shipToken, bridgeToken: ship.bridgeToken }
+        : undefined;
+    const pair =
+      configured ??
+      (skip === null && ship.source === "local" ? auth?.createShipCredentials(ship.name) : undefined);
+    if (pair) credentials.set(ship.key, pair);
+  }
+
   for (const ship of config.ships) {
     if (ship.source !== "local") continue;
+    const pair = credentials.get(ship.key);
     await startShip({
       fleetDirectory: ship.fleetDirectory,
       port: ship.port,
       name: ship.name,
       bridgeUrl: shipBridgeUrl,
+      shipToken: pair?.shipToken,
+      bridgeToken: pair?.bridgeToken,
     });
-  }
-
-  let manager: Awaited<ReturnType<typeof startBridge>>["manager"] | undefined;
-  if (config.bridge) {
-    ({ manager } = await startBridge(config.bridge));
   }
 
   if (!manager) {
@@ -93,7 +115,7 @@ async function runLaunch(configPath: string): Promise<void> {
       console.log(`no bridge configured; not registering ship "${ship.key}" (${shipUrl(ship)})`);
     }
   } else {
-    for (const entry of planRegistrations(config.ships, manager.listShips())) {
+    for (const entry of registrations) {
       const { ship, url } = entry;
       switch (entry.skip) {
         case "duplicate-config-entry":
@@ -111,7 +133,7 @@ async function runLaunch(configPath: string): Promise<void> {
           break;
         case null:
           try {
-            await manager.addShip(normalizeUrl(url));
+            await manager.addShip(normalizeUrl(url), credentials.get(ship.key));
             console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
           } catch (err) {
             console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);

@@ -139,7 +139,7 @@ bun run apps/cli/src/index.ts bridge --port 4800 --name my-bridge --data-directo
 bun run apps/cli/src/index.ts client serve --url http://localhost:4800
 ```
 
-Ships are registered with a running bridge by URL:
+Ships are registered with a running bridge by URL, from an admin session:
 
 ```bash
 bun run apps/cli/src/index.ts client ships add http://localhost:4700

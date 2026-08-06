@@ -16,7 +16,7 @@ import {
 import { FleetManager } from "../src/fleet-manager";
 import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { FakeSocket, makeDeps, ws, type FakeShip } from "./helpers";
+import { FakeSocket, makeAuthedApp, makeDeps, ws, type FakeShip } from "./helpers";
 
 const opened = (sock: WebSocket) =>
   new Promise<void>((resolve, reject) => {
@@ -37,6 +37,7 @@ describe("bridge terminal proxy", () => {
   let ships: Map<string, FakeShip>;
   let upstreamClosed: Promise<{ code: number; reason: string }>;
   let upstreamPaths: string[];
+  let terminal: (path: string) => string;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "fleet-bridge-term-"));
@@ -79,9 +80,16 @@ describe("bridge terminal proxy", () => {
     manager = new FleetManager(config, makeDeps(ships), { syncTimeoutMs: 50, store });
     await manager.init();
 
-    bridge = createApp(manager);
+    const authed = await makeAuthedApp(manager);
+    bridge = authed.app;
     bridge.listen(0);
     bridgeUrl = `ws://localhost:${bridge.server?.port}`;
+    const principal = { kind: "user", id: "t", username: "test-admin", role: "admin" } as const;
+    terminal = (path) => {
+      const url = new URL(`${bridgeUrl}${path}`);
+      url.searchParams.set("ticket", authed.auth.issueWsTicket(principal).ticket);
+      return url.toString();
+    };
   });
 
   afterEach(async () => {
@@ -94,7 +102,7 @@ describe("bridge terminal proxy", () => {
   });
 
   test("forwards frames both directions through the owning ship", async () => {
-    const client = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
     await opened(client);
 
     const reply = nextMessage(client);
@@ -114,7 +122,7 @@ describe("bridge terminal proxy", () => {
       workspace: ws(repo, name),
     });
     const client = new WebSocket(
-      `${bridgeUrl}/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`,
+      terminal(`/workspaces/${encodeURIComponent(repo)}/${encodeURIComponent(name)}/terminal`),
     );
     await opened(client);
     const reply = nextMessage(client);
@@ -130,7 +138,7 @@ describe("bridge terminal proxy", () => {
   });
 
   test("forwards the takeover flag upstream, and only when asked", async () => {
-    const plain = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    const plain = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
     await opened(plain);
     const plainReply = nextMessage(plain);
     plain.send('{"type":"init","cols":80,"rows":24}');
@@ -140,9 +148,7 @@ describe("bridge terminal proxy", () => {
     plain.close();
     await plainClose;
 
-    const client = new WebSocket(
-      `${bridgeUrl}/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=true`,
-    );
+    const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal?${TERMINAL_TAKEOVER_QUERY}=true`));
     await opened(client);
     const reply = nextMessage(client);
     client.send('{"type":"init","cols":80,"rows":24}');
@@ -160,7 +166,7 @@ describe("bridge terminal proxy", () => {
   });
 
   test("propagates an upstream close down to the client", async () => {
-    const client = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
     await opened(client);
 
     const onClose = closed(client);
@@ -169,7 +175,7 @@ describe("bridge terminal proxy", () => {
   });
 
   test("propagates a client close up to the ship", async () => {
-    const client = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
     await opened(client);
     const reply = nextMessage(client);
     client.send('{"type":"init","cols":80,"rows":24}');
@@ -184,7 +190,7 @@ describe("bridge terminal proxy", () => {
       ["{", INVALID_MESSAGE_CLOSE_CODE, INVALID_MESSAGE_CLOSE_REASON],
       [new Uint8Array([1]), BINARY_MESSAGE_CLOSE_CODE, BINARY_MESSAGE_CLOSE_REASON],
     ] as const) {
-      const client = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+      const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
       await opened(client);
       const close = closed(client);
       client.send(frame);
@@ -193,7 +199,7 @@ describe("bridge terminal proxy", () => {
   });
 
   test("rejects binary frames from the ship without stringifying them", async () => {
-    const client = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
     await opened(client);
     const close = closed(client);
     client.send('{"type":"input","data":"binary"}');
@@ -215,7 +221,7 @@ describe("bridge terminal proxy", () => {
     ships.set(stagnantUrl, { name: "stagnant", workspaces: [ws("repo1", "w1")] });
     await manager.addShip(stagnantUrl);
 
-    const client = new WebSocket(`${bridgeUrl}/workspaces/repo1/w1/terminal`);
+    const client = new WebSocket(terminal(`/workspaces/repo1/w1/terminal`));
     await opened(client);
     const close = closed(client);
     const escapedFrame = JSON.stringify({ type: "input", data: "\0".repeat(50_000) });
@@ -225,7 +231,7 @@ describe("bridge terminal proxy", () => {
   });
 
   test("closes with an exit frame when the workspace is unknown", async () => {
-    const client = new WebSocket(`${bridgeUrl}/workspaces/ghost/none/terminal`);
+    const client = new WebSocket(terminal(`/workspaces/ghost/none/terminal`));
     const frame = await nextMessage(client);
     expect(JSON.parse(frame)).toEqual({ type: "exit", code: 1 });
     await closed(client);

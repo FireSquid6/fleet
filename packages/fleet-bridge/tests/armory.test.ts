@@ -10,9 +10,8 @@ import {
   ArmoryService,
 } from "../src/armory/armory-service";
 import { FleetManager } from "../src/fleet-manager";
-import { createApp } from "../src/api";
 import { Store } from "../src/store/store";
-import { makeDeps, type FakeShip } from "./helpers";
+import { makeAuthedApp, makeDeps, type FakeShip } from "./helpers";
 
 const directories: string[] = [];
 
@@ -365,17 +364,19 @@ describe("armory API", () => {
       store,
     });
     await manager.init();
-    return { root: join(directory, "armory"), app: createApp(manager) };
+    return { root: join(directory, "armory"), ...(await makeAuthedApp(manager)) };
   }
 
-  async function call(handler: ReturnType<typeof createApp>, path: string) {
-    const response = await handler.handle(new Request(`http://bridge${path}`));
+  async function call(bridge: Awaited<ReturnType<typeof app>>, path: string) {
+    const response = await bridge.app.handle(
+      new Request(`http://bridge${path}`, { headers: { authorization: bridge.authorization } }),
+    );
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) : undefined };
   }
 
   test("GET /armory returns an empty manifest when no armory directory exists", async () => {
-    const { app: handler } = await app();
+    const handler = await app();
 
     const { status, body } = await call(handler, "/armory");
     expect(status).toBe(200);
@@ -384,7 +385,8 @@ describe("armory API", () => {
   });
 
   test("GET /armory and /armory/file serve a populated armory", async () => {
-    const { root, app: handler } = await app();
+    const handler = await app();
+    const { root } = handler;
     await write(root, "skills/my-skill/SKILL.md", "# skill");
     await write(root, "dotfile-map.json", JSON.stringify({ ".tmux.conf": "~/.tmux.conf" }));
 
@@ -407,7 +409,8 @@ describe("armory API", () => {
   });
 
   test("GET /armory/file rejects traversal (400) and unknown paths (404)", async () => {
-    const { root, app: handler } = await app();
+    const handler = await app();
+    const { root } = handler;
     await write(root, "skills/my-skill/SKILL.md", "# skill");
 
     expect((await call(handler, "/armory/file?path=../../etc/passwd")).status).toBe(400);
