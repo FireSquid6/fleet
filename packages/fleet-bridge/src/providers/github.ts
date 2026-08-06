@@ -274,6 +274,18 @@ export class GitHubProvider implements RepoProvider {
     return pulls.map((pull) => this.toPullRequestSummary(pull));
   }
 
+  async pullRequestsForBranch(branch: string): Promise<PullRequestSummary[]> {
+    // `head` is matched as `<owner>:<ref>`, which is why a fork's PR does not
+    // appear here: the branch this asks about is one the bridge made on the repo.
+    const head = encodeURIComponent(`${this.owner}:${branch}`);
+    const pulls = await this.request<GitHubPull[]>(
+      `/repos/${this.owner}/${this.repo}/pulls?state=all&head=${head}&per_page=100`,
+    );
+    return pulls
+      .filter((pull) => pull.head.ref === branch)
+      .map((pull) => this.toPullRequestSummary(pull));
+  }
+
   async getPullRequest(number: number): Promise<PullRequest> {
     const pull = await this.request<GitHubPull>(
       `/repos/${this.owner}/${this.repo}/pulls/${number}`,

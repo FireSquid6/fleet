@@ -56,7 +56,20 @@ export async function startBridge(
   if (!config.insecureNoAuth) await ensureFirstUser(auth);
 
   const manager = new FleetManager(config, undefined, { credentials: auth });
-  await manager.init();
+
+  const app = createApp(manager, auth, { insecureNoAuth: config.insecureNoAuth });
+  app.listen(config.port);
+  console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
+  if (config.insecureNoAuth) console.error(INSECURE_BANNER);
+
+  try {
+    await manager.init();
+  } catch (error) {
+    app.stop();
+    manager.shutdown();
+    authDatabase.close();
+    throw error;
+  }
 
   // Started after `init` — the ships that come online during it push themselves
   // through the connection's status handler.
@@ -65,10 +78,8 @@ export async function startBridge(
     void manager.pushArmory();
   });
 
-  const app = createApp(manager, auth, { insecureNoAuth: config.insecureNoAuth });
-  app.listen(config.port);
-  console.log(`fleet-bridge "${config.name}" listening on http://localhost:${config.port}`);
-  if (config.insecureNoAuth) console.error(INSECURE_BANNER);
+  manager.startSweeping();
+
   return { manager, watcher, auth };
 }
 

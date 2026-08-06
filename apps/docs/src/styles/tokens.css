@@ -1,0 +1,16 @@
+@import "fleet-design/tokens.css";
+@import "fleet-design/fonts.css";
+
+:root {
+  --bg: #fcfcfb;
+  --panel: #f3f3f1;
+  --line: #dcdedb;
+  --text: #31373d;
+  --strong: #0f1215;
+  --dim: #71787f;
+  --accent: oklch(0.52 0.13 150);
+}
+
+:root[data-theme="dark"] {
+  --strong: #e7ecf1;
+}

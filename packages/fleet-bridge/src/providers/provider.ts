@@ -106,6 +106,12 @@ export interface RepoProvider {
   listIssues(options?: ListOptions): Promise<IssueSummary[]>;
   getIssue(number: number): Promise<Issue>;
   listPullRequests(options?: ListOptions): Promise<PullRequestSummary[]>;
+  /**
+   * Every pull request, open or closed, whose head is `branch` on this repo.
+   * Unlike {@link listPullRequests} the answer is complete, so a caller may read
+   * "none are open" from it.
+   */
+  pullRequestsForBranch(branch: string): Promise<PullRequestSummary[]>;
   getPullRequest(number: number): Promise<PullRequest>;
   commentOnIssue(number: number, body: string): Promise<IssueComment>;
   commentOnPullRequest(number: number, body: string): Promise<IssueComment>;

@@ -137,6 +137,10 @@ describe("repo provider API", () => {
         recorder.listIssuesOptions = options;
         return [prSummary];
       },
+      async pullRequestsForBranch() {
+        guard();
+        return [prSummary];
+      },
       async getPullRequest(number: number) {
         guard();
         recorder.getIssueNumber = number;

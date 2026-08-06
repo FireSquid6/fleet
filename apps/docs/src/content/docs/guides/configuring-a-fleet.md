@@ -66,7 +66,7 @@ ships:
 
 | Field           | Default            | Meaning |
 | --------------- | ------------------ | ------- |
-| `dataDirectory` | `./.fleet/bridge`  | Where `ships.json` and `repos.json` are persisted. Resolved to an absolute path. |
+| `dataDirectory` | `./.fleet/bridge`  | Where `ships.json`, `repos.json` and `ephemeral.json` are persisted. Resolved to an absolute path. |
 | `port`          | `4800`             | HTTP + WebSocket port. |
 | `name`          | `bridge`           | Human-facing name of the bridge. |
 

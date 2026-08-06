@@ -32,6 +32,7 @@ const form = (patch: Partial<CreateWorkspaceForm> = {}): CreateWorkspaceForm => 
   repoName: "api-gateway",
   name: "ws-1",
   fromIssue: false,
+  ephemeral: true,
   branch: "main",
   issue: null,
   ...patch,
@@ -106,8 +107,22 @@ describe("createWorkspaceInput", () => {
     // sources, and `branch: ""` names one.
     const input = createWorkspaceInput(form({ fromIssue: true, branch: "main", issue: ISSUE }));
 
-    expect(input).toEqual({ ship: "forge-01", repoName: "api-gateway", name: "ws-1", issueNumber: 12 });
+    expect(input).toEqual({
+      ship: "forge-01",
+      repoName: "api-gateway",
+      name: "ws-1",
+      issueNumber: 12,
+      ephemeral: true,
+    });
     expect(input && "branch" in input).toBe(false);
+  });
+
+  test("only issue mode carries the ephemeral flag", () => {
+    expect(createWorkspaceInput(form({ fromIssue: true, issue: ISSUE, ephemeral: false }))).toMatchObject({
+      ephemeral: false,
+    });
+    const branchMode = createWorkspaceInput(form({ ephemeral: true, branch: "feat/x" }));
+    expect(branchMode && "ephemeral" in branchMode).toBe(false);
   });
 
   test("issue mode with nothing selected is not submittable", () => {

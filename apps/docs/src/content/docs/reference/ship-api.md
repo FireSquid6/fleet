@@ -211,9 +211,30 @@ Emits `workspace.deactivated`.
 Kills the session if one is up, deletes the workspace directory recursively, and
 clears its agent status. Responds `{ ok: true }`.
 
-Errors: `404` workspace not found. Emits `workspace.removed`, whose
-`workspace.branch` is the branch captured immediately before deletion (`""` if
-it could not be read).
+| Query | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `force` | boolean | absent (unconditional) | `false` refuses the delete when the clone holds work no remote has |
+
+With `force=false` the ship checks three things before touching anything, and
+answers `409` naming everything it found — for example
+`workspace repo/ws holds work that is not on a remote: 1 uncommitted file; 2
+commits not on any remote`:
+
+- a working tree that is not clean, untracked files included;
+- commits absent from every remote on **any** local branch, not just the one
+  checked out (`git log --branches --not --remotes`) — so a branch that was
+  never pushed counts in full;
+- a stash.
+
+A check that cannot be run counts as work held: refusing to delete is the
+recoverable mistake. Omitting `force` keeps the unconditional behaviour, which
+is what the CLI, the web GUI, and the bridge's own `DELETE` all use; the bridge
+passes `force=false` only for [ephemeral
+cleanup](/concepts/workspaces/#ephemeral-workspaces).
+
+Errors: `404` workspace not found; `409` as above. Emits `workspace.removed`,
+whose `workspace.branch` is the branch captured immediately before deletion
+(`""` if it could not be read).
 
 ## `POST /workspaces/:repo/:name/agent/init`
 

@@ -73,8 +73,8 @@ describe("FleetManager", () => {
 
     const rows = (await mgr.listWorkspaces()).sort((a, b) => a.repoName.localeCompare(b.repoName));
     expect(rows).toEqual([
-      { repoName: "repo1", name: "one", branch: "main", active: true, agent: null, ship: "ship-a" },
-      { repoName: "repo2", name: "two", branch: "main", active: false, agent: null, ship: "ship-b" },
+      { repoName: "repo1", name: "one", branch: "main", active: true, agent: null, ship: "ship-a", ephemeral: null },
+      { repoName: "repo2", name: "two", branch: "main", active: false, agent: null, ship: "ship-b", ephemeral: null },
     ]);
     expect(await mgr.listWorkspaces("active")).toHaveLength(1);
     expect(await mgr.listWorkspaces("inactive")).toHaveLength(1);
@@ -109,7 +109,7 @@ describe("FleetManager", () => {
     expect(events).toEqual([{
       type: "workspace.agent_status_changed",
       at: "2026-01-01T00:00:00.000Z",
-      workspace: { ...workspace, ship: "ship-a" },
+      workspace: { ...workspace, ship: "ship-a", ephemeral: null },
     }]);
     expect(mgr.workspaceSnapshot()[0]?.agent).toEqual(workspace.agent);
     unsubscribe();
@@ -231,7 +231,7 @@ describe("FleetManager", () => {
       name: "feature",
       branch: "dev",
     });
-    expect(created).toEqual({ repoName: "repo2", name: "feature", branch: "dev", active: false, agent: null, ship: "ship-a" });
+    expect(created).toEqual({ repoName: "repo2", name: "feature", branch: "dev", active: false, agent: null, ship: "ship-a", ephemeral: null });
     // Optimistically visible immediately.
     expect((await mgr.listWorkspaces()).some((w) => w.repoName === "repo2" && w.name === "feature")).toBe(true);
   });
@@ -396,7 +396,7 @@ describe("FleetManager", () => {
 
     await expect(create).resolves.toMatchObject({ ship: "ship-a" });
     expect((await mgr.listWorkspaces()).filter((workspace) => workspace.name === "one")).toEqual([
-      { ...ws("repo1", "one"), ship: "ship-a" },
+      { ...ws("repo1", "one"), ship: "ship-a", ephemeral: null },
     ]);
     expect((await mgr.getWorkspace("repo1", "one")).ship).toBe("ship-a");
   });

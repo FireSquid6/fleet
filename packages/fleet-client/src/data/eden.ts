@@ -187,6 +187,7 @@ export class EdenFleetBridge implements FleetBridge {
     name: string;
     branch?: string;
     issueNumber?: number;
+    ephemeral?: boolean;
   }): Promise<Workspace> {
     const { data, error } = await this.client.workspaces.post(input);
     if (error) throw edenError(error);

@@ -6,6 +6,7 @@ import { WorkspacePanel } from "@/components/WorkspacePanel";
 import { SwitchBranchModal } from "@/components/SwitchBranchModal";
 import { ConfirmDeleteModal } from "@/routes/ReposRoute";
 import { agentStateColor } from "@/lib/agent-status";
+import { EphemeralNote } from "@/components/Ephemeral";
 
 export function WorkspaceRoute() {
   const { repo = "", name = "" } = useParams();
@@ -48,6 +49,7 @@ export function WorkspaceRoute() {
           <span className="font-mono text-[10.5px] text-dim2">model {agent?.model ?? "—"}</span>
           <span className="font-mono text-[10.5px] text-dim2">provider {agent?.provider ?? "—"}</span>
           <span className="font-mono text-[10.5px] text-dim2">harness {agent?.harness ?? "—"}</span>
+          {ws.ephemeral && <EphemeralNote ephemeral={ws.ephemeral} />}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-[10px]">
           <span className="flex items-center gap-[7px] rounded-[4px] border border-line px-[11px] py-[5px] font-mono text-[10px] font-semibold tracking-[.11em] text-dim">

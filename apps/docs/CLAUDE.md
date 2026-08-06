@@ -8,6 +8,27 @@ Use Bun, not Node:
 - `bun run typecheck` — `astro check`
 - `bunx astro ...` instead of `npx astro ...`
 
+## Layout
+
+| Path | Holds |
+| --- | --- |
+| `src/content/docs/` | the documentation itself, rendered by Starlight |
+| `src/pages/index.astro` | the landing page at `/` — a standalone Astro page, not Starlight |
+| `src/components/` | Starlight [component overrides](https://starlight.astro.build/guides/overriding-components/), wired up in `astro.config.mjs` |
+| `src/styles/tokens.css` | the shared `fleet-design` tokens plus the docs site's own light-theme values |
+| `src/styles/fleet.css` | everything that restyles Starlight; imports `tokens.css` |
+| `src/theme-boot.js` | the inline theme scripts, shared by `astro.config.mjs` and the landing page |
+
+A file in `src/pages/` wins over Starlight's injected route, which is how `/`
+is the landing page rather than a docs entry. That page is plain HTML with its
+own scoped styles: it shares the tokens, not the Starlight stylesheet. It reads
+and writes `localStorage['starlight-theme']`, the same key Starlight's own
+theme control uses, so the two halves of the site stay in step.
+
+Light-theme colors are overridden in `tokens.css` rather than in
+`packages/fleet-design`: those tokens are shared with the web client, which is
+not part of this design.
+
 ## Content
 
 Pages are Markdown/MDX under `src/content/docs/`; the route is the file path.

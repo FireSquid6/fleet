@@ -242,7 +242,8 @@ that hosts it. See [events](/concepts/events/).
 ## Ships and repos
 
 These are the records the bridge persists (`ships.json`, `repos.json`) and
-serves.
+serves. The third file, `ephemeral.json`, holds `EphemeralWorkspaceSchema` below
+plus the `repoName`/`name`/`ship` naming the workspace it belongs to.
 
 ```ts
 const ShipSchema = z.object({
@@ -264,6 +265,27 @@ const CreateRepoInputSchema = RepoSchema.omit({ provider: true })
 `Ship` is the persisted record. The richer `ShipInfo` returned by
 `GET /ships` — the same two fields plus a `status` of `"online" | "offline"` —
 is a bridge-local type, not part of this package.
+
+## Ephemeral workspaces
+
+The bridge's per-workspace cleanup state, carried on every workspace the bridge
+serves as `ephemeral` (`null` for ordinary workspaces). A ship neither stores nor
+reports it. See [ephemeral
+workspaces](/concepts/workspaces/#ephemeral-workspaces).
+
+```ts
+const EphemeralWorkspaceSchema = z.object({
+  issueNumber: z.number().int().positive(),
+  branch: z.string(),                    // linked to the issue at create time, then pinned
+  cleanup: z.enum(["watching", "blocked"]),
+  blockedReason: z.string().max(200).nullable().default(null),   // the ship's own refusal
+  blockedAt: z.string().nullable().default(null),                // ISO-8601
+  pullRequest: z
+    .object({ number: z.number().int().positive(), state: z.string(), url: z.string() })
+    .nullable()
+    .default(null),
+});
+```
 
 ## System resources
 

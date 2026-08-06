@@ -14,10 +14,14 @@ export const BridgeConfigSchema = z.object({
    */
   publicUrl: z.string().min(1).optional(),
   insecureNoAuth: z.boolean().default(false),
+  /** How often to check ephemeral workspaces for a closed pull request. `0` never checks. */
+  sweepIntervalMs: z.number().int().nonnegative().optional(),
 });
 
 /** The *input* shape: defaulted fields stay optional for configs assembled by hand. */
 export type BridgeConfig = z.input<typeof BridgeConfigSchema>;
+
+export const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 export function defaultPublicUrl(port: number): string {
   return `http://localhost:${port}`;

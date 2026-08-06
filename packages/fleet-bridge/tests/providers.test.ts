@@ -186,6 +186,58 @@ describe("GitHubProvider", () => {
     expect(calls[0]!.url).toBe("https://api.github.com/repos/owner/repo/pulls/12");
   });
 
+  test("pullRequestsForBranch asks for every state on one owner-qualified head", async () => {
+    const { fetch, calls } = fakeFetch(
+      Response.json([
+        {
+          number: 41,
+          title: "closes it",
+          state: "closed",
+          user: { login: "alice" },
+          html_url: "https://github.com/owner/repo/pull/41",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-02T00:00:00Z",
+          draft: false,
+          base: { ref: "main" },
+          head: { ref: "37-add-ephemeral-workspaces", sha: "abc" },
+        },
+      ]),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", fetch });
+
+    const pulls = await provider.pullRequestsForBranch("37-add-ephemeral-workspaces");
+
+    expect(pulls).toHaveLength(1);
+    expect(pulls[0]).toMatchObject({ number: 41, state: "closed", headBranch: "37-add-ephemeral-workspaces" });
+    const url = new URL(calls[0]!.url);
+    expect(url.pathname).toBe("/repos/owner/repo/pulls");
+    expect(url.searchParams.get("state")).toBe("all");
+    expect(url.searchParams.get("head")).toBe("owner:37-add-ephemeral-workspaces");
+    expect(url.searchParams.get("per_page")).toBe("100");
+  });
+
+  test("pullRequestsForBranch drops anything whose head is a different branch", async () => {
+    const { fetch } = fakeFetch(
+      Response.json([
+        {
+          number: 42,
+          title: "another branch",
+          state: "open",
+          user: null,
+          html_url: "https://github.com/owner/repo/pull/42",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          draft: false,
+          base: { ref: "main" },
+          head: { ref: "37-add-ephemeral-workspaces-1", sha: "def" },
+        },
+      ]),
+    );
+    const provider = new GitHubProvider({ owner: "owner", repo: "repo", fetch });
+
+    expect(await provider.pullRequestsForBranch("37-add-ephemeral-workspaces")).toEqual([]);
+  });
+
   test("listIssues filters out elements carrying a pull_request key", async () => {
     const { fetch, calls } = fakeFetch(
       Response.json([

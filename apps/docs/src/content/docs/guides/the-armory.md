@@ -331,5 +331,3 @@ which fails that ship's whole sync and shows up as `error` in
   needs `bridge.publicUrl`.
 - [Bridge API](/reference/bridge-api/) and [ship API](/reference/ship-api/) — the
   routes behind all of this.
-</content>
-</invoke>

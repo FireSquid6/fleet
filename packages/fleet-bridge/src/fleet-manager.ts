@@ -4,6 +4,7 @@ import {
   CreateRepoInputSchema,
   FleetIdentifierSchema,
   issueBranchName,
+  MAX_BLOCKED_REASON_LENGTH,
   ShipSchema,
   WorkspaceRefsSchema,
   WorkspaceSummarySchema,
@@ -12,6 +13,7 @@ import {
   type ArmoryManifest,
   type ArmorySyncState,
   type CreateRepoInput,
+  type EphemeralWorkspace,
   type FleetEvent,
   type Repo,
   type SystemResources,
@@ -22,7 +24,7 @@ import {
 import { Git, GitError, type DiffOptions, type RemoteRef } from "git-bun";
 import { TERMINAL_TAKEOVER_QUERY } from "webterm/protocol";
 import { bearer, ShipConnection, toWsUrl, type ShipConnectionDeps } from "./ship-connection";
-import { defaultPublicUrl, type BridgeConfig } from "./config";
+import { defaultPublicUrl, DEFAULT_SWEEP_INTERVAL_MS, type BridgeConfig } from "./config";
 import {
   workspaceKey,
   type BridgeWorkspaceEvent,
@@ -33,7 +35,7 @@ import {
   type ShipInfo,
   type ShipSystemResources,
 } from "./types";
-import { RepoAlreadyExistsError, Store } from "./store/store";
+import { RepoAlreadyExistsError, Store, type EphemeralWorkspaceRecord } from "./store/store";
 import {
   ArmoryMapError,
   ArmoryNotFoundError,
@@ -181,10 +183,35 @@ export interface CreateWorkspaceInput {
   readonly name: string;
   readonly branch?: string;
   readonly issueNumber?: number;
+  /** Delete this workspace once the issue's pull request closes. Needs `issueNumber`. */
+  readonly ephemeral?: boolean;
 }
 
 /** Which of the two mutually exclusive branch sources a create request chose. */
 type BranchSource = { readonly branch: string } | { readonly issueNumber: number };
+
+/** What one pass of the ephemeral sweep did, returned by `POST /workspaces/sweep`. */
+export interface SweepSummary {
+  /** Records whose pull requests were read this pass. */
+  checked: number;
+  destroyed: number;
+  blocked: number;
+  /** Left for a later pass — an offline ship, or a provider that could not answer. */
+  skipped: number;
+  /** Records dropped because the workspace is gone and its ship is online to say so. */
+  forgotten: number;
+}
+
+/** The pull request worth showing: an open one, else the most recently opened. */
+function observedPullRequest(
+  pulls: PullRequestSummary[],
+): { number: number; state: string; url: string } | null {
+  const ranked = [...pulls].sort(
+    (a, b) => Number(b.state === "open") - Number(a.state === "open") || b.number - a.number,
+  );
+  const pull = ranked[0];
+  return pull ? { number: pull.number, state: pull.state, url: pull.url } : null;
+}
 
 type EdenResult<T> = { data: T | null; error: unknown };
 
@@ -215,8 +242,12 @@ export class FleetManager {
   private readonly connections = new Map<string, ShipConnection>();
   /** Fleet-wide ownership: `<repo>/<name>` → owning ship name. */
   private readonly index = new Map<string, string>();
+  /** Mirror of the store's ephemeral records, so annotating a summary stays synchronous. */
+  private readonly ephemeral = new Map<string, EphemeralWorkspaceRecord>();
   /** In-flight and transport-ambiguous creates stay separate from confirmed routing ownership. */
   private readonly createReservations = new Map<string, CreateReservation>();
+  private sweepTimer?: ReturnType<typeof setInterval>;
+  private sweepInFlight?: Promise<SweepSummary>;
   private readonly eventListeners = new Set<(event: BridgeWorkspaceEvent) => void>();
   private readonly deps?: Partial<ShipConnectionDeps>;
   private readonly syncTimeoutMs: number;
@@ -255,6 +286,9 @@ export class FleetManager {
   /** Throws when two reachable ships hold the same `<repo>/<name>`, so the CLI can exit. */
   async init(): Promise<void> {
     await this.store.load();
+    for (const record of await this.store.getAllEphemeral()) {
+      this.ephemeral.set(workspaceKey(record.repoName, record.name), record);
+    }
     const records = await this.store.getAllShips();
     for (const record of records) {
       const conn = this.createConnection(record.url, record.name, this.credentials?.bridgeTokenFor(record.name));
@@ -286,6 +320,8 @@ export class FleetManager {
   }
 
   shutdown(): void {
+    clearInterval(this.sweepTimer);
+    this.sweepTimer = undefined;
     for (const conn of this.connections.values()) conn.close();
   }
 
@@ -298,9 +334,189 @@ export class FleetManager {
     const workspaces: BridgeWorkspaceSummary[] = [];
     for (const [key, ship] of this.index) {
       const workspace = this.connections.get(ship)?.workspaces.get(key);
-      if (workspace) workspaces.push({ ...workspace, ship });
+      if (workspace) workspaces.push(this.annotate(workspace, ship));
     }
     return workspaces;
+  }
+
+  private annotate<T extends { repoName: string; name: string }>(
+    workspace: T,
+    ship: string,
+  ): T & { ship: string; ephemeral: EphemeralWorkspace | null } {
+    const record = this.ephemeral.get(workspaceKey(workspace.repoName, workspace.name));
+    const ephemeral: EphemeralWorkspace | null = record
+      ? {
+          issueNumber: record.issueNumber,
+          branch: record.branch,
+          cleanup: record.cleanup,
+          blockedReason: record.blockedReason,
+          blockedAt: record.blockedAt,
+          pullRequest: record.pullRequest,
+        }
+      : null;
+    return { ...workspace, ship, ephemeral };
+  }
+
+  private async watchEphemeral(record: EphemeralWorkspaceRecord): Promise<void> {
+    const stored = await this.store.createEphemeral(record);
+    this.ephemeral.set(workspaceKey(stored.repoName, stored.name), stored);
+    this.publishSnapshot();
+  }
+
+  private async forgetEphemeral(repoName: string, name: string): Promise<void> {
+    if (!this.ephemeral.has(workspaceKey(repoName, name))) return;
+    await this.store.deleteEphemeral(repoName, name);
+    this.ephemeral.delete(workspaceKey(repoName, name));
+  }
+
+  private async forgetEphemeralWhere(
+    predicate: (record: EphemeralWorkspaceRecord) => boolean,
+  ): Promise<void> {
+    for (const record of [...this.ephemeral.values()]) {
+      if (predicate(record)) await this.forgetEphemeral(record.repoName, record.name);
+    }
+  }
+
+  private async reviseEphemeral(
+    record: EphemeralWorkspaceRecord,
+    values: Partial<EphemeralWorkspaceRecord>,
+  ): Promise<void> {
+    if (JSON.stringify({ ...record, ...values }) === JSON.stringify(record)) return;
+    const stored = await this.store.updateEphemeral(record.repoName, record.name, values);
+    if (!stored) return;
+    this.ephemeral.set(workspaceKey(stored.repoName, stored.name), stored);
+    this.publishSnapshot();
+  }
+
+  /** Start the periodic sweep. `intervalMs` of `0` leaves it off. */
+  startSweeping(intervalMs: number = this.config.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS): void {
+    if (intervalMs <= 0 || this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => void this.sweepEphemeral(), intervalMs);
+    void this.sweepEphemeral();
+  }
+
+  /** `POST /workspaces/sweep`, and the timer's tick. Never runs two passes at once. */
+  sweepEphemeral(): Promise<SweepSummary> {
+    if (!this.sweepInFlight) {
+      this.sweepInFlight = this.runSweep().finally(() => {
+        this.sweepInFlight = undefined;
+      });
+    }
+    return this.sweepInFlight;
+  }
+
+  private async runSweep(): Promise<SweepSummary> {
+    const tally: SweepSummary = { checked: 0, destroyed: 0, blocked: 0, skipped: 0, forgotten: 0 };
+    const byRepo = new Map<string, EphemeralWorkspaceRecord[]>();
+    for (const record of this.ephemeral.values()) {
+      const records = byRepo.get(record.repoName) ?? [];
+      records.push(record);
+      byRepo.set(record.repoName, records);
+    }
+
+    for (const [repoName, records] of byRepo) {
+      let provider: RepoProvider;
+      try {
+        provider = await this.providerFor(repoName);
+      } catch (error) {
+        console.warn(
+          `fleet-bridge: no provider for repo "${repoName}"; ${records.length} ephemeral workspace(s) left alone: ${(error as Error).message}`,
+        );
+        tally.skipped += records.length;
+        continue;
+      }
+
+      for (const [position, record] of records.entries()) {
+        try {
+          await this.sweepRecord(provider, record, tally);
+        } catch (error) {
+          // A provider that cannot answer must not read as "no pull request".
+          console.warn(
+            `fleet-bridge: could not read repo "${repoName}" while sweeping: ${(error as Error).message}`,
+          );
+          tally.skipped += records.length - position;
+          break;
+        }
+      }
+    }
+
+    return tally;
+  }
+
+  /** Throws only when the *provider* fails; a ship-side failure is recorded on the tally. */
+  private async sweepRecord(
+    provider: RepoProvider,
+    record: EphemeralWorkspaceRecord,
+    tally: SweepSummary,
+  ): Promise<void> {
+    const key = workspaceKey(record.repoName, record.name);
+    const owner = this.index.get(key);
+    if (owner === undefined) {
+      const home = this.connections.get(record.ship);
+      if (home?.status === "online") {
+        await this.forgetEphemeral(record.repoName, record.name);
+        tally.forgotten += 1;
+      } else {
+        tally.skipped += 1;
+      }
+      return;
+    }
+    const conn = this.connections.get(owner);
+    if (!conn || conn.status !== "online") {
+      tally.skipped += 1;
+      return;
+    }
+
+    const pulls = await provider.pullRequestsForBranch(record.branch);
+    const closable =
+      pulls.length > 0
+        ? !pulls.some((pull) => pull.state === "open")
+        : (await provider.getIssue(record.issueNumber)).state === "closed";
+    const pullRequest = observedPullRequest(pulls);
+    tally.checked += 1;
+
+    if (!closable) {
+      await this.reviseEphemeral(record, {
+        pullRequest,
+        cleanup: "watching",
+        blockedReason: null,
+        blockedAt: null,
+      });
+      return;
+    }
+
+    try {
+      await this.call(conn, () =>
+        conn.client
+          .workspaces({ repo: record.repoName })({ name: record.name })
+          .delete(undefined, { query: { force: false } }) as Promise<EdenResult<unknown>>,
+      );
+    } catch (error) {
+      if (error instanceof BridgeError && error.status === 409) {
+        const reason = error.message.slice(0, MAX_BLOCKED_REASON_LENGTH);
+        if (record.cleanup !== "blocked" || record.blockedReason !== reason) {
+          console.warn(`fleet-bridge: cannot clean up ${key}: ${reason}`);
+        }
+        await this.reviseEphemeral(record, {
+          pullRequest,
+          cleanup: "blocked",
+          blockedReason: reason,
+          blockedAt: new Date().toISOString(),
+        });
+        tally.blocked += 1;
+        return;
+      }
+      console.warn(`fleet-bridge: could not delete ${key} on ship "${conn.name}": ${(error as Error).message}`);
+      await this.reviseEphemeral(record, { pullRequest });
+      tally.skipped += 1;
+      return;
+    }
+
+    conn.workspaces.delete(key);
+    this.releaseOwnership(key, conn.name);
+    await this.forgetEphemeral(record.repoName, record.name);
+    this.publishSnapshot();
+    tally.destroyed += 1;
   }
 
   private publish(event: BridgeWorkspaceEvent): void {
@@ -382,6 +598,7 @@ export class FleetManager {
     for (const [key, reservation] of this.createReservations) {
       if (reservation.shipName === name) this.createReservations.delete(key);
     }
+    await this.forgetEphemeralWhere((record) => record.ship === name);
     await this.persist();
     this.publishSnapshot();
   }
@@ -452,6 +669,10 @@ export class FleetManager {
     this.identifier(name, "repo");
     const deleted = await this.store.deleteRepo(name);
     if (!deleted) throw new BridgeError(`repo not found: ${name}`, 404);
+    // Their provider is gone, so they can never resolve; the workspaces stay as
+    // ordinary ones.
+    await this.forgetEphemeralWhere((record) => record.repoName === name);
+    this.publishSnapshot();
   }
 
   /**
@@ -502,10 +723,14 @@ export class FleetManager {
 
   /** `ProviderError` from `fn` propagates unchanged so the API can surface its status. */
   private async withProvider<T>(name: string, fn: (provider: RepoProvider) => Promise<T>): Promise<T> {
+    return fn(await this.providerFor(name));
+  }
+
+  private async providerFor(name: string): Promise<RepoProvider> {
     this.identifier(name, "repo");
     const repo = await this.store.getRepo(name);
     if (!repo) throw new BridgeError(`repo not found: ${name}`, 404);
-    return fn(this.makeProvider(repo));
+    return this.makeProvider(repo);
   }
 
   /** `GET /repos/:name/info`. */
@@ -725,7 +950,7 @@ export class FleetManager {
       if (!summary) continue;
       if (filter === "active" && !summary.active) continue;
       if (filter === "inactive" && summary.active) continue;
-      rows.push({ ...summary, ship: shipName });
+      rows.push(this.annotate(summary, shipName));
     }
     return rows;
   }
@@ -742,7 +967,7 @@ export class FleetManager {
     if (status.repoName !== repo || status.name !== name) {
       throw new BridgeError(`ship "${conn.name}" returned a workspace identity that was not requested`, 502);
     }
-    return { ...status, ship: conn.name };
+    return this.annotate(status, conn.name);
   }
 
   /** `GET /workspaces/:repo/:name/diff` — raw `git diff` text from the owning ship. */
@@ -773,6 +998,9 @@ export class FleetManager {
     this.identifier(input.repoName, "repo");
     this.identifier(input.name, "workspace");
     const source = this.branchSource(input);
+    if (input.ephemeral && !("issueNumber" in source)) {
+      throw new BridgeError("an ephemeral workspace is created from an issue", 400);
+    }
     const conn = this.connections.get(input.ship);
     if (!conn) throw new BridgeError(`unknown ship: ${input.ship}`, 400);
 
@@ -852,7 +1080,21 @@ export class FleetManager {
         );
       }
 
-      return { ...summary, ship: conn.name };
+      if (input.ephemeral && "issueNumber" in source) {
+        await this.watchEphemeral({
+          repoName: input.repoName,
+          name: input.name,
+          ship: conn.name,
+          issueNumber: source.issueNumber,
+          branch,
+          cleanup: "watching",
+          blockedReason: null,
+          blockedAt: null,
+          pullRequest: null,
+        });
+      }
+
+      return this.annotate(summary, conn.name);
     } catch (err) {
       if (
         err instanceof BridgeError &&
@@ -950,6 +1192,7 @@ export class FleetManager {
     await this.call(conn, () =>
       conn.client.workspaces({ repo })({ name }).delete() as Promise<EdenResult<unknown>>,
     );
+    await this.forgetEphemeral(repo, name);
   }
 
   /**
@@ -1010,7 +1253,7 @@ export class FleetManager {
     this.publish({
       type: event.type,
       at: event.at,
-      workspace: { ...event.workspace, ship: conn.name },
+      workspace: this.annotate(event.workspace, conn.name),
     });
   }
 

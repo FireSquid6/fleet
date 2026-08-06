@@ -18,17 +18,22 @@ Like a ship, it is configured entirely from flags.
 
 ## What the bridge owns, and what it doesn't
 
-The bridge owns exactly two pieces of durable state, both persisted as JSON in
-its data directory:
+The bridge owns three pieces of durable state, each persisted as JSON in its
+data directory:
 
 - **`ships.json`** — the roster: each ship's name and URL.
 - **`repos.json`** — the repo registry: name, clone URL, provider.
+- **`ephemeral.json`** — which workspaces to delete once their issue's pull
+  request closes, and what the last cleanup attempt found. See [ephemeral
+  workspaces](/concepts/workspaces/#ephemeral-workspaces).
 
-It owns **no** workspace state. Workspaces live on ships, and the bridge's view
-of them is derived, in memory, from what the ships report over their `/events`
-sockets. Restart the bridge and that view is rebuilt from scratch.
+It owns **no** workspace state beyond that last file, which says what should
+*become* of a workspace rather than what one is. Workspaces live on ships, and
+the bridge's view of them is derived, in memory, from what the ships report over
+their `/events` sockets. Restart the bridge and that view is rebuilt from
+scratch.
 
-Both files are written atomically (temp file, `fsync`, rename) and every store
+All three are written atomically (temp file, `fsync`, rename) and every store
 operation is serialized through a queue, so a crash mid-write can't leave a
 half-written roster.
 

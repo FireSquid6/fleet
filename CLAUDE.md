@@ -3,16 +3,17 @@
 A Bun monorepo. Each `apps/*` and `packages/*` has its own `CLAUDE.md` with
 Bun-specific guidance (use `bun`, `Bun.serve`, `bun test`, etc.) — follow it.
 
-## Comments: explain *why*, not *what*
+## Comments: the right number is zero
 
-Default to writing **no** comment. A comment must earn its place — add one only
-when a competent reader of the code would otherwise be genuinely confused, and
-no amount of renaming or restructuring fixes it. A comment that restates what
-the adjacent code plainly does is noise: it duplicates the code (a DRY
-violation), and it silently rots when the code changes. Delete such comments;
-make the code itself readable instead.
+The correct number of comments in new code is **zero**. Writing one is an
+exception you must justify, not a stylistic choice — if you cannot name which
+permitted case below it falls under, do not write it.
 
-**Remove** — comments that only restate the code:
+**"It explains *why*" is not a justification.** Rationale about how this
+codebase's own pieces fit together — the order two of our functions must run in,
+what another module in this repo does, an invariant a reader could establish by
+reading the code it refers to — is not a licence to comment. When the reasoning
+lives in this repo, the code, the names, and the commit message carry it.
 
 ```ts
 // BAD: echoes the symbol name
@@ -23,41 +24,41 @@ async kill() { ... }
 // Serve index.html for all unmatched routes.
 "/*": index,
 
-// BAD: narrates an obvious flag
-// Enable hot reloading
-hmr: true,
+// BAD: a "why" whose answer is in our own source
+// Listening has to precede `init`: init connects to the persisted roster, and
+// every ship that comes online pulls `GET /armory` back off this port.
+const app = createApp(manager);
 ```
 
-**Never write:**
+**The only comments worth writing**, and nothing else:
 
-- Restatements of the code (`// increment i`, `// set the name`).
-- Section dividers and banners (`// --- lifecycle ---`, `// ===== HELPERS =====`)
-  or narration inside a function (`// Step 1: parse input`). If a file or
-  function needs signposting, split it up or rename things.
-- Module/file-header doc blocks describing a component's role and design. The
-  module's name and its exports are the documentation.
-- Change narration aimed at the reader of a diff (`// added this to fix the
-  bug`, `// new`, `// changed from foo to bar`). That belongs in the commit
-  message.
-- Commented-out code. Delete it; version control remembers.
-- Redundant docstrings that only echo the signature and parameter names.
-- TODO/FIXME notes unless the user asked for them.
-- Comments explaining what a well-named identifier already says — improve the
-  name instead.
+- A workaround for a bug or quirk in *external* software — link the issue.
+- A deviation forced by a spec, protocol, or wire format — cite it.
+- A unit or convention no type can express (`// milliseconds since boot`,
+  "returns `""` when HEAD is detached").
+- A genuinely unobvious algorithm or formula — cite the source.
 
-**Keep** — comments that carry information the code cannot:
+**Hard limits:**
 
-- *Why* something is done: rationale, trade-offs, invariants, ordering
-  constraints, race conditions, gotchas, workarounds for external behavior
-  (link the issue/spec/ticket).
-- The underlying command/API a wrapper drives, when not obvious from the code
-  (e.g. `/** Delete a branch (\`branch -d\`, or \`-D\` with force). */`).
-- Non-obvious return/parameter conventions
-  (e.g. "returns `""` when HEAD is detached"), including units.
+- **Two lines, maximum.** An explanation that needs a paragraph belongs in the
+  commit message, the PR, or a doc — never in the source.
+- **No doc blocks (`/** … */`) on internal functions, types, or helpers.** Where
+  a package already documents its public exports in that style, match it; never
+  introduce it where it does not exist.
+- **No comments in test files at all**, including doc blocks on fixtures and
+  helpers. A test's name is its documentation.
 
-Rule of thumb: if deleting the comment loses no information a reader couldn't get
-from the code in a second, delete it. When a comment feels necessary to explain
-*what* the code does, prefer clearer names/structure over the comment.
+**Delete on sight:** restatements of the code; section dividers and banners
+(`// --- lifecycle ---`); step narration inside a function (`// Step 1: parse`);
+module/file-header blocks; change narration aimed at a diff reader (`// new`,
+`// changed from foo`); commented-out code; docstrings that echo the signature;
+TODO/FIXME nobody asked for.
+
+Do not add commentary to code you are merely touching, and do not rewrite
+existing comments gratuitously — update one only when your change made it wrong.
+
+Rule of thumb: if deleting the comment loses nothing a reader couldn't recover
+from the code in seconds, it should not exist.
 
 ## Database
 Two **very important** rules for

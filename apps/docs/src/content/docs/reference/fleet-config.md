@@ -73,11 +73,12 @@ Every field has a default, so `bridge: {}` is valid.
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `dataDirectory` | string (non-empty) | no | `./.fleet/bridge` | Where the bridge persists `ships.json` and `repos.json`, and where its `armory/` directory lives. Resolved to an absolute path. |
+| `dataDirectory` | string (non-empty) | no | `./.fleet/bridge` | Where the bridge persists `ships.json`, `repos.json` and `ephemeral.json`, and where its `armory/` directory lives. Resolved to an absolute path. |
 | `port` | integer | no | `4800` | Port the bridge's HTTP + WebSocket API listens on. |
 | `name` | string (non-empty) | no | `bridge` | Human-facing name of the bridge. |
 | `publicUrl` | string (non-empty) | no | `http://localhost:<port>` | URL **ships** use to reach this bridge. |
 | `insecureNoAuth` | boolean | no | absent (authentication required) | Development only: serve every route unauthenticated, and skip creating the first admin. |
+| `sweepIntervalMs` | integer ≥ 0 | no | `300000` (5 minutes) | How often to check [ephemeral workspaces](/concepts/workspaces/#ephemeral-workspaces) for a closed pull request. `0` turns the sweep off, leaving `POST /workspaces/sweep` as the only way to run one. |
 
 :::note
 The `dataDirectory` default here (`./.fleet/bridge`) is *not* the same as the
@@ -217,7 +218,10 @@ What each token does, and which end holds it, is covered in
 
 - A `source: local` ship with **neither** key set gets a freshly minted pair —
   `fleet launch` generates it, hands it to the ship it spawns, and registers the
-  ship with it. That is unchanged behaviour, and the usual case.
+  ship with it. That is the usual case. A pair is only minted for a ship the
+  launch is about to register: one the bridge's roster already holds keeps the
+  credentials that roster entry was registered with, and is spawned without a
+  pair of its own.
 - A `source: local` ship with **both** keys set uses those instead of minting.
 - A `source: remote` ship with **neither** key set is registered with no
   credentials, and the bridge talks to it unauthenticated.
@@ -295,20 +299,31 @@ duplicate-port check, then the gui/bridge check.
 1. Loads and normalizes the config, resolving every `${VAR}` in a ship's tokens.
 2. If `bridge` is present, starts the bridge — creating the first admin unless
    `insecureNoAuth` is set — and keeps its manager.
-3. For each ship in map order: settles its credentials (the configured pair if
-   both keys are set, otherwise a freshly minted pair for a `source: local` ship
-   and none for a `source: remote` one), starts it if `source: local` — pinned to
-   the launched bridge's `publicUrl`, and handed that pair — then registers it
-   with the bridge at `http://localhost:<port>` (local) or its `url` (remote),
-   printing `registered ship "<key>" (<url>) with the bridge`.
-4. If `gui` is present, serves the GUI against `gui.bridgeUrl` or the local
+3. Plans the registrations against the bridge's roster: a ship the bridge already
+   holds is skipped, and so is a config entry whose URL an earlier entry claimed.
+4. Settles each ship's credentials in map order: the configured pair if both keys
+   are set, otherwise a freshly minted pair for a `source: local` ship the bridge
+   is about to register, and none for a `source: remote` ship or one step 3
+   skipped.
+5. Starts every `source: local` ship — pinned to the launched bridge's
+   `publicUrl`, and handed its pair.
+6. Registers the ships step 3 planned, at `http://localhost:<port>` (local) or
+   their `url` (remote), printing
+   `registered ship "<key>" (<url>) with the bridge` for each.
+7. If `gui` is present, serves the GUI against `gui.bridgeUrl` or the local
    bridge.
 
-Two non-fatal cases to expect in the log:
+Non-fatal cases to expect in the log:
 
 - With no `bridge` section, each ship logs
   `no bridge configured; not registering ship "<key>" (<url>)` — local ships
   still start.
+- A ship the bridge's roster already holds logs
+  `ship "<key>" (<url>) is already registered with the bridge`; one held under
+  the same name at a different URL warns
+  `ship "<key>" is already registered with the bridge at <rosterUrl>, not <url>`.
+- Two config entries on one URL warn
+  `ships "<firstKey>" and "<key>" both point at <url>; registering it once`.
 - A registration that throws logs
   `could not register ship "<key>" (<url>): <message>` and the launch continues
   with the next ship.

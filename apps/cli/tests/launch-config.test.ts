@@ -61,6 +61,30 @@ describe("parseLaunchConfig", () => {
     ).toThrow(/port 4700/);
   });
 
+  test("rejects two local ships sharing a name", () => {
+    expect(() =>
+      parseLaunchConfig({
+        ships: {
+          primary: { source: "local", port: 4700, name: "workhorse" },
+          secondary: { source: "local", port: 4701, name: "workhorse" },
+        },
+      }),
+    ).toThrow(/ships "primary" and "secondary" both use the name "workhorse"/);
+  });
+
+  test("distinct explicit names on distinct ports are fine", () => {
+    const config = parseLaunchConfig({
+      ships: {
+        primary: { source: "local", port: 4700, name: "workhorse" },
+        secondary: { source: "local", port: 4701, name: "packhorse" },
+      },
+    });
+    expect(config.ships.map((ship) => ship.source === "local" && ship.name)).toEqual([
+      "workhorse",
+      "packhorse",
+    ]);
+  });
+
   test("rejects a gui with no bridge and no bridgeUrl", () => {
     expect(() => parseLaunchConfig({ gui: { port: 3000 } })).toThrow(/gui/);
   });

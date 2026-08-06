@@ -21,6 +21,8 @@ const BridgeSectionSchema = z.object({
    */
   publicUrl: z.string().min(1).optional(),
   insecureNoAuth: z.boolean().optional(),
+  /** How often to check ephemeral workspaces for a closed pull request; `0` never checks. */
+  sweepIntervalMs: z.number().int().nonnegative().optional(),
 });
 
 const GuiSectionSchema = z.object({
@@ -79,6 +81,7 @@ export interface NormalizedBridge {
   name: string;
   publicUrl?: string;
   insecureNoAuth?: boolean;
+  sweepIntervalMs?: number;
 }
 
 export interface ShipTokens {
@@ -171,15 +174,24 @@ export function parseLaunchConfig(raw: unknown, deps?: { env?: LaunchEnv }): Nor
   });
 
   const localPorts = new Map<number, string>();
+  const localNames = new Map<string, string>();
   for (const ship of ships) {
     if (ship.source !== "local") continue;
-    const existing = localPorts.get(ship.port);
-    if (existing) {
+    const samePort = localPorts.get(ship.port);
+    if (samePort) {
       throw new Error(
-        `ships "${existing}" and "${ship.key}" both use port ${ship.port}; give each local ship a distinct port`,
+        `ships "${samePort}" and "${ship.key}" both use port ${ship.port}; give each local ship a distinct port`,
       );
     }
     localPorts.set(ship.port, ship.key);
+
+    const sameName = localNames.get(ship.name);
+    if (sameName) {
+      throw new Error(
+        `ships "${sameName}" and "${ship.key}" both use the name "${ship.name}"; give each local ship a distinct name`,
+      );
+    }
+    localNames.set(ship.name, ship.key);
   }
 
   if (parsed.gui && !parsed.bridge && !parsed.gui.bridgeUrl) {

@@ -4,8 +4,52 @@ import { startShip } from "fleet-ship";
 import { startClientServer } from "fleet-client";
 import { normalizeUrl } from "fleet-cli-kit";
 import { CONFIG_TEMPLATE, loadLaunchConfig, publicUrlWarning } from "./launch-config";
+import type { NormalizedShip } from "./launch-config";
 
 const DEFAULT_CONFIG_PATH = "./fleet-config.yaml";
+
+export function shipUrl(ship: NormalizedShip): string {
+  return ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
+}
+
+export interface RosterEntry {
+  name: string;
+  url: string;
+}
+
+export type ShipRegistration = { ship: NormalizedShip; url: string } & (
+  | { skip: null }
+  | { skip: "on-bridge" }
+  | { skip: "on-bridge-stale-url"; rosterUrl: string }
+  | { skip: "duplicate-config-entry"; firstKey: string }
+);
+
+export function planRegistrations(
+  ships: NormalizedShip[],
+  roster: Iterable<RosterEntry>,
+): ShipRegistration[] {
+  const entries = [...roster];
+  const rosterByName = new Map(entries.map((entry) => [entry.name, entry.url]));
+  const rosterByUrl = new Map(entries.map((entry) => [normalizeUrl(entry.url), entry.url]));
+  const claimedBy = new Map<string, string>();
+
+  return ships.map((ship): ShipRegistration => {
+    const url = shipUrl(ship);
+    const normalized = normalizeUrl(url);
+
+    const firstKey = claimedBy.get(normalized);
+    if (firstKey !== undefined) return { ship, url, skip: "duplicate-config-entry", firstKey };
+    claimedBy.set(normalized, ship.key);
+
+    const rosterUrl =
+      ship.source === "local" ? rosterByName.get(ship.name) : rosterByUrl.get(normalized);
+    if (rosterUrl === undefined) return { ship, url, skip: null };
+
+    return normalizeUrl(rosterUrl) === normalized
+      ? { ship, url, skip: "on-bridge" }
+      : { ship, url, skip: "on-bridge-stale-url", rosterUrl };
+  });
+}
 
 async function runLaunch(configPath: string): Promise<void> {
   const config = await loadLaunchConfig(configPath);
@@ -39,34 +83,67 @@ async function runLaunch(configPath: string): Promise<void> {
   }
   const shipBridgeUrl = launchedBridgeUrl && isHttpUrl(launchedBridgeUrl) ? launchedBridgeUrl : undefined;
 
-  for (const ship of config.ships) {
+  const registrations = planRegistrations(config.ships, manager?.listShips() ?? []);
+
+  const credentials = new Map<string, { shipToken: string; bridgeToken: string }>();
+  for (const { ship, skip } of registrations) {
     const configured =
       ship.shipToken && ship.bridgeToken
         ? { shipToken: ship.shipToken, bridgeToken: ship.bridgeToken }
         : undefined;
-    const credentials =
-      configured ?? (ship.source === "local" ? auth?.createShipCredentials(ship.name) : undefined);
-    if (ship.source === "local") {
-      await startShip({
-        fleetDirectory: ship.fleetDirectory,
-        port: ship.port,
-        name: ship.name,
-        bridgeUrl: shipBridgeUrl,
-        shipToken: credentials?.shipToken,
-        bridgeToken: credentials?.bridgeToken,
-      });
-    }
+    const pair =
+      configured ??
+      (skip === null && ship.source === "local" ? auth?.createShipCredentials(ship.name) : undefined);
+    if (pair) credentials.set(ship.key, pair);
+  }
 
-    const url = ship.source === "local" ? `http://localhost:${ship.port}` : ship.url;
-    if (!manager) {
-      console.log(`no bridge configured; not registering ship "${ship.key}" (${url})`);
-      continue;
+  for (const ship of config.ships) {
+    if (ship.source !== "local") continue;
+    const pair = credentials.get(ship.key);
+    await startShip({
+      fleetDirectory: ship.fleetDirectory,
+      port: ship.port,
+      name: ship.name,
+      bridgeUrl: shipBridgeUrl,
+      shipToken: pair?.shipToken,
+      bridgeToken: pair?.bridgeToken,
+    });
+  }
+
+  if (!manager) {
+    for (const ship of config.ships) {
+      console.log(`no bridge configured; not registering ship "${ship.key}" (${shipUrl(ship)})`);
     }
-    try {
-      await manager.addShip(normalizeUrl(url), credentials);
-      console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
-    } catch (err) {
-      console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);
+  } else {
+    for (const entry of registrations) {
+      const { ship, url } = entry;
+      switch (entry.skip) {
+        case "duplicate-config-entry":
+          console.warn(
+            `ships "${entry.firstKey}" and "${ship.key}" both point at ${url}; registering it once`,
+          );
+          break;
+        case "on-bridge":
+          console.log(`ship "${ship.key}" (${url}) is already registered with the bridge`);
+          break;
+        case "on-bridge-stale-url":
+          console.warn(
+            `ship "${ship.key}" is already registered with the bridge at ${entry.rosterUrl}, not ${url}`,
+          );
+          break;
+        case null:
+          try {
+            await manager.addShip(normalizeUrl(url), credentials.get(ship.key));
+            console.log(`registered ship "${ship.key}" (${url}) with the bridge`);
+          } catch (err) {
+            console.warn(`could not register ship "${ship.key}" (${url}): ${(err as Error).message}`);
+          }
+          break;
+        default: {
+          const unhandled: never = entry;
+          throw new Error(`unhandled ship registration: ${JSON.stringify(unhandled)}`);
+        }
+      }
     }
   }
 
